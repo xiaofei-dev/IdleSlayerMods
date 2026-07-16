@@ -8,13 +8,12 @@ namespace AutoProgression.Ascension;
 
 internal sealed class AutomaticAscensionService
 {
-    private const float CheckIntervalSeconds = 5f;
     private const float PostAscensionPurchaseIntervalSeconds = 1f;
     private const int RequiredStablePurchaseRounds = 2;
 
     private static readonly MethodInfo AscendMethod = typeof(AscensionManager).GetMethod(
         "Ascend",
-        BindingFlags.Instance | BindingFlags.NonPublic);
+        BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
 
     private float nextCheckTime;
     private bool waitingForPostAscension;
@@ -32,6 +31,12 @@ internal sealed class AutomaticAscensionService
             if ((!ascensionResetObserved && !leftMainScreenAfterAscension) || now < nextCheckTime)
                 return true;
 
+            if (!Plugin.Config.BuyAscensionSkillsAfterAutomaticAscension.Value)
+            {
+                FinishPostAscensionProcessing(false);
+                return false;
+            }
+
             nextCheckTime = now + PostAscensionPurchaseIntervalSeconds;
             PurchaseAllAscensionSkills();
             return true;
@@ -40,7 +45,7 @@ internal sealed class AutomaticAscensionService
         if (!Plugin.Config.EnableAutomaticAscension.Value || now < nextCheckTime)
             return false;
 
-        nextCheckTime = now + CheckIntervalSeconds;
+        nextCheckTime = now + GetCheckIntervalSeconds();
 
         double pending = SlayerPoints.pre;
         double lifetime = SlayerPoints.lifetime;
@@ -120,12 +125,19 @@ internal sealed class AutomaticAscensionService
         if (stablePurchaseRounds < RequiredStablePurchaseRounds)
             return;
 
+        FinishPostAscensionProcessing(true);
+    }
+
+    private void FinishPostAscensionProcessing(bool skillsPurchased)
+    {
         waitingForPostAscension = false;
         ascensionResetObserved = false;
         leftMainScreenAfterAscension = false;
         stablePurchaseRounds = 0;
-        nextCheckTime = Time.unscaledTime + CheckIntervalSeconds;
-        ProgressionLog.Info("Post-ascension skill purchasing completed.");
+        nextCheckTime = Time.unscaledTime + GetCheckIntervalSeconds();
+
+        if (skillsPurchased)
+            ProgressionLog.Info("Post-ascension skill purchasing completed.");
     }
 
     internal void Reset()
@@ -142,4 +154,8 @@ internal sealed class AutomaticAscensionService
         if (waitingForPostAscension)
             leftMainScreenAfterAscension = true;
     }
+
+    private static float GetCheckIntervalSeconds() => Math.Max(
+        1f,
+        Plugin.Config.AutomaticAscensionCheckIntervalMinutes.Value * 60f);
 }

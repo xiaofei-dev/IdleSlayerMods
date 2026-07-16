@@ -82,7 +82,7 @@ internal static class EnemyDiagnosticsBridge
             // being returned to the pool and its transform cannot be read.
         }
 
-        if (AutoClimberPlugin.Config?.LogEnemyDefeats?.Value == true)
+        if (ClimberLog.IsDeveloperMode)
         {
             ClimberLog.Developer(
                 $"Enemy defeated: Id={instanceId}, " +

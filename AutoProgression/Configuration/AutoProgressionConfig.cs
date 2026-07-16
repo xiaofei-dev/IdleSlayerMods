@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using IdleSlayerMods.Common.Config;
 using MelonLoader;
 
@@ -5,11 +6,23 @@ namespace AutoProgression.Configuration;
 
 internal sealed class AutoProgressionConfig(string configName) : BaseConfig(configName)
 {
-    internal const int CurrentConfigurationVersion = 1;
+    internal const int CurrentConfigurationVersion = 5;
+    private const string LegacySection = "AutoProgression";
 
     internal MelonPreferences_Entry<int> ConfigurationVersion;
     internal MelonPreferences_Entry<bool> DebugMode;
+    internal MelonPreferences_Entry<bool> EnableAutomaticAscension;
+    internal MelonPreferences_Entry<float> AutomaticAscensionSoulBonusPercent;
+    internal MelonPreferences_Entry<float> AutomaticAscensionCheckIntervalMinutes;
+    internal MelonPreferences_Entry<bool> BuyAscensionSkillsAfterAutomaticAscension;
     internal MelonPreferences_Entry<bool> EnablePaidBonuses;
+    internal MelonPreferences_Entry<int> DragonEggReserveAmount;
+    internal MelonPreferences_Entry<int> SimurghEggReserveAmount;
+    internal MelonPreferences_Entry<bool> AutoClaimCompletedQuests;
+    internal MelonPreferences_Entry<bool> RegenerateDailyQuests;
+    internal MelonPreferences_Entry<bool> RegenerateWeeklyQuests;
+    internal MelonPreferences_Entry<bool> UnlimitedQuestRerolls;
+    internal MelonPreferences_Entry<bool> ResetPortalCooldown;
     internal MelonPreferences_Entry<bool> EnableRagePill;
     internal MelonPreferences_Entry<bool> EnableWhetstone;
     internal MelonPreferences_Entry<bool> EnableAlternateDimensionStaff;
@@ -27,62 +40,180 @@ internal sealed class AutoProgressionConfig(string configName) : BaseConfig(conf
     internal MelonPreferences_Entry<float> EquipmentIdleBeforeSleepMinutes;
     internal MelonPreferences_Entry<float> EquipmentSleepMinutes;
     internal MelonPreferences_Entry<string> PurchasePriority;
-    internal MelonPreferences_Entry<bool> EnableAutomaticAscension;
-    internal MelonPreferences_Entry<float> AutomaticAscensionSoulBonusPercent;
 
     protected override void SetBindings()
     {
         ConfigurationVersion = Bind("Configuration Version", 0,
             "Internal preference migration version. Do not edit manually.");
         DebugMode = Bind("Debug Mode", true,
-            "Show detailed state, timer, object lookup, and action logs. Formal mode only logs important hidden spending.");
-        EnablePaidBonuses = Bind("Use Paid 500x Bonuses", true,
-            "Use both 500x bonuses while AutoProgression is active.");
-        EnableRagePill = Bind("Craftables - Rage Pill Enabled", true,
-            "Use Rage Pills to refresh Rage only while Rage has an active cooldown.");
-        EnableWhetstone = Bind("Craftables - Whetstone Enabled", true,
-            "Keep the Whetstone temporary effect active.");
-        EnableAlternateDimensionStaff = Bind("Craftables - Alternate Dimension Staff Enabled", true,
-            "Keep the Alternate Dimension Staff temporary effect active.");
-        EnableBidimensionalStaff = Bind("Craftables - Bidimensional Staff Enabled", true,
-            "Keep the Bidimensional Staff temporary effect active.");
-        EnableShardsNecklaceScrapOverflow = Bind("Craftables - Shards Necklace Scrap Overflow Enabled", true,
-            "Craft Shards Necklaces to spend Scrap when Scrap reaches the configured capacity percentage.");
-        ShardsNecklaceScrapThresholdPercent = Bind("Craftables - Shards Necklace Scrap Threshold Percent", 95f,
-            "Start crafting Shards Necklaces at or above this Scrap capacity percentage and stop below it. Remaining effect time is ignored.");
-        TimedCraftablesRefillAtMinutes = Bind("Craftables - Timed Items Refill At Minutes", 10f,
-            "Start refilling Whetstone and both supported staffs when their remaining duration reaches this value.");
-        TimedCraftablesTargetMinutes = Bind("Craftables - Timed Items Target Minutes", 60f,
-            "After reaching the refill threshold, repeatedly craft each timed item until it exceeds this duration.");
-        RagePillMinimumIntervalSeconds = Bind("Craftables - Rage Pill Minimum Interval Seconds", 10f,
-            "Minimum time between Rage Pill use attempts.");
-        BuyMissingMaterialsWithJewels = Bind("Materials - Buy Missing With Jewels", true,
-            "Global switch allowing all craftable modules to buy missing materials with Jewels of Soul.");
-        MaterialPurchasePercent = Bind("Materials - Purchase Percent", 100,
-            "Global material refill option. Supported values are 25, 50, and 100; invalid values use 100.");
-        EnableSkillPurchases = Bind("Purchases - Skills Enabled", true,
-            "Safely buy all currently eligible shop skills every 10 seconds.");
-        DisableVerticalMagnetSkills = Bind("Skills - Disable Vertical Magnet Upgrades", true,
-            "Disable both normal and special Random Box vertical magnet upgrades, including manual purchase.");
-        EnableEquipmentPurchases = Bind("Purchases - Equipment Enabled", true,
-            "Automatically buy levels for dynamically unlocked normal equipment.");
-        EquipmentIdleBeforeSleepMinutes = Bind("Equipment - No Purchase Before Sleep Minutes", 2f,
-            "Sleep the equipment buyer after this many minutes without any equipment allowing a purchase of at least 10 levels.");
-        EquipmentSleepMinutes = Bind("Equipment - Sleep Minutes", 15f,
-            "How long only the equipment buyer sleeps. Skill purchases and all other modules continue running.");
-        PurchasePriority = Bind("Purchases - Priority", "Skills",
-            "Future purchase priority. Supported values are Skills and Equipment; Skills is used for invalid values.");
-        EnableAutomaticAscension = Bind("Ascension - Automatic Ascension Enabled", true,
-            "Automatically perform a normal ascension when the pending Slayer Points reach the configured percentage of lifetime Slayer Points. Ultra Ascension is never used.");
-        AutomaticAscensionSoulBonusPercent = Bind("Ascension - Soul Bonus Threshold Percent", 100f,
-            "Normal ascension threshold expressed as pending Slayer Points divided by lifetime Slayer Points. After ascending, all affordable Ascension Skills are purchased.");
+            "Show detailed state, timer, object lookup, and action logs.");
 
-        if (ConfigurationVersion.Value < CurrentConfigurationVersion)
+        bool migrateLegacyValues = ConfigurationVersion.Value < CurrentConfigurationVersion;
+
+        EnableAutomaticAscension = BindMigrated(
+            "Ascension", "Automatic Ascension Enabled", "Ascension - Automatic Ascension Enabled", true,
+            "Automatically perform normal Ascension at the configured soul bonus threshold. Ultra Ascension is never used.", migrateLegacyValues);
+        AutomaticAscensionSoulBonusPercent = BindMigrated(
+            "Ascension", "Soul Bonus Threshold Percent", "Ascension - Soul Bonus Threshold Percent", 100f,
+            "Ascend when pending Slayer Points reach this percentage of lifetime Slayer Points.", migrateLegacyValues);
+        AutomaticAscensionCheckIntervalMinutes = BindMigrated(
+            "Ascension", "Check Interval Minutes", "Ascension - Check Interval Minutes", 15f,
+            "How often to check the normal Ascension threshold. Enabling AutoProgression always performs an initial check.", migrateLegacyValues);
+        BuyAscensionSkillsAfterAutomaticAscension = BindMigrated(
+            "Ascension", "Buy Skills After Ascension", "Ascension - Buy Skills After Ascension", true,
+            "After automatic Ascension, use the Ascension Skill Tree Buy All action until no more Slayer Points can be spent.", migrateLegacyValues);
+
+        EnablePaidBonuses = BindMigrated(
+            "Paid Bonuses", "Use Paid 500x Bonuses", "Use Paid 500x Bonuses", true,
+            "Use both Jewels of Soul 500x bonuses while AutoProgression is active.", migrateLegacyValues);
+
+        DragonEggReserveAmount = BindMigrated(
+            "Egg Opening", "Dragon Egg Reserve Amount", "Egg Opening - Dragon Egg Reserve Amount", 300,
+            "Open normal Dragon Eggs one at a time while the inventory amount is greater than this value.", migrateLegacyValues);
+        SimurghEggReserveAmount = BindMigrated(
+            "Egg Opening", "Simurgh Egg Reserve Amount", "Egg Opening - Simurgh Egg Reserve Amount", 10,
+            "Open normal Simurgh Eggs one at a time while the inventory amount is greater than this value.", migrateLegacyValues);
+
+        AutoClaimCompletedQuests = BindMigrated(
+            "Quests", "Auto Claim Completed Quests", "Quests - Auto Claim Completed Quests", true,
+            "Automatically claim completed Daily and Weekly Quests.", migrateLegacyValues);
+        RegenerateDailyQuests = BindMigrated(
+            "Quests", "Regenerate Daily Quests", "Quests - Regenerate Daily Quests", true,
+            "Generate another set of Daily Quests when no active Daily Quests remain.", migrateLegacyValues);
+        RegenerateWeeklyQuests = BindMigrated(
+            "Quests", "Regenerate Weekly Quests", "Quests - Regenerate Weekly Quests", true,
+            "Generate another set of Weekly Quests when no active Weekly Quests remain.", migrateLegacyValues);
+        UnlimitedQuestRerolls = BindMigrated(
+            "Quests", "Unlimited Quest Rerolls", "Quests - Unlimited Quest Rerolls", true,
+            "Keep Daily and Weekly Quest rerolls enabled.", migrateLegacyValues);
+        ResetPortalCooldown = BindMigrated(
+            "Quests", "Reset Portal Cooldown", "Quests - Reset Portal Cooldown", true,
+            "Keep the normal Portal cooldown at zero while AutoProgression is active.", migrateLegacyValues);
+
+        EnableRagePill = BindMigrated(
+            "Craftables", "Rage Pill Enabled", "Craftables - Rage Pill Enabled", true,
+            "Use Rage Pills to refresh Rage while Rage has an active cooldown.", migrateLegacyValues);
+        RagePillMinimumIntervalSeconds = BindMigrated(
+            "Craftables", "Rage Pill Minimum Interval Seconds", "Craftables - Rage Pill Minimum Interval Seconds", 10f,
+            "Minimum time between Rage Pill use attempts.", migrateLegacyValues);
+        EnableWhetstone = BindMigrated(
+            "Craftables", "Whetstone Enabled", "Craftables - Whetstone Enabled", true,
+            "Keep the Whetstone temporary effect active.", migrateLegacyValues);
+        EnableAlternateDimensionStaff = BindMigrated(
+            "Craftables", "Alternate Dimension Staff Enabled", "Craftables - Alternate Dimension Staff Enabled", true,
+            "Keep the Alternate Dimension Staff temporary effect active.", migrateLegacyValues);
+        EnableBidimensionalStaff = BindMigrated(
+            "Craftables", "Bidimensional Staff Enabled", "Craftables - Bidimensional Staff Enabled", true,
+            "Keep the Bidimensional Staff temporary effect active.", migrateLegacyValues);
+        EnableShardsNecklaceScrapOverflow = BindMigrated(
+            "Craftables", "Shards Necklace Scrap Overflow Enabled", "Craftables - Shards Necklace Scrap Overflow Enabled", true,
+            "Craft Shards Necklaces when Scrap reaches the configured capacity percentage.", migrateLegacyValues);
+        ShardsNecklaceScrapThresholdPercent = BindMigrated(
+            "Craftables", "Shards Necklace Scrap Threshold Percent", "Craftables - Shards Necklace Scrap Threshold Percent", 95f,
+            "Craft Shards Necklaces at or above this Scrap percentage and stop below it.", migrateLegacyValues);
+        TimedCraftablesRefillAtMinutes = BindMigrated(
+            "Craftables", "Timed Items Refill At Minutes", "Craftables - Timed Items Refill At Minutes", 10f,
+            "Start refilling timed craftables when their remaining duration reaches this value.", migrateLegacyValues);
+        TimedCraftablesTargetMinutes = BindMigrated(
+            "Craftables", "Timed Items Target Minutes", "Craftables - Timed Items Target Minutes", 60f,
+            "Continue crafting timed items until their duration exceeds this value.", migrateLegacyValues);
+
+        BuyMissingMaterialsWithJewels = BindMigrated(
+            "Materials", "Buy Missing With Jewels", "Materials - Buy Missing With Jewels", true,
+            "Allow craftable modules to buy missing materials with Jewels of Soul.", migrateLegacyValues);
+        MaterialPurchasePercent = BindMigrated(
+            "Materials", "Purchase Percent", "Materials - Purchase Percent", 100,
+            "Material refill option. Supported values are 25, 50, and 100.", migrateLegacyValues);
+
+        PurchasePriority = BindMigrated(
+            "Purchases", "Priority", "Purchases - Priority", "Skills",
+            "Purchase priority. Supported values are Skills and Equipment.", migrateLegacyValues);
+        EnableSkillPurchases = BindMigrated(
+            "Purchases", "Skills Enabled", "Purchases - Skills Enabled", true,
+            "Buy all currently eligible shop skills every 10 seconds.", migrateLegacyValues);
+        EnableEquipmentPurchases = BindMigrated(
+            "Purchases", "Equipment Enabled", "Purchases - Equipment Enabled", true,
+            "Automatically buy levels for unlocked normal equipment.", migrateLegacyValues);
+
+        DisableVerticalMagnetSkills = BindMigrated(
+            "Skills", "Disable Vertical Magnet Upgrades", "Skills - Disable Vertical Magnet Upgrades", true,
+            "Disable both Random Box vertical magnet upgrades, including manual purchase.", migrateLegacyValues);
+
+        EquipmentIdleBeforeSleepMinutes = BindMigrated(
+            "Equipment", "No Purchase Before Sleep Minutes", "Equipment - No Purchase Before Sleep Minutes", 2f,
+            "Sleep the equipment buyer after this many minutes without an eligible 10-level purchase.", migrateLegacyValues);
+        EquipmentSleepMinutes = BindMigrated(
+            "Equipment", "Sleep Minutes", "Equipment - Sleep Minutes", 15f,
+            "How long only the equipment buyer sleeps.", migrateLegacyValues);
+
+        if (migrateLegacyValues)
         {
-            // Future schema migrations belong here. Version 1 only starts
-            // tracking and deliberately preserves all existing user choices.
+            RemoveLegacyEntries();
             ConfigurationVersion.Value = CurrentConfigurationVersion;
             MelonPreferences.Save();
         }
     }
+
+    private MelonPreferences_Entry<T> BindMigrated<T>(
+        string section,
+        string key,
+        string legacyKey,
+        T defaultValue,
+        string description,
+        bool migrateLegacyValue)
+    {
+        bool hasLegacyValue = migrateLegacyValue &&
+                              MelonPreferences.HasEntry(LegacySection, legacyKey);
+        T legacyValue = hasLegacyValue
+            ? MelonPreferences.GetEntryValue<T>(LegacySection, legacyKey)
+            : defaultValue;
+
+        MelonPreferences_Entry<T> entry = Bind(section, key, defaultValue, description);
+        if (hasLegacyValue)
+            entry.Value = legacyValue;
+
+        return entry;
+    }
+
+    private static void RemoveLegacyEntries()
+    {
+        MelonPreferences_Category category = MelonPreferences.GetCategory(LegacySection);
+        if (category == null) return;
+
+        foreach (string key in LegacyKeys)
+            category.DeleteEntry(key);
+    }
+
+    private static readonly IReadOnlyList<string> LegacyKeys = new[]
+    {
+        "Ascension - Automatic Ascension Enabled",
+        "Ascension - Soul Bonus Threshold Percent",
+        "Ascension - Check Interval Minutes",
+        "Ascension - Buy Skills After Ascension",
+        "Use Paid 500x Bonuses",
+        "Egg Opening - Dragon Egg Reserve Amount",
+        "Egg Opening - Simurgh Egg Reserve Amount",
+        "Quests - Auto Claim Completed Quests",
+        "Quests - Regenerate Daily Quests",
+        "Quests - Regenerate Weekly Quests",
+        "Quests - Unlimited Quest Rerolls",
+        "Quests - Reset Portal Cooldown",
+        "Craftables - Rage Pill Enabled",
+        "Craftables - Rage Pill Minimum Interval Seconds",
+        "Craftables - Whetstone Enabled",
+        "Craftables - Alternate Dimension Staff Enabled",
+        "Craftables - Bidimensional Staff Enabled",
+        "Craftables - Shards Necklace Scrap Overflow Enabled",
+        "Craftables - Shards Necklace Scrap Threshold Percent",
+        "Craftables - Timed Items Refill At Minutes",
+        "Craftables - Timed Items Target Minutes",
+        "Materials - Buy Missing With Jewels",
+        "Materials - Purchase Percent",
+        "Purchases - Priority",
+        "Purchases - Skills Enabled",
+        "Purchases - Equipment Enabled",
+        "Skills - Disable Vertical Magnet Upgrades",
+        "Equipment - No Purchase Before Sleep Minutes",
+        "Equipment - Sleep Minutes"
+    };
 }

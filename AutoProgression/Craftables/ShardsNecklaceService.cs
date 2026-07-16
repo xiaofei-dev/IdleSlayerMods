@@ -9,6 +9,7 @@ namespace AutoProgression.Craftables;
 internal sealed class ShardsNecklaceService
 {
     private const float CheckIntervalSeconds = 1f;
+    private const float DiagnosticIntervalSeconds = 60f;
     // Crafting refreshes inventory UI state. Keep it to one action per tick so
     // opening the inventory cannot trigger a large synchronous crafting burst.
     private const int MaxCraftsPerTick = 1;
@@ -50,7 +51,7 @@ internal sealed class ShardsNecklaceService
 
         if (now >= nextDiagnosticTime)
         {
-            nextDiagnosticTime = now + 5f;
+            nextDiagnosticTime = now + DiagnosticIntervalSeconds;
             ProgressionLog.Debug(
                 $"Shards Necklace status: Scrap={scrap.amount:0.##}, Max={maximum:0.##}, " +
                 $"Ratio={scrap.amount / maximum:P2}, Threshold={threshold:P2}, " +
@@ -77,7 +78,7 @@ internal sealed class ShardsNecklaceService
 
         if (crafted > 0)
         {
-            ProgressionLog.Debug(
+            ProgressionLog.Info(
                 $"Shards Necklace Scrap overflow: crafted {crafted}, Scrap={scrap.amount:0.##}/{maximum:0.##} ({scrap.amount / maximum:P1}).");
         }
     }

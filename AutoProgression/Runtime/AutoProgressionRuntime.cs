@@ -3,6 +3,7 @@ using AutoProgression.Craftables;
 using AutoProgression.Diagnostics;
 using AutoProgression.Purchases;
 using AutoProgression.Ascension;
+using AutoProgression.Quests;
 using UnityEngine;
 
 namespace AutoProgression.Runtime;
@@ -18,6 +19,8 @@ public sealed class AutoProgressionRuntime : MonoBehaviour
     private readonly RagePillService ragePill = new();
     private readonly TimedCraftableService timedCraftables = new();
     private readonly ShardsNecklaceService shardsNecklace = new();
+    private readonly EggOpeningService eggOpening = new();
+    private readonly QuestAutomationService quests = new();
     private readonly SkillPurchaseService skillPurchases = new();
     private readonly BlockedSkillService blockedSkills = new();
     private readonly EquipmentPurchaseService equipmentPurchases = new();
@@ -50,6 +53,8 @@ public sealed class AutoProgressionRuntime : MonoBehaviour
                 ragePill.Reset();
                 timedCraftables.Reset();
                 shardsNecklace.Reset();
+                eggOpening.Reset();
+                quests.Reset();
                 skillPurchases.Reset();
                 equipmentPurchases.Reset();
             }
@@ -79,6 +84,8 @@ public sealed class AutoProgressionRuntime : MonoBehaviour
         ragePill.Tick(Time.unscaledTime);
         timedCraftables.Tick(Time.unscaledTime);
         shardsNecklace.Tick(Time.unscaledTime);
+        eggOpening.Tick(Time.unscaledTime);
+        quests.Tick(Time.unscaledTime);
         TickPurchases(Time.unscaledTime);
     }
 
@@ -98,10 +105,7 @@ public sealed class AutoProgressionRuntime : MonoBehaviour
 
         skillPurchases.Tick(now);
         if (equipmentPurchases.Tick(now))
-        {
-            skillPurchases.Reset();
             skillPurchases.Tick(now);
-        }
     }
 
     private void ToggleAutoProgression()
@@ -126,6 +130,8 @@ public sealed class AutoProgressionRuntime : MonoBehaviour
         ragePill.Reset();
         timedCraftables.Reset();
         shardsNecklace.Reset();
+        eggOpening.Reset();
+        quests.Reset();
         skillPurchases.Reset();
         equipmentPurchases.Reset();
         blockedSkills.Reset();

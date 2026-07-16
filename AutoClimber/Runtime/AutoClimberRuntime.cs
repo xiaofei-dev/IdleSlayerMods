@@ -169,7 +169,10 @@ public sealed partial class AutoClimberRuntime : MonoBehaviour
 
     private bool stateInitialized;
     private bool previousAscendingState;
+    private bool automationEnabled;
+    private KeyCode automationToggleKey = KeyCode.Y;
     private bool climbingConfirmed;
+    private bool movementControlSessionActive;
     private bool autoRetryPending;
     private float autoRetryAtRealtime;
 
@@ -346,13 +349,19 @@ public sealed partial class AutoClimberRuntime : MonoBehaviour
 
     public void Start()
     {
+        InitializeAutomationSettings();
+
         ClimberLog.User(
             "AutoClimber route planner V5.2 initialized. " +
             "Logical-target persistence, safe-impact routing and three-step route scoring are active; " +
-            "enemy route targeting remains disabled."
+            "the runtime remains dormant outside Ascending Heights; " +
+            "enemy route targeting remains disabled. " +
+            $"Enabled={automationEnabled}, " +
+            $"ToggleKey={automationToggleKey}."
         );
 
         previousAscendingState =
+            automationEnabled &&
             GameState.IsAscendingHeights();
 
         stateInitialized = true;
@@ -368,6 +377,18 @@ public sealed partial class AutoClimberRuntime : MonoBehaviour
 
     public void Update()
     {
+        if (Input.GetKeyDown(automationToggleKey))
+        {
+            SetAutomationEnabled(
+                !automationEnabled
+            );
+        }
+
+        if (!automationEnabled)
+        {
+            return;
+        }
+
         bool currentAscendingState =
             GameState.IsAscendingHeights();
 
@@ -611,13 +632,78 @@ public sealed partial class AutoClimberRuntime : MonoBehaviour
         );
     }
 
+    private void InitializeAutomationSettings()
+    {
+        automationEnabled =
+            AutoClimberPlugin.Config?
+                .EnabledOnStartup?.Value != false;
+
+        string configuredKey =
+            AutoClimberPlugin.Config?
+                .ToggleKey?.Value;
+
+        if (!string.IsNullOrWhiteSpace(configuredKey) &&
+            Enum.TryParse(
+                configuredKey.Trim(),
+                true,
+                out KeyCode parsedKey) &&
+            parsedKey != KeyCode.None)
+        {
+            automationToggleKey = parsedKey;
+            return;
+        }
+
+        automationToggleKey = KeyCode.Y;
+
+        ClimberLog.Warning(
+            $"Invalid Toggle Key '{configuredKey}'. Using Y."
+        );
+    }
+
+    private void SetAutomationEnabled(
+        bool enabled)
+    {
+        if (automationEnabled == enabled)
+        {
+            return;
+        }
+
+        automationEnabled = enabled;
+        autoRetryPending = false;
+        nextRunIsRevive = false;
+        AscendingHeightsRetryBridge.Reset();
+        ResetRuntimeState();
+
+        previousAscendingState =
+            enabled &&
+            GameState.IsAscendingHeights();
+
+        stateInitialized = true;
+
+        ClimberLog.User(
+            enabled
+                ? "AutoClimber enabled."
+                : "AutoClimber disabled."
+        );
+    }
+
     public void FixedUpdate()
     {
+        if (!movementControlSessionActive)
+        {
+            return;
+        }
+
         ApplyStoredHorizontalDirection();
     }
 
     public void LateUpdate()
     {
+        if (!movementControlSessionActive)
+        {
+            return;
+        }
+
         ApplyStoredHorizontalDirection();
     }
 
@@ -626,7 +712,7 @@ public sealed partial class AutoClimberRuntime : MonoBehaviour
         if (!climbingConfirmed ||
             !GameState.IsAscendingHeights())
         {
-            ReleaseAllMovementKeys();
+            StopMovementControlSession();
             return;
         }
 
@@ -800,6 +886,7 @@ public sealed partial class AutoClimberRuntime : MonoBehaviour
         }
 
         climbingConfirmed = true;
+        movementControlSessionActive = true;
 
         currentRunIsRevive =
             nextRunIsRevive;

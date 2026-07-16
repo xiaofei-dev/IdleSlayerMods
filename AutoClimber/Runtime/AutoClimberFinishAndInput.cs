@@ -468,6 +468,17 @@ public sealed partial class AutoClimberRuntime
         appliedMovementDirection = 0;
     }
 
+    private void StopMovementControlSession()
+    {
+        if (!movementControlSessionActive)
+        {
+            return;
+        }
+
+        movementControlSessionActive = false;
+        ReleaseAllMovementKeys();
+    }
+
     [HideFromIl2Cpp]
     private void TrySetMovementMember(
         PlayerMovement playerMovement,

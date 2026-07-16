@@ -318,7 +318,7 @@ public sealed partial class AutoClimberRuntime
 
     private void ResetRuntimeState()
     {
-        ReleaseAllMovementKeys();
+        StopMovementControlSession();
 
         climbingConfirmed = false;
         currentRunIsRevive = false;
@@ -419,6 +419,13 @@ public sealed partial class AutoClimberRuntime
     public void OnApplicationFocus(
         bool hasFocus)
     {
+        if (!movementControlSessionActive ||
+            !climbingConfirmed ||
+            !GameState.IsAscendingHeights())
+        {
+            return;
+        }
+
         if (!hasFocus)
         {
             ReleaseAllMovementKeys();
@@ -439,7 +446,7 @@ public sealed partial class AutoClimberRuntime
             "BehaviourDisabled"
         );
 
-        ReleaseAllMovementKeys();
+        StopMovementControlSession();
     }
 
     public void OnDestroy()
@@ -448,7 +455,7 @@ public sealed partial class AutoClimberRuntime
             "BehaviourDestroyed"
         );
 
-        ReleaseAllMovementKeys();
+        StopMovementControlSession();
     }
 
 }

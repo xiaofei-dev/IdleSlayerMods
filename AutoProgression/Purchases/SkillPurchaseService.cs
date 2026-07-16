@@ -8,14 +8,20 @@ namespace AutoProgression.Purchases;
 
 internal sealed class SkillPurchaseService
 {
-    private const float PurchaseIntervalSeconds = 10f;
+    private const float PurchaseIntervalSeconds = 5f;
+    private const float SummaryIntervalSeconds = 30f;
     private ShopManager shopManager;
     private UpgradesList upgradesList;
     private float nextPurchaseTime;
+    private float nextSummaryTime;
+    private int purchasedSinceLastSummary;
 
     internal void Tick(float now)
     {
-        if (!Plugin.Config.EnableSkillPurchases.Value || now < nextPurchaseTime) return;
+        if (!Plugin.Config.EnableSkillPurchases.Value) return;
+
+        FlushSummary(now);
+        if (now < nextPurchaseTime) return;
         nextPurchaseTime = now + PurchaseIntervalSeconds;
 
         shopManager ??= ShopManager.instance;
@@ -62,7 +68,21 @@ internal sealed class SkillPurchaseService
         }
 
         if (purchasedCount > 0)
-            ProgressionLog.Debug($"Skill purchase round completed: {purchasedCount} skill(s) purchased.");
+        {
+            purchasedSinceLastSummary += purchasedCount;
+            if (nextSummaryTime <= 0f)
+                nextSummaryTime = now + SummaryIntervalSeconds;
+        }
+    }
+
+    private void FlushSummary(float now)
+    {
+        if (purchasedSinceLastSummary <= 0 || now < nextSummaryTime) return;
+
+        ProgressionLog.Debug(
+            $"Skill purchases in the last 30 seconds: {purchasedSinceLastSummary} skill(s).");
+        purchasedSinceLastSummary = 0;
+        nextSummaryTime = 0f;
     }
 
     private static UpgradesList FindUpgradesList()
@@ -80,6 +100,8 @@ internal sealed class SkillPurchaseService
     internal void Reset()
     {
         nextPurchaseTime = 0f;
+        nextSummaryTime = 0f;
+        purchasedSinceLastSummary = 0;
         shopManager = null;
         upgradesList = null;
     }

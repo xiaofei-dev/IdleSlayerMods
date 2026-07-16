@@ -8,18 +8,23 @@ namespace AutoRageStopper
     public class MyBehaviour : MonoBehaviour
     {
         private const float ItemCheckIntervalSeconds = 0.5f;
+        private const float StateCheckIntervalSeconds = 0.10f;
+        private const float ManagerResolveIntervalSeconds = 1.00f;
         private const float ItemEndDelaySeconds = 10f;
         private const float MaximumRageDurationSeconds = 120f;
 
         private RageModeManager rageModeManager;
 
-        private string lastRageState = "";
+        private RageModeManager.RageModeStates lastRageState;
 
         private float rageStartTime;
         private float nextItemCheckTime;
+        private float nextStateCheckTime;
+        private float nextManagerResolveTime;
 
         private bool rageStateInitialized;
         private bool autoEndRequested;
+        private bool managerMissingLogged;
 
         private bool pendingItemEnd;
         private float pendingItemEndTime;
@@ -27,13 +32,18 @@ namespace AutoRageStopper
 
         public void Start()
         {
-            FindRageModeManager();
-
-            Plugin.Logger.Msg("AutoClimber started.");
+            TryResolveRageModeManager();
+            Plugin.Logger.Msg("AutoRageStopper started.");
         }
 
         public void Update()
         {
+            if (!IsSupportedGameState())
+            {
+                ResetRuntimeState();
+                return;
+            }
+
             if (Input.GetKeyDown(KeyCode.J))
             {
                 CancelPendingItemEnd();
@@ -43,13 +53,21 @@ namespace AutoRageStopper
 
             if (rageModeManager == null)
             {
-                FindRageModeManager();
+                TryResolveRageModeManager();
 
                 if (rageModeManager == null)
                 {
                     return;
                 }
             }
+
+            if (Time.unscaledTime < nextStateCheckTime)
+            {
+                return;
+            }
+
+            nextStateCheckTime =
+                Time.unscaledTime + StateCheckIntervalSeconds;
 
             UpdateRageState();
 
@@ -89,22 +107,45 @@ namespace AutoRageStopper
             CheckForKeyOrSpecialBox();
         }
 
-        private void FindRageModeManager()
+        private static bool IsSupportedGameState()
         {
-            rageModeManager =
-                UnityEngine.Object.FindObjectOfType<RageModeManager>();
+            GameStates state = GameState.current;
+
+            return state == GameStates.RunnerMode ||
+                state == GameStates.RageMode;
+        }
+
+        private void TryResolveRageModeManager()
+        {
+            if (Time.unscaledTime < nextManagerResolveTime)
+            {
+                return;
+            }
+
+            nextManagerResolveTime =
+                Time.unscaledTime + ManagerResolveIntervalSeconds;
+
+            // RageModeManager is a game singleton. A scene-wide object scan
+            // can bind a stale or transitional component during Game scene
+            // startup, so only use the authoritative instance.
+            rageModeManager = RageModeManager.instance;
 
             if (rageModeManager == null)
             {
-                Plugin.Logger.Warning(
-                    "RageModeManager was not found."
-                );
+                if (!managerMissingLogged)
+                {
+                    managerMissingLogged = true;
+                    Plugin.Logger.Warning(
+                        "RageModeManager is not available yet."
+                    );
+                }
 
                 return;
             }
 
+            managerMissingLogged = false;
             rageStateInitialized = false;
-            lastRageState = "";
+            nextStateCheckTime = 0f;
 
             Plugin.Logger.Msg(
                 "RageModeManager found."
@@ -113,15 +154,15 @@ namespace AutoRageStopper
 
         private void UpdateRageState()
         {
-            string currentState =
-                rageModeManager.currentState.ToString();
+            RageModeManager.RageModeStates currentState =
+                rageModeManager.currentState;
 
             if (!rageStateInitialized)
             {
                 lastRageState = currentState;
                 rageStateInitialized = true;
 
-                if (currentState == "Execution")
+                if (currentState == RageModeManager.RageModeStates.Execution)
                 {
                     StartRageTracking();
                 }
@@ -140,7 +181,7 @@ namespace AutoRageStopper
 
             lastRageState = currentState;
 
-            if (currentState == "Execution")
+            if (currentState == RageModeManager.RageModeStates.Execution)
             {
                 StartRageTracking();
             }
@@ -175,8 +216,8 @@ namespace AutoRageStopper
         private bool IsRageExecuting()
         {
             return rageModeManager != null &&
-                   rageModeManager.currentState.ToString() ==
-                       "Execution";
+                rageModeManager.currentState ==
+                    RageModeManager.RageModeStates.Execution;
         }
 
         private void CheckMaximumRageDuration()
@@ -254,9 +295,15 @@ namespace AutoRageStopper
 
         private void EndRageImmediately(string reason)
         {
+            if (!IsSupportedGameState())
+            {
+                ResetRuntimeState();
+                return;
+            }
+
             if (rageModeManager == null)
             {
-                FindRageModeManager();
+                TryResolveRageModeManager();
 
                 if (rageModeManager == null)
                 {
@@ -264,10 +311,10 @@ namespace AutoRageStopper
                 }
             }
 
-            string currentState =
-                rageModeManager.currentState.ToString();
+            RageModeManager.RageModeStates currentState =
+                rageModeManager.currentState;
 
-            if (currentState != "Execution")
+            if (currentState != RageModeManager.RageModeStates.Execution)
             {
                 return;
             }
@@ -279,14 +326,29 @@ namespace AutoRageStopper
 
             autoEndRequested = true;
 
-            // Plugin.Logger.Msg(
-            //     "Rage Mode end requested. Reason: " +
-            //     reason
-            // );
+            Plugin.Logger.Msg(
+                "Rage Mode end requested. Reason: " +
+                reason
+            );
 
             rageModeManager.StartCoroutine(
                 rageModeManager.EndRageMode(false)
             );
+        }
+
+        private void ResetRuntimeState()
+        {
+            ResetRageTracking();
+            rageStateInitialized = false;
+            nextStateCheckTime = 0f;
+        }
+
+        public void OnDisable()
+        {
+            ResetRuntimeState();
+            rageModeManager = null;
+            nextManagerResolveTime = 0f;
+            managerMissingLogged = false;
         }
     }
 }

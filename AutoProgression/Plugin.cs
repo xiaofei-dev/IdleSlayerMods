@@ -20,7 +20,8 @@ public class Plugin : MelonMod
         ModHelper.ModHelperMounted += SetModHelperInstance;
         Config = new(AutoProgressionInfo.PluginGuid);
         Logger.Msg(
-            $"Plugin {AutoProgressionInfo.PluginGuid} v{AutoProgressionInfo.PluginVersion} is loaded; " +
+            $"Plugin {AutoProgressionInfo.PluginGuid} v{AutoProgressionInfo.PluginVersion} " +
+            $"(internal {AutoProgressionInfo.InternalVersion}) is loaded; " +
             $"configuration schema v{AutoProgressionConfig.CurrentConfigurationVersion}.");
     }
 
