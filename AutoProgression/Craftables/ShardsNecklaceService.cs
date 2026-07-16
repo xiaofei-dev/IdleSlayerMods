@@ -9,7 +9,9 @@ namespace AutoProgression.Craftables;
 internal sealed class ShardsNecklaceService
 {
     private const float CheckIntervalSeconds = 1f;
-    private const int MaxCraftsPerTick = 100;
+    // Crafting refreshes inventory UI state. Keep it to one action per tick so
+    // opening the inventory cannot trigger a large synchronous crafting burst.
+    private const int MaxCraftsPerTick = 1;
 
     private readonly MaterialPurchaseService materials = new();
     private TemporaryCraftableItem item;
