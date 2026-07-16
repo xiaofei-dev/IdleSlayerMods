@@ -58,7 +58,7 @@ public sealed class AutoProgressionRuntime : MonoBehaviour
         wasReady = true;
         if (!readyLogged)
         {
-            ProgressionLog.Debug($"AutoProgression runtime ready. GameState={Il2Cpp.GameState.current}.");
+            ProgressionLog.Info($"AutoProgression runtime ready. GameState={Il2Cpp.GameState.current}.");
             readyLogged = true;
         }
         paidBonuses.Tick(Time.unscaledTime);
@@ -69,7 +69,7 @@ public sealed class AutoProgressionRuntime : MonoBehaviour
         {
             skillPurchases.Reset();
             equipmentPurchases.Reset();
-            ProgressionLog.Debug("Ascension first-skill reset detected; skill cooldown and equipment sleep reset.");
+            ProgressionLog.Info("Ascension detected; purchase timers and equipment sleep were reset.");
         }
         TickPurchases(Time.unscaledTime);
     }
@@ -105,7 +105,7 @@ public sealed class AutoProgressionRuntime : MonoBehaviour
             ? "AutoProgression Activated!"
             : "AutoProgression Deactivated!";
 
-        ProgressionLog.Debug($"T toggle: {message}; GameState={Il2Cpp.GameState.current}.");
+        ProgressionLog.Info($"T toggle: {message}; GameState={Il2Cpp.GameState.current}.");
         Plugin.ModHelperInstance?.ShowNotification(message, autoProgressionEnabled);
     }
 

@@ -30,7 +30,7 @@ internal sealed class EquipmentPurchaseService
         {
             sleepUntil = 0f;
             noPurchaseSince = now;
-            ProgressionLog.Debug("Equipment purchase sleep ended.");
+            ProgressionLog.Info("Equipment purchase sleep ended.");
         }
 
         ShopManager shop = ShopManager.instance;
@@ -97,7 +97,7 @@ internal sealed class EquipmentPurchaseService
         float sleepSeconds = Math.Max(0f, Plugin.Config.EquipmentSleepMinutes.Value) * 60f;
         sleepUntil = now + sleepSeconds;
         noPurchaseSince = -1f;
-        ProgressionLog.Debug($"No equipment allowed a 10-level purchase for {idleSeconds / 60f:0.##} minutes; equipment buyer sleeping for {sleepSeconds / 60f:0.##} minutes.");
+        ProgressionLog.Info($"No equipment allowed a 10-level purchase for {idleSeconds / 60f:0.##} minutes; equipment buyer sleeping for {sleepSeconds / 60f:0.##} minutes.");
         return false;
     }
 
