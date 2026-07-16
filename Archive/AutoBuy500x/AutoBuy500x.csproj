@@ -7,6 +7,11 @@
         <LangVersion>latest</LangVersion>
         <Version>1.0.0</Version>
         <AssemblyName>AutoBuy500x</AssemblyName>
+        <IdleSlayerModManagerDir Condition="'$(IdleSlayerModManagerDir)' == ''">$(LocalAppData)\IdleSlayerModManager</IdleSlayerModManagerDir>
+        <IdleSlayerModLoaderDir Condition="'$(IdleSlayerModLoaderDir)' == ''">$(IdleSlayerModManagerDir)\ModLoader</IdleSlayerModLoaderDir>
+        <Il2CppAssembliesDir Condition="'$(Il2CppAssembliesDir)' == ''">$(IdleSlayerModLoaderDir)\MelonLoader\Il2CppAssemblies</Il2CppAssembliesDir>
+        <MelonLoaderNet6Dir Condition="'$(MelonLoaderNet6Dir)' == ''">$(IdleSlayerModLoaderDir)\MelonLoader\net6</MelonLoaderNet6Dir>
+        <EnableLocalDeploy Condition="'$(EnableLocalDeploy)' == ''">false</EnableLocalDeploy>
     </PropertyGroup>
 
     <ItemGroup>
@@ -16,31 +21,31 @@
 
     <ItemGroup>
       <Reference Include="Assembly-CSharp">
-        <HintPath>C:\Users\simon\AppData\Local\IdleSlayerModManager\ModLoader\MelonLoader\Il2CppAssemblies\Assembly-CSharp.dll</HintPath>
+        <HintPath>$(Il2CppAssembliesDir)\Assembly-CSharp.dll</HintPath>
       </Reference>
       <Reference Include="Il2CppInterop.Runtime">
-        <HintPath>C:\Users\simon\AppData\Local\IdleSlayerModManager\ModLoader\MelonLoader\net6\Il2CppInterop.Runtime.dll</HintPath>
+        <HintPath>$(MelonLoaderNet6Dir)\Il2CppInterop.Runtime.dll</HintPath>
       </Reference>
       <Reference Include="Il2Cppmscorlib">
-        <HintPath>C:\Users\simon\AppData\Local\IdleSlayerModManager\ModLoader\MelonLoader\Il2CppAssemblies\Il2Cppmscorlib.dll</HintPath>
+        <HintPath>$(Il2CppAssembliesDir)\Il2Cppmscorlib.dll</HintPath>
       </Reference>
       <Reference Include="UnityEngine.CoreModule">
-        <HintPath>C:\Users\simon\AppData\Local\IdleSlayerModManager\ModLoader\MelonLoader\Il2CppAssemblies\UnityEngine.CoreModule.dll</HintPath>
+        <HintPath>$(Il2CppAssembliesDir)\UnityEngine.CoreModule.dll</HintPath>
       </Reference>
       <Reference Include="UnityEngine.InputLegacyModule">
-        <HintPath>C:\Users\simon\AppData\Local\IdleSlayerModManager\ModLoader\MelonLoader\Il2CppAssemblies\UnityEngine.InputLegacyModule.dll</HintPath>
+        <HintPath>$(Il2CppAssembliesDir)\UnityEngine.InputLegacyModule.dll</HintPath>
       </Reference>
       <Reference Include="UnityEngine.IMGUIModule">
-        <HintPath>C:\Users\simon\AppData\Local\IdleSlayerModManager\ModLoader\MelonLoader\Il2CppAssemblies\UnityEngine.IMGUIModule.dll</HintPath>
+        <HintPath>$(Il2CppAssembliesDir)\UnityEngine.IMGUIModule.dll</HintPath>
       </Reference>
       <Reference Include="Unity.TextMeshPro">
-        <HintPath>C:\Users\simon\AppData\Local\IdleSlayerModManager\ModLoader\MelonLoader\Il2CppAssemblies\Unity.TextMeshPro.dll</HintPath>
+        <HintPath>$(Il2CppAssembliesDir)\Unity.TextMeshPro.dll</HintPath>
       </Reference>
       <Reference Include="UnityEngine.UI">
-        <HintPath>C:\Users\simon\AppData\Local\IdleSlayerModManager\ModLoader\MelonLoader\Il2CppAssemblies\UnityEngine.UI.dll</HintPath>
+        <HintPath>$(Il2CppAssembliesDir)\UnityEngine.UI.dll</HintPath>
       </Reference>
       <Reference Include="UnityEngine.UIModule">
-        <HintPath>C:\Users\simon\AppData\Local\IdleSlayerModManager\ModLoader\MelonLoader\Il2CppAssemblies\UnityEngine.UIModule.dll</HintPath>
+        <HintPath>$(Il2CppAssembliesDir)\UnityEngine.UIModule.dll</HintPath>
       </Reference>
     </ItemGroup>
 
@@ -54,6 +59,11 @@
         <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       </AdditionalFiles>
     </ItemGroup>
+
+    <Target Name="ValidateIdleSlayerReferences" BeforeTargets="ResolveAssemblyReferences">
+      <Error Condition="!Exists('$(Il2CppAssembliesDir)\Assembly-CSharp.dll')"
+             Text="Idle Slayer assemblies were not found at '$(Il2CppAssembliesDir)'. Install/run the mod loader or build with /p:IdleSlayerModLoaderDir=&quot;path-to-ModLoader&quot;." />
+    </Target>
 
 </Project>
 

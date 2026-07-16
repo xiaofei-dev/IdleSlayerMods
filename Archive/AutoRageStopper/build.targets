@@ -30,14 +30,16 @@
         <!-- Clean up temp folder -->
         <RemoveDir Directories="$(TempFolder)" />
 
-        <!-- Copy to mod manager folder (only if LocalAppData is defined, i.e., local build) -->
+        <!-- Copy to mod manager folders only when local deployment is explicitly enabled. -->
         <PropertyGroup>
-            <ModLoaderModsDir>$(LocalAppData)\IdleSlayerModManager\ModLoader\Mods</ModLoaderModsDir>
-            <ManagerModsDir>$(LocalAppData)\IdleSlayerModManager\Mods\$(AssemblyName)</ManagerModsDir>
+            <IdleSlayerModManagerDir Condition="'$(IdleSlayerModManagerDir)' == ''">$(LocalAppData)\IdleSlayerModManager</IdleSlayerModManagerDir>
+            <IdleSlayerModLoaderDir Condition="'$(IdleSlayerModLoaderDir)' == ''">$(IdleSlayerModManagerDir)\ModLoader</IdleSlayerModLoaderDir>
+            <ModLoaderModsDir>$(IdleSlayerModLoaderDir)\Mods</ModLoaderModsDir>
+            <ManagerModsDir>$(IdleSlayerModManagerDir)\Mods\$(AssemblyName)</ManagerModsDir>
         </PropertyGroup>
 
-        <Copy SourceFiles="@(MainFiles)" DestinationFolder="$(ModLoaderModsDir)" SkipUnchangedFiles="True" ContinueOnError="True" Condition="'$(LocalAppData)' != ''" />
-        <Copy SourceFiles="@(CustomFiles)" DestinationFolder="$(ManagerModsDir)" SkipUnchangedFiles="True" ContinueOnError="True" Condition="'$(LocalAppData)' != ''" />
+        <Copy SourceFiles="@(MainFiles)" DestinationFolder="$(ModLoaderModsDir)" SkipUnchangedFiles="True" ContinueOnError="True" Condition="'$(EnableLocalDeploy)' == 'true'" />
+        <Copy SourceFiles="@(CustomFiles)" DestinationFolder="$(ManagerModsDir)" SkipUnchangedFiles="True" ContinueOnError="True" Condition="'$(EnableLocalDeploy)' == 'true'" />
     </Target>
 </Project>
 
