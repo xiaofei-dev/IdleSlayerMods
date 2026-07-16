@@ -1,0 +1,145 @@
+using System;
+using System.Reflection;
+using AutoProgression.Diagnostics;
+using Il2Cpp;
+using UnityEngine;
+
+namespace AutoProgression.Ascension;
+
+internal sealed class AutomaticAscensionService
+{
+    private const float CheckIntervalSeconds = 5f;
+    private const float PostAscensionPurchaseIntervalSeconds = 1f;
+    private const int RequiredStablePurchaseRounds = 2;
+
+    private static readonly MethodInfo AscendMethod = typeof(AscensionManager).GetMethod(
+        "Ascend",
+        BindingFlags.Instance | BindingFlags.NonPublic);
+
+    private float nextCheckTime;
+    private bool waitingForPostAscension;
+    private bool ascensionResetObserved;
+    private bool leftMainScreenAfterAscension;
+    private int stablePurchaseRounds;
+
+    internal bool Tick(float now, bool firstSkillResetDetected)
+    {
+        if (firstSkillResetDetected && waitingForPostAscension)
+            ascensionResetObserved = true;
+
+        if (waitingForPostAscension)
+        {
+            if ((!ascensionResetObserved && !leftMainScreenAfterAscension) || now < nextCheckTime)
+                return true;
+
+            nextCheckTime = now + PostAscensionPurchaseIntervalSeconds;
+            PurchaseAllAscensionSkills();
+            return true;
+        }
+
+        if (!Plugin.Config.EnableAutomaticAscension.Value || now < nextCheckTime)
+            return false;
+
+        nextCheckTime = now + CheckIntervalSeconds;
+
+        double pending = SlayerPoints.pre;
+        double lifetime = SlayerPoints.lifetime;
+        if (pending <= 0d || double.IsNaN(pending) || double.IsInfinity(pending))
+            return false;
+
+        double ratioPercent = lifetime > 0d
+            ? pending / lifetime * 100d
+            : 100d;
+        double thresholdPercent = Math.Max(
+            0d,
+            Plugin.Config.AutomaticAscensionSoulBonusPercent.Value);
+
+        ProgressionLog.Debug(
+            $"Automatic ascension status: PendingSP={pending:0.##}, LifetimeSP={lifetime:0.##}, " +
+            $"SoulBonus={ratioPercent:0.##}%, Threshold={thresholdPercent:0.##}%.");
+
+        if (ratioPercent < thresholdPercent)
+            return false;
+
+        AscensionManager manager = AscensionManager.instance;
+        if (manager == null || AscendMethod == null)
+        {
+            ProgressionLog.Debug(
+                $"Automatic ascension objects unavailable. Manager={manager != null}, AscendMethod={AscendMethod != null}.");
+            return false;
+        }
+
+        try
+        {
+            // Ascend(false) is the normal ascension path. Never pass true here.
+            AscendMethod.Invoke(manager, new object[] { false });
+            waitingForPostAscension = true;
+            ascensionResetObserved = false;
+            leftMainScreenAfterAscension = false;
+            stablePurchaseRounds = 0;
+            nextCheckTime = 0f;
+            ProgressionLog.Info(
+                $"Automatic normal ascension started at {ratioPercent:0.##}% soul bonus.");
+            return true;
+        }
+        catch (Exception exception)
+        {
+            Plugin.Logger.Error($"Automatic normal ascension failed safely: {exception}");
+            return false;
+        }
+    }
+
+    private void PurchaseAllAscensionSkills()
+    {
+        AscensionManager manager = AscensionManager.instance;
+        if (manager == null)
+            return;
+
+        double before = SlayerPoints.points;
+        try
+        {
+            manager.BuyAll();
+        }
+        catch (Exception exception)
+        {
+            Plugin.Logger.Error($"Post-ascension Buy All failed safely: {exception}");
+            waitingForPostAscension = false;
+            return;
+        }
+
+        double after = SlayerPoints.points;
+        if (after < before)
+        {
+            stablePurchaseRounds = 0;
+            ProgressionLog.Info(
+                $"Post-ascension skills purchased; Slayer Points spent={before - after:0.##}, remaining={after:0.##}.");
+            return;
+        }
+
+        stablePurchaseRounds++;
+        if (stablePurchaseRounds < RequiredStablePurchaseRounds)
+            return;
+
+        waitingForPostAscension = false;
+        ascensionResetObserved = false;
+        leftMainScreenAfterAscension = false;
+        stablePurchaseRounds = 0;
+        nextCheckTime = Time.unscaledTime + CheckIntervalSeconds;
+        ProgressionLog.Info("Post-ascension skill purchasing completed.");
+    }
+
+    internal void Reset()
+    {
+        nextCheckTime = 0f;
+        waitingForPostAscension = false;
+        ascensionResetObserved = false;
+        leftMainScreenAfterAscension = false;
+        stablePurchaseRounds = 0;
+    }
+
+    internal void NotifyMainScreenUnavailable()
+    {
+        if (waitingForPostAscension)
+            leftMainScreenAfterAscension = true;
+    }
+}

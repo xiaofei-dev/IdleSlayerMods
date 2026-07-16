@@ -27,6 +27,8 @@ internal sealed class AutoProgressionConfig(string configName) : BaseConfig(conf
     internal MelonPreferences_Entry<float> EquipmentIdleBeforeSleepMinutes;
     internal MelonPreferences_Entry<float> EquipmentSleepMinutes;
     internal MelonPreferences_Entry<string> PurchasePriority;
+    internal MelonPreferences_Entry<bool> EnableAutomaticAscension;
+    internal MelonPreferences_Entry<float> AutomaticAscensionSoulBonusPercent;
 
     protected override void SetBindings()
     {
@@ -70,6 +72,10 @@ internal sealed class AutoProgressionConfig(string configName) : BaseConfig(conf
             "How long only the equipment buyer sleeps. Skill purchases and all other modules continue running.");
         PurchasePriority = Bind("Purchases - Priority", "Skills",
             "Future purchase priority. Supported values are Skills and Equipment; Skills is used for invalid values.");
+        EnableAutomaticAscension = Bind("Ascension - Automatic Ascension Enabled", true,
+            "Automatically perform a normal ascension when the pending Slayer Points reach the configured percentage of lifetime Slayer Points. Ultra Ascension is never used.");
+        AutomaticAscensionSoulBonusPercent = Bind("Ascension - Soul Bonus Threshold Percent", 100f,
+            "Normal ascension threshold expressed as pending Slayer Points divided by lifetime Slayer Points. After ascending, all affordable Ascension Skills are purchased.");
 
         if (ConfigurationVersion.Value < CurrentConfigurationVersion)
         {

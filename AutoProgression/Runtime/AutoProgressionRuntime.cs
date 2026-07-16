@@ -2,6 +2,7 @@ using AutoProgression.PaidBonuses;
 using AutoProgression.Craftables;
 using AutoProgression.Diagnostics;
 using AutoProgression.Purchases;
+using AutoProgression.Ascension;
 using UnityEngine;
 
 namespace AutoProgression.Runtime;
@@ -12,6 +13,7 @@ public sealed class AutoProgressionRuntime : MonoBehaviour
 
     private readonly MainScreenGuard mainScreen = new();
     private readonly AscensionMonitor ascension = new();
+    private readonly AutomaticAscensionService automaticAscension = new();
     private readonly PaidBonusService paidBonuses = new();
     private readonly RagePillService ragePill = new();
     private readonly TimedCraftableService timedCraftables = new();
@@ -40,6 +42,7 @@ public sealed class AutoProgressionRuntime : MonoBehaviour
         bool ready = mainScreen.IsReady(MainScreenStableSeconds);
         if (!ready)
         {
+            automaticAscension.NotifyMainScreenUnavailable();
             if (wasReady)
             {
                 ascension.Reset();
@@ -61,16 +64,21 @@ public sealed class AutoProgressionRuntime : MonoBehaviour
             ProgressionLog.Info($"AutoProgression runtime ready. GameState={Il2Cpp.GameState.current}.");
             readyLogged = true;
         }
-        paidBonuses.Tick(Time.unscaledTime);
-        ragePill.Tick(Time.unscaledTime);
-        timedCraftables.Tick(Time.unscaledTime);
-        shardsNecklace.Tick(Time.unscaledTime);
-        if (ascension.DetectFirstSkillReset())
+        bool ascensionResetDetected = ascension.DetectFirstSkillReset();
+        if (ascensionResetDetected)
         {
             skillPurchases.Reset();
             equipmentPurchases.Reset();
             ProgressionLog.Info("Ascension detected; purchase timers and equipment sleep were reset.");
         }
+
+        if (automaticAscension.Tick(Time.unscaledTime, ascensionResetDetected))
+            return;
+
+        paidBonuses.Tick(Time.unscaledTime);
+        ragePill.Tick(Time.unscaledTime);
+        timedCraftables.Tick(Time.unscaledTime);
+        shardsNecklace.Tick(Time.unscaledTime);
         TickPurchases(Time.unscaledTime);
     }
 
@@ -113,6 +121,7 @@ public sealed class AutoProgressionRuntime : MonoBehaviour
     {
         mainScreen.Reset();
         ascension.Reset();
+        automaticAscension.Reset();
         paidBonuses.Reset();
         ragePill.Reset();
         timedCraftables.Reset();
