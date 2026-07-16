@@ -1,0 +1,44 @@
+<Project>
+    <Target Name="CustomFolderDeploy" AfterTargets="AfterBuild">
+        <PropertyGroup>
+            <CustomFolder>$([System.IO.Path]::GetFullPath('$(MSBuildProjectDirectory)\bin\$(Configuration)\$(TargetFramework)'))</CustomFolder>
+            <PublishFolder>$(MSBuildProjectDirectory)\Publish\$(Configuration)</PublishFolder>
+            <TempFolder>$(PublishFolder)\temp</TempFolder>
+        </PropertyGroup>
+
+        <!-- Define files to be included in the zip -->
+        <ItemGroup>
+            <MainFiles Include="$(CustomFolder)\$(AssemblyName).dll" />
+            <CustomFiles Include="@(MainFiles)" />
+            <CustomFiles Include="$(CustomFolder)\Assets\manifest.json" Condition="Exists('$(CustomFolder)\Assets\manifest.json')" />
+            <CustomFiles Include="$(CustomFolder)\Assets\banner.png" Condition="Exists('$(CustomFolder)\Assets\banner.png')" />
+        </ItemGroup>
+
+        <!-- Create directories -->
+        <MakeDir Directories="$(PublishFolder)" />
+        <MakeDir Directories="$(TempFolder)" />
+
+        <!-- Copy files to temp folder -->
+        <Copy SourceFiles="@(CustomFiles)" DestinationFolder="$(TempFolder)" ContinueOnError="True" />
+
+        <!-- Zip the temp folder -->
+        <ZipDirectory
+                SourceDirectory="$(TempFolder)"
+                DestinationFile="$(PublishFolder)\$(AssemblyName).zip"
+                Overwrite="true" />
+
+        <!-- Clean up temp folder -->
+        <RemoveDir Directories="$(TempFolder)" />
+
+        <!-- Copy to mod manager folders only when local deployment is explicitly enabled. -->
+        <PropertyGroup>
+            <IdleSlayerModManagerDir Condition="'$(IdleSlayerModManagerDir)' == ''">$(LocalAppData)\IdleSlayerModManager</IdleSlayerModManagerDir>
+            <IdleSlayerModLoaderDir Condition="'$(IdleSlayerModLoaderDir)' == ''">$(IdleSlayerModManagerDir)\ModLoader</IdleSlayerModLoaderDir>
+            <ModLoaderModsDir>$(IdleSlayerModLoaderDir)\Mods</ModLoaderModsDir>
+            <ManagerModsDir>$(IdleSlayerModManagerDir)\Mods\$(AssemblyName)</ManagerModsDir>
+        </PropertyGroup>
+
+        <Copy SourceFiles="@(MainFiles)" DestinationFolder="$(ModLoaderModsDir)" SkipUnchangedFiles="True" ContinueOnError="True" Condition="'$(EnableLocalDeploy)' == 'true'" />
+        <Copy SourceFiles="@(CustomFiles)" DestinationFolder="$(ManagerModsDir)" SkipUnchangedFiles="True" ContinueOnError="True" Condition="'$(EnableLocalDeploy)' == 'true'" />
+    </Target>
+</Project>
