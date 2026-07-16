@@ -84,7 +84,7 @@ deployment is opt-in with `/p:EnableLocalDeploy=true`.
 ## Versioning
 
 - Public release version: `1.0.0`
-- Internal development version: `V0.21`
+- Internal development version: `V0.24`
 
 ## Disclaimer
 

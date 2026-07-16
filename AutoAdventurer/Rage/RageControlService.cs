@@ -8,7 +8,6 @@ namespace AutoAdventurer.Rage;
 
 internal sealed class RageControlService
 {
-    private const string ChestHuntKeyObjectName = "Chest Hunt Key(Clone)";
     private const float ManagerResolveIntervalSeconds = 1f;
     private const float StatePollIntervalSeconds = 0.1f;
     private const float KeyPollIntervalSeconds = 0.25f;
@@ -173,7 +172,7 @@ internal sealed class RageControlService
         if (now >= nextKeyPollTime)
         {
             nextKeyPollTime = now + KeyPollIntervalSeconds;
-            if (GameObject.Find(ChestHuntKeyObjectName) != null)
+            if (interruptions.HasChestHuntKey)
             {
                 EndImmediately("Chest Hunt Key detected.");
                 return;
@@ -288,6 +287,7 @@ internal sealed class RageControlService
         nextRepeatActivationLogTime = 0f;
         nextCooldownLogTime = 0f;
         lastBlocker = string.Empty;
+        interruptions.Reset();
         nextStatePollTime = 0f;
         nextKeyPollTime = 0f;
     }
