@@ -1,0 +1,29 @@
+# Build output
+**/bin/
+**/obj/
+**/Publish/
+**/Debug/
+**/Release/
+
+# Local IDE and agent state
+**/.vs/
+**/.vscode/
+**/.idea/
+**/.agents/
+**/.codex/
+**/.probe/
+**/.probe2/
+**/PROJECT_CONTEXT.md
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# Local logs and temporary files
+*.log
+*.tmp
+*.pdb
+*.nupkg
+Thumbs.db
+Desktop.ini
+.DS_Store

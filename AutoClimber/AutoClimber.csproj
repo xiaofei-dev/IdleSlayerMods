@@ -1,0 +1,76 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <TargetFramework>net6.0</TargetFramework>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <Nullable>disable</Nullable>
+        <LangVersion>latest</LangVersion>
+        <Version>1.0.0</Version>
+        <AssemblyName>AutoClimber</AssemblyName>
+        <IdleSlayerModManagerDir Condition="'$(IdleSlayerModManagerDir)' == ''">$(LocalAppData)\IdleSlayerModManager</IdleSlayerModManagerDir>
+        <IdleSlayerModLoaderDir Condition="'$(IdleSlayerModLoaderDir)' == ''">$(IdleSlayerModManagerDir)\ModLoader</IdleSlayerModLoaderDir>
+        <Il2CppAssembliesDir Condition="'$(Il2CppAssembliesDir)' == ''">$(IdleSlayerModLoaderDir)\MelonLoader\Il2CppAssemblies</Il2CppAssembliesDir>
+        <MelonLoaderNet6Dir Condition="'$(MelonLoaderNet6Dir)' == ''">$(IdleSlayerModLoaderDir)\MelonLoader\net6</MelonLoaderNet6Dir>
+        <EnableLocalDeploy Condition="'$(EnableLocalDeploy)' == ''">false</EnableLocalDeploy>
+    </PropertyGroup>
+
+    <ItemGroup>
+      <PackageReference Include="IdleSlayerMods.Common" Version="1.2.5-ML" />
+      <PackageReference Include="LavaGang.MelonLoader" Version="0.7.1" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <Compile Remove=".inspector\**\*.cs" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <Reference Include="Assembly-CSharp">
+        <HintPath>$(Il2CppAssembliesDir)\Assembly-CSharp.dll</HintPath>
+      </Reference>
+      <Reference Include="Il2CppInterop.Runtime">
+        <HintPath>$(MelonLoaderNet6Dir)\Il2CppInterop.Runtime.dll</HintPath>
+      </Reference>
+      <Reference Include="Il2Cppmscorlib">
+        <HintPath>$(Il2CppAssembliesDir)\Il2Cppmscorlib.dll</HintPath>
+      </Reference>
+      <Reference Include="UnityEngine.CoreModule">
+        <HintPath>$(Il2CppAssembliesDir)\UnityEngine.CoreModule.dll</HintPath>
+      </Reference>
+      <Reference Include="UnityEngine.Physics2DModule">
+        <HintPath>$(Il2CppAssembliesDir)\UnityEngine.Physics2DModule.dll</HintPath>
+      </Reference>
+      <Reference Include="UnityEngine.InputLegacyModule">
+        <HintPath>$(Il2CppAssembliesDir)\UnityEngine.InputLegacyModule.dll</HintPath>
+      </Reference>
+      <Reference Include="UnityEngine.UI">
+        <HintPath>$(Il2CppAssembliesDir)\UnityEngine.UI.dll</HintPath>
+      </Reference>
+      <Reference Include="UnityEngine.UIModule">
+        <HintPath>$(Il2CppAssembliesDir)\UnityEngine.UIModule.dll</HintPath>
+      </Reference>
+      <Reference Include="MelonLoader">
+        <HintPath>$(MelonLoaderNet6Dir)\MelonLoader.dll</HintPath>
+      </Reference>
+      <Reference Include="0Harmony">
+        <HintPath>$(MelonLoaderNet6Dir)\0Harmony.dll</HintPath>
+      </Reference>
+    </ItemGroup>
+
+    <Import Project="build.targets" />
+
+    <ItemGroup>
+      <AdditionalFiles Include="Assets\manifest.json">
+        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      </AdditionalFiles>
+      <AdditionalFiles Include="Assets\banner.png">
+        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      </AdditionalFiles>
+    </ItemGroup>
+
+    <Target Name="ValidateIdleSlayerReferences" BeforeTargets="ResolveAssemblyReferences">
+      <Error Condition="!Exists('$(Il2CppAssembliesDir)\Assembly-CSharp.dll')"
+             Text="Idle Slayer assemblies were not found at '$(Il2CppAssembliesDir)'. Install/run the mod loader or build with /p:IdleSlayerModLoaderDir=&quot;path-to-ModLoader&quot;." />
+    </Target>
+
+</Project>
+

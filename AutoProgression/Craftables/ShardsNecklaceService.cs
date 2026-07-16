@@ -1,0 +1,106 @@
+using System;
+using AutoProgression.Diagnostics;
+using AutoProgression.Materials;
+using Il2Cpp;
+using UnityEngine;
+
+namespace AutoProgression.Craftables;
+
+internal sealed class ShardsNecklaceService
+{
+    private const float CheckIntervalSeconds = 1f;
+    private const int MaxCraftsPerTick = 100;
+
+    private readonly MaterialPurchaseService materials = new();
+    private TemporaryCraftableItem item;
+    private float nextCheckTime;
+    private bool missingLogged;
+
+    internal void Tick(float now)
+    {
+        if (!Plugin.Config.EnableShardsNecklaceScrapOverflow.Value || now < nextCheckTime) return;
+        nextCheckTime = now + CheckIntervalSeconds;
+
+        Drop scrap = Drops.list?.Scrap;
+        item ??= FindItem();
+        if (scrap == null || item == null)
+        {
+            if (!missingLogged)
+            {
+                ProgressionLog.Debug($"Shards Necklace objects unavailable. Scrap={scrap != null}, Item={item != null}.");
+                missingLogged = true;
+            }
+            return;
+        }
+
+        missingLogged = false;
+        if (!item.TabVisible() || !item.ExtraCondition()) return;
+
+        double maximum = scrap.GetMaxAmount();
+        if (maximum <= 0d) return;
+
+        double threshold = Math.Clamp(
+            Plugin.Config.ShardsNecklaceScrapThresholdPercent.Value,
+            0f,
+            100f) / 100d;
+        if (scrap.amount / maximum < threshold) return;
+
+        int crafted = 0;
+        while (crafted < MaxCraftsPerTick && scrap.amount / maximum >= threshold)
+        {
+            if (item.HowManyCanCraft() <= 0 && Plugin.Config.BuyMissingMaterialsWithJewels.Value)
+                BuyMissingRequirements();
+
+            if (item.HowManyCanCraft() <= 0) break;
+
+            double previousScrap = scrap.amount;
+            item.Craft();
+            if (scrap.amount >= previousScrap) break;
+            crafted++;
+        }
+
+        if (crafted > 0)
+        {
+            ProgressionLog.Debug(
+                $"Shards Necklace Scrap overflow: crafted {crafted}, Scrap={scrap.amount:0.##}/{maximum:0.##} ({scrap.amount / maximum:P1}).");
+        }
+    }
+
+    private void BuyMissingRequirements()
+    {
+        var requirements = item.GetRequirements();
+        if (requirements == null) return;
+
+        int percent = Plugin.Config.MaterialPurchasePercent.Value;
+        foreach (MaterialRequirement requirement in requirements)
+        {
+            if (requirement == null || requirement.material == null) continue;
+            if (requirement.material.amount >= requirement.amount) continue;
+            materials.Buy(requirement.material, percent);
+        }
+    }
+
+    private static TemporaryCraftableItem FindItem()
+    {
+        foreach (TemporaryCraftableItem candidate in Resources.FindObjectsOfTypeAll<TemporaryCraftableItem>())
+        {
+            if (candidate == null) continue;
+            string normalized = Normalize(candidate.name);
+            if (normalized.Contains("shardsnecklace")) return candidate;
+        }
+
+        return null;
+    }
+
+    private static string Normalize(string value) =>
+        string.IsNullOrEmpty(value)
+            ? string.Empty
+            : value.Replace("_", string.Empty).Replace(" ", string.Empty).ToLowerInvariant();
+
+    internal void Reset()
+    {
+        item = null;
+        nextCheckTime = 0f;
+        missingLogged = false;
+    }
+}

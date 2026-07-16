@@ -1,0 +1,1154 @@
+using System;
+using System.Collections.Generic;
+using System.Reflection;
+using System.Runtime.InteropServices;
+using AutoClimber.Diagnostics;
+using IdleSlayerMods.Common.Extensions;
+using Il2Cpp;
+using Il2CppInterop.Runtime.Attributes;
+using UnityEngine;
+
+namespace AutoClimber;
+
+public sealed partial class AutoClimberRuntime : MonoBehaviour
+{
+    private const float PlatformScanIntervalSeconds =
+        0.10f;
+
+    private const float EnemyScanIntervalSeconds =
+        0.50f;
+
+    private const float CandidateLogIntervalSeconds =
+        1.00f;
+
+    private const float RuntimeLogIntervalSeconds =
+        1.00f;
+
+    private const float InputDebugIntervalSeconds =
+        1.00f;
+
+    private const float InputStateChangeLogDebounceSeconds =
+        0.12f;
+
+    private const byte VirtualKeyA = 0x41;
+    private const byte VirtualKeyD = 0x44;
+    private const uint KeyEventKeyUp = 0x0002;
+
+    private const float HorizontalMoveSpeed = 10.00f;
+
+    // The player moves at approximately 10 world units per second while
+    // A or D is held. The game stops horizontal speed almost immediately
+    // after releasing the key, so only a very small velocity look-ahead is
+    // useful. Larger look-ahead values cause rapid Press/Stop oscillation.
+    private const float HorizontalVelocityLookAheadSeconds = 0.015f;
+    private const float MinimumMovementStateSeconds = 0.13f;
+
+    // Platforms are landing intervals, not single points. These conservative
+    // half-widths keep the player away from platform edges.
+    private const float NormalLandingSafeHalfWidth = 0.72f;
+    private const float StrongLandingSafeHalfWidth = 0.76f;
+    private const float BreakableLandingSafeHalfWidth = 0.55f;
+
+    // Moving platforms reverse at the horizontal play-area boundaries.
+    // Raw linear prediction can produce impossible positions such as X=8.
+    private const float HorizontalWorldLimit = 4.65f;
+    private const float PreferredLandingWorldLimit = 3.50f;
+    private const float EdgeLandingPenaltyPerUnit = 1200f;
+    private const float EmergencyEdgeEscapeX = 3.80f;
+    private const float TargetlessCenteringDeadZone = 0.50f;
+
+    // Long 2000+ runs need a lower per-jump risk after the midpoint. Unsafe
+    // strong platforms are filtered before the existing Strong > Normal >
+    // Breakable ordering is applied.
+    private const float HighAltitudeStartY = 1000f;
+    private const float HighAltitudePreferredWorldLimit = 3.10f;
+    private const float HighAltitudeAbsoluteWorldLimit = 4.10f;
+    private const float HighAltitudeNormalReachRatio = 0.72f;
+    private const float HighAltitudeStrongReachRatio = 0.64f;
+    private const float HighAltitudeRecoveryPreferredReachRatio = 0.82f;
+    private const float HighAltitudeRecoveryAbsoluteReachRatio = 1.05f;
+    private const float HighAltitudeMinimumHeightGain = 0.10f;
+    private const float HighAltitudeRescueMaximumUpwardTarget = 0.50f;
+    private const float HighAltitudeEarlyRescueMaximumVelocityY = 12.00f;
+    private const float HighAltitudeEarlyRescueDelaySeconds = 0.30f;
+    private const int FailureTraceCapacity = 24;
+    private const float AutoRetryPollSeconds = 0.25f;
+
+    // A same-tier target upgrade must preserve route quality. Higher platform
+    // types are still allowed immediately so Strong remains the hard priority.
+    private const float UpgradeRouteScoreTolerance = 20.00f;
+    private const float UpgradeMaximumAdditionalEdgeExposure = 0.25f;
+    private const float UpgradeMaximumReachRatioIncrease = 0.15f;
+
+    // Keep an initial steering command long enough to build displacement.
+    // Recovery uses a longer commitment so it cannot return to Target=None
+    // while repeatedly bouncing in the same place.
+    private const float NormalInitialHoldSeconds = 0.16f;
+    private const float RecoveryInitialHoldSeconds = 0.38f;
+    private const float RecoveryForcedControlSeconds = 0.55f;
+
+    private const int JumpModeInitial = 0;
+    private const int JumpModeNormal = 1;
+    private const int JumpModeStrong = 2;
+
+    private const float NormalJumpReachRadius = 7.35f;
+    private const float NormalJumpMinimumHeightGain = 0.50f;
+    private const float NormalJumpMaximumReachRatio = 0.80f;
+    // Do not target platforms at the mathematical apex. Collider-center
+    // offsets, scan timing and small velocity variations make those targets
+    // look reachable even though the player's feet never get high enough.
+    private const float NormalJumpApexSafetyMargin = 0.65f;
+
+    private const float StrongJumpMinimumHeightGain = 8.00f;
+    private const float StrongJumpPreferredHeightGain = 15.00f;
+    private const float StrongJumpMaximumHeightGain = 35.00f;
+    private const float StrongJumpMaximumReachRatio = 0.70f;
+    private const float StrongJumpMinimumReachMargin = 2.00f;
+    private const float StrongTargetUpgradeWindowSeconds = 0.80f;
+    private const float StrongTargetUpgradeHeight = 4.00f;
+
+    private const float MissingTargetGraceSeconds = 0.35f;
+    private const float FailedTargetCooldownSeconds = 3.00f;
+    private const float RecycledTargetHeightTolerance = 1.50f;
+
+    // A platform pool can briefly disable or replace the object backing a
+    // route node while the logical platform is still the intended landing.
+    // Keep the route alive across several scans and rebind by spatial
+    // signature instead of immediately falling back to a late risky target.
+    private const float LogicalTargetObservationGraceSeconds = 0.32f;
+    private const float LogicalTargetRebindHeightTolerance = 2.25f;
+    private const float LogicalTargetRebindMaximumLandingDistance = 1.75f;
+    private const float LogicalTargetMismatchedTypeHeightTolerance = 0.75f;
+    private const float LogicalTargetMismatchedTypeLandingDistance = 0.90f;
+    private const float NearLandingCommitmentSeconds = 0.18f;
+    private const float NearLandingCommitmentVerticalTolerance = 1.35f;
+    private const float LateReplanHighAltitudeMaximumReachRatio = 0.78f;
+    private const float LateReplanLowAltitudeMaximumReachRatio = 0.86f;
+    private const float LateReplanMinimumLandingMargin = 1.25f;
+
+    // The visual scanner has already shown that fake platforms use the
+    // literal sprite name "fake". They must never become route nodes.
+    private const string FakePlatformSpriteName = "fake";
+
+    // Landing and failure recognition.
+    private const float ConfirmedLandingYTolerance = 1.15f;
+    private const float MissedTargetVerticalMargin = 0.65f;
+    private const float RejectedPlatformYTolerance = 0.35f;
+
+    // Stuck detection. A route is considered stuck when several bounces occur
+    // without a meaningful height increase.
+    private const float MeaningfulProgressHeight = 2.25f;
+    private const float StuckTimeoutSeconds = 5.00f;
+    private const int StuckBounceLimit = 4;
+
+    // Hypothetical two-step route planning.
+    private const float GravityMagnitude = 49.05f;
+    private const float NormalBounceVelocity = 25.00f;
+    private const float StrongBounceVelocity = 60.00f;
+    private const float GoldenBounceVelocity = 90.00f;
+    private const float HypotheticalReachSafetyRatio = 0.74f;
+    private const float RouteDeadEndPenalty = 180.00f;
+    private const float RouteOptionBonus = 28.00f;
+    private const float RouteBestGainBonus = 4.00f;
+
+    // Rescue and finish handling.
+    private const float RescueMaximumDrop = 28.00f;
+    private const float RescueHorizontalSafetyRatio = 0.90f;
+    private const float FinishLandingTolerance = 3.00f;
+    private const float FinishGroundedConfirmationSeconds = 0.20f;
+
+    // Recovery is intentionally less conservative than normal routing.
+    // A difficult route is better than an infinite bounce loop.
+    private const float RecoveryPreferredReachRatio = 0.92f;
+    private const float RecoveryAbsoluteReachRatio = 1.18f;
+    private const float RecoveryMinimumHorizontalSeparation = 0.85f;
+
+    // The finish distance is map-specific. Never assume 800.
+    private const float MinimumFinishApproachMargin = 25.00f;
+    private const float MaximumFinishApproachMargin = 60.00f;
+
+    private bool stateInitialized;
+    private bool previousAscendingState;
+    private bool climbingConfirmed;
+    private bool autoRetryPending;
+    private float autoRetryAtRealtime;
+
+    private bool velocityInitialized;
+    private float previousVelocityY;
+
+    // Reaching finishAtDistance is only a score threshold. It is not proof
+    // that the minigame has actually finished.
+    private bool finishHeightDetected;
+    private bool finishExitStarted;
+    private float finishHeight;
+    private float finishGroundedSince;
+
+    private bool finishStateMemberSearchCompleted;
+    private MemberInfo actualFinishStateMember;
+    private MethodInfo actualFinishStateMethod;
+    private object actualFinishStateOwner;
+    private string actualFinishStateMemberName = "";
+
+    private float desiredHorizontalDirection;
+
+    private bool aKeyHeld;
+    private bool dKeyHeld;
+    private int appliedMovementDirection;
+    private float nextAllowedMovementStateChangeTime;
+    private bool focusPauseLogged;
+
+    private float nextPlatformScanTime;
+    private float nextCandidateLogTime;
+    private float nextRuntimeLogTime;
+    private float nextInputDebugTime;
+    private float nextEnemyScanTime;
+    private float nextTargetlessTraceTime;
+    private float lastInputDebugTime;
+    private int lastLoggedInputDirection;
+    private bool lastLoggedInputGrounded;
+    private bool inputDebugStateInitialized;
+
+    private int currentTargetId;
+    private PlatformType currentTargetType;
+    private string currentTargetSpriteName = "";
+    private float currentTargetPredictedX;
+    private float currentTargetY;
+    private float currentTargetLastSeenTime;
+    private bool currentTargetIsRescue;
+    private float currentTargetSafeHalfWidth;
+    private float targetLockedTime;
+    private float targetMinimumHoldUntil;
+    private int targetInitialDirection;
+    private int targetControlPhase;
+
+    // V5 tracks a locked platform directly. The target therefore remains
+    // valid while it is below the discovery scan during a strong or golden
+    // jump instead of being replaced by a mid-air rescue target.
+    private PlatformCandidate currentTargetCandidate;
+    private Vector2 currentTargetColliderOffset;
+    private float currentTargetObservedX;
+    private float currentTargetObservedTime;
+    private float currentTargetExpectedLandingAt;
+    private float currentTargetRouteScore;
+    private float currentTargetReachRatio;
+    private bool currentTargetPersistedOffScanLogged;
+    private bool currentTargetObservationLost;
+    private float currentTargetObservationLostAt;
+    private string currentTargetObservationLostReason = "";
+    private bool nearLandingCommitmentLogged;
+    private int currentJumpRetargetCount;
+    private float nextV5RetargetTime;
+
+    private float lastBounceY;
+    private float lastBounceX;
+    private int currentJumpMode;
+    private float currentJumpStartTime;
+    private float currentLaunchVelocityY;
+    private bool currentJumpWasGolden;
+    private float strongTargetUpgradeUntilTime;
+    private int lastBlockedUpgradeCandidateId;
+
+    private int failedTargetId;
+    private float failedTargetUntilTime;
+
+    private float currentTargetAnchorY;
+    private PlatformType currentTargetAnchorType;
+
+    // Permanent rejection is reserved for confirmed fake platforms.
+    // Normal misses use only a short cooldown because moving platforms can
+    // become safe again on a later bounce.
+    private readonly HashSet<int> rejectedTargetIds =
+        new HashSet<int>();
+
+    private readonly List<float> rejectedTargetYs =
+        new List<float>();
+
+    private readonly List<PlatformType> rejectedTargetTypes =
+        new List<PlatformType>();
+
+    private float lastMeaningfulProgressY;
+    private float lastMeaningfulProgressTime;
+    private int bouncesWithoutProgress;
+    private bool recoverySelectionRequested;
+    private int forcedRecoveryDirection;
+    private float forcedRecoveryUntilTime;
+
+    private int activePlayerInstanceId;
+    private float highestObservedPlayerY;
+
+    // Per-run diagnostics. These counters are deliberately independent from
+    // route decisions so future enemy/item extensions can reuse the summary.
+    private float runStartTime;
+    private int runTargetSelections;
+    private int runStrongTargets;
+    private int runNormalTargets;
+    private int runBreakableTargets;
+    private int runEdgeTargets;
+    private int runNormalBounces;
+    private int runStrongBounces;
+    private int runStrongTargetAttempts;
+    private int runStrongTargetHits;
+    private int runBlockedDowngrades;
+    private int runBlockedUnsafeUpgrades;
+    private float runTargetlessAirborneSeconds;
+    private float targetlessAirborneStartedAt;
+    private bool targetlessAirborneActive;
+    private bool runSummaryLogged;
+    private int runEnemiesDetected;
+
+    private int sessionSuccessCount;
+    private int sessionFailureCount;
+    private int sessionChallengeCount;
+    private int sessionCompletedChallengeCount;
+    private int sessionFirstTrySuccessCount;
+    private int sessionRevivedSuccessCount;
+    private bool currentRunIsRevive;
+    private bool nextRunIsRevive;
+
+    private bool enemyMemberSearchCompleted;
+    private bool enemyDiagnosticWarningLogged;
+    private MemberInfo platformEnemyObjectMember;
+    private MemberInfo platformEnemyColliderMember;
+
+    private readonly HashSet<int> detectedEnemyIds =
+        new HashSet<int>();
+
+    private readonly HashSet<string> observedUnknownPlatformSprites =
+        new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+    private readonly Queue<string> failureTrace =
+        new Queue<string>();
+
+    private FieldInfo currentSpeedField;
+    private FieldInfo isMovingField;
+    private FieldInfo forcedIdleField;
+
+    private PropertyInfo currentSpeedProperty;
+    private PropertyInfo isMovingProperty;
+    private PropertyInfo forcedIdleProperty;
+
+    private bool movementMembersInitialized;
+    private bool movementMembersLogged;
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern void keybd_event(
+        byte virtualKey,
+        byte scanCode,
+        uint flags,
+        UIntPtr extraInfo
+    );
+
+    private readonly PlatformScanner planner =
+        new PlatformScanner();
+
+    private readonly ClimbRoutePlanner v5RoutePlanner =
+        new ClimbRoutePlanner();
+
+    public void Start()
+    {
+        ClimberLog.User(
+            "AutoClimber route planner V5.2 initialized. " +
+            "Logical-target persistence, safe-impact routing and three-step route scoring are active; " +
+            "enemy route targeting remains disabled."
+        );
+
+        previousAscendingState =
+            GameState.IsAscendingHeights();
+
+        stateInitialized = true;
+
+        ResetRuntimeState();
+    }
+
+    private static void LogVerbose(
+        string message)
+    {
+        ClimberLog.Developer(message);
+    }
+
+    public void Update()
+    {
+        bool currentAscendingState =
+            GameState.IsAscendingHeights();
+
+        if (!stateInitialized)
+        {
+            previousAscendingState =
+                currentAscendingState;
+
+            stateInitialized = true;
+            return;
+        }
+
+        // The retry prompt is the most reliable failure boundary. It can be
+        // raised just before the Ascending Heights state changes, so settle
+        // the run here while all diagnostics are still available.
+        if (climbingConfirmed &&
+            AscendingHeightsRetryBridge
+                .TryConsumePromptShownSignal())
+        {
+            LogRunSummary(
+                "RetryPromptShown"
+            );
+        }
+
+        HandleAscendingStateChange(
+            currentAscendingState
+        );
+
+        if (!currentAscendingState)
+        {
+            TryAutoRetry();
+            return;
+        }
+
+        if (!climbingConfirmed)
+        {
+            TryConfirmGameplayStarted();
+
+            if (!climbingConfirmed)
+            {
+                return;
+            }
+        }
+
+        PlayerMovement playerMovement =
+            PlayerMovement.instance;
+
+        if (playerMovement == null)
+        {
+            return;
+        }
+
+        Rigidbody2D playerRigidbody;
+
+        try
+        {
+            playerRigidbody =
+                playerMovement
+                    .GetComponent<Rigidbody2D>();
+        }
+        catch (Exception exception)
+        {
+            ClimberLog.Error(
+                $"Failed to get player Rigidbody2D: " +
+                $"{exception.Message}"
+            );
+
+            return;
+        }
+
+        if (playerRigidbody == null)
+        {
+            return;
+        }
+
+        Vector3 playerPosition =
+            playerMovement.transform.position;
+
+        Vector2 playerVelocity =
+            playerRigidbody.velocity;
+
+        if (DetectAndResetForNewRun(
+                playerMovement,
+                playerPosition,
+                playerVelocity))
+        {
+            return;
+        }
+
+        LogMovementInputState(
+            playerMovement,
+            playerRigidbody
+        );
+
+        AscendingHeightsController controller =
+            AscendingHeightsController.instance;
+
+        if (controller != null &&
+            controller.currentAscendingHeightsMap != null)
+        {
+            finishHeight =
+                controller
+                    .currentAscendingHeightsMap
+                    .finishAtDistance;
+        }
+
+        bool finishThresholdReached =
+            controller != null &&
+            controller.FinishHeightReached();
+
+        if (finishThresholdReached &&
+            !finishHeightDetected)
+        {
+            finishHeightDetected = true;
+
+            LogVerbose(
+                "Map score threshold reached. " +
+                "This is informational only and does not control the finish exit."
+            );
+        }
+
+        bool stableOnFinishGround =
+            playerMovement.IsGrounded() &&
+            Mathf.Abs(playerVelocity.y) <= 0.10f;
+
+        if (stableOnFinishGround)
+        {
+            if (finishGroundedSince <= 0f)
+            {
+                finishGroundedSince = Time.time;
+            }
+        }
+        else
+        {
+            finishGroundedSince = 0f;
+        }
+
+        bool finalLandingConfirmed =
+            finishHeightDetected &&
+            stableOnFinishGround &&
+            Time.time - finishGroundedSince >=
+                FinishGroundedConfirmationSeconds;
+
+        if (finalLandingConfirmed &&
+            !finishExitStarted)
+        {
+            finishExitStarted = true;
+            ClearCurrentTarget();
+            desiredHorizontalDirection = 1f;
+
+            LogVerbose(
+                "Non-bouncing final platform landing confirmed. " +
+                "Holding right until the flag ends the minigame."
+            );
+        }
+
+        DetectBounceEveryFrame(
+            playerPosition,
+            playerVelocity
+        );
+
+        if (finishExitStarted)
+        {
+            HandleFinishedState(
+                playerMovement,
+                playerRigidbody
+            );
+
+            LogRuntimeWhenNeeded(
+                playerPosition,
+                playerRigidbody.velocity,
+                true
+            );
+
+            return;
+        }
+
+        if (Time.time >=
+            nextPlatformScanTime)
+        {
+            nextPlatformScanTime =
+                Time.time +
+                PlatformScanIntervalSeconds;
+
+            planner.Scan(
+                playerPosition,
+                playerVelocity
+            );
+
+            UpdateCurrentTargetV5(
+                playerPosition,
+                playerVelocity
+            );
+
+            if (Time.time >=
+                nextEnemyScanTime)
+            {
+                nextEnemyScanTime =
+                    Time.time +
+                    EnemyScanIntervalSeconds;
+
+                try
+                {
+                    ScanUnknownPlatforms();
+                    ScanVisibleEnemies();
+                }
+                catch (Exception exception)
+                {
+                    LogEnemyDiagnosticWarningOnce(
+                        "Enemy diagnostic scan failed: " +
+                        exception.Message
+                    );
+                }
+            }
+        }
+
+        UpdateAutomaticHorizontalControl(
+            playerMovement,
+            playerRigidbody,
+            playerPosition
+        );
+
+        if (ClimberLog.IsDeveloperMode &&
+            Time.time >=
+            nextCandidateLogTime)
+        {
+            nextCandidateLogTime =
+                Time.time +
+                CandidateLogIntervalSeconds;
+
+            LogTopCandidates(
+                playerPosition,
+                playerVelocity
+            );
+        }
+
+        LogRuntimeWhenNeeded(
+            playerPosition,
+            playerVelocity,
+            finishHeightDetected
+        );
+    }
+
+    public void FixedUpdate()
+    {
+        ApplyStoredHorizontalDirection();
+    }
+
+    public void LateUpdate()
+    {
+        ApplyStoredHorizontalDirection();
+    }
+
+    private void ApplyStoredHorizontalDirection()
+    {
+        if (!climbingConfirmed ||
+            !GameState.IsAscendingHeights())
+        {
+            ReleaseAllMovementKeys();
+            return;
+        }
+
+        float direction = finishExitStarted
+            ? 1f
+            : desiredHorizontalDirection;
+
+        SetHorizontalDirection(direction);
+    }
+
+    private void HandleAscendingStateChange(
+        bool currentAscendingState)
+    {
+        if (currentAscendingState ==
+            previousAscendingState)
+        {
+            return;
+        }
+
+        previousAscendingState =
+            currentAscendingState;
+
+        if (currentAscendingState)
+        {
+            autoRetryPending = false;
+            AscendingHeightsRetryBridge.Reset();
+
+            LogVerbose(
+                "Ascending Heights state detected. " +
+                "Waiting for gameplay confirmation."
+            );
+
+            ResetRuntimeState();
+        }
+        else
+        {
+            if (climbingConfirmed)
+            {
+                bool failedRun = !finishExitStarted;
+
+                LogRunSummary(
+                    "AscendingStateEnded"
+                );
+
+                if (failedRun)
+                {
+                    autoRetryPending = true;
+                    autoRetryAtRealtime =
+                        Time.realtimeSinceStartup +
+                        AutoRetryPollSeconds;
+                }
+
+                LogVerbose(
+                    "Ascending Heights ended."
+                );
+            }
+            else
+            {
+                LogVerbose(
+                    "Ascending Heights temporary state ended " +
+                    "before gameplay confirmation."
+                );
+            }
+
+            ResetRuntimeState();
+        }
+    }
+
+    private void TryAutoRetry()
+    {
+        if (AutoClimberPlugin.Config?.EnableAutoRetry?.Value != true)
+        {
+            return;
+        }
+
+        if (!autoRetryPending ||
+            Time.realtimeSinceStartup <
+                autoRetryAtRealtime)
+        {
+            return;
+        }
+
+        SecondWindAscendingHeights prompt;
+
+        if (!AscendingHeightsRetryBridge
+                .TryTakeReadyPrompt(out prompt))
+        {
+            autoRetryAtRealtime =
+                Time.realtimeSinceStartup +
+                AutoRetryPollSeconds;
+            return;
+        }
+
+        try
+        {
+            autoRetryPending = false;
+            nextRunIsRevive = true;
+            prompt._SecondWindSuggest_b__7_0();
+
+            ClimberLog.User(
+                "Auto retry: Continue Challenge confirmed."
+            );
+        }
+        catch (Exception exception)
+        {
+            nextRunIsRevive = false;
+            autoRetryPending = true;
+            AscendingHeightsRetryBridge.MarkPromptShown(
+                prompt
+            );
+            autoRetryAtRealtime =
+                Time.realtimeSinceStartup +
+                AutoRetryPollSeconds;
+
+            ClimberLog.Warning(
+                "Auto retry failed and will try again: " +
+                exception.Message
+            );
+        }
+    }
+
+    private void TryConfirmGameplayStarted()
+    {
+        PlayerMovement playerMovement =
+            PlayerMovement.instance;
+
+        AscendingHeightsController controller =
+            AscendingHeightsController.instance;
+
+        if (playerMovement == null ||
+            controller == null)
+        {
+            return;
+        }
+
+        Rigidbody2D rigidbody;
+
+        try
+        {
+            rigidbody =
+                playerMovement
+                    .GetComponent<Rigidbody2D>();
+        }
+        catch
+        {
+            return;
+        }
+
+        if (rigidbody == null)
+        {
+            return;
+        }
+
+        Vector3 position =
+            playerMovement.transform.position;
+
+        Vector2 velocity =
+            rigidbody.velocity;
+
+        bool validPosition =
+            position.y > 0f;
+
+        bool playerMoving =
+            Mathf.Abs(velocity.x) > 0.1f ||
+            Mathf.Abs(velocity.y) > 0.1f;
+
+        if (!validPosition ||
+            !playerMoving)
+        {
+            return;
+        }
+
+        climbingConfirmed = true;
+
+        currentRunIsRevive =
+            nextRunIsRevive;
+
+        nextRunIsRevive = false;
+
+        if (!currentRunIsRevive)
+        {
+            sessionChallengeCount++;
+        }
+
+        runStartTime = Time.time;
+        runSummaryLogged = false;
+        runEnemiesDetected = 0;
+        detectedEnemyIds.Clear();
+        EnemyDiagnosticsBridge.BeginRun();
+
+        velocityInitialized = true;
+        previousVelocityY = velocity.y;
+
+        currentLaunchVelocityY =
+            Mathf.Max(
+                NormalBounceVelocity,
+                velocity.y
+            );
+
+        currentJumpWasGolden =
+            currentLaunchVelocityY >= 75f;
+
+        finishHeightDetected = false;
+        finishExitStarted = false;
+
+        finishHeight = float.PositiveInfinity;
+        finishGroundedSince = 0f;
+
+        finishStateMemberSearchCompleted = false;
+        actualFinishStateMember = null;
+        actualFinishStateMethod = null;
+        actualFinishStateOwner = null;
+        actualFinishStateMemberName = "";
+
+        if (controller.currentAscendingHeightsMap != null)
+        {
+            finishHeight =
+                controller
+                    .currentAscendingHeightsMap
+                    .finishAtDistance;
+        }
+
+        activePlayerInstanceId =
+            playerMovement.GetInstanceID();
+
+        highestObservedPlayerY =
+            position.y;
+
+        lastBounceY = position.y;
+        lastBounceX = position.x;
+
+        lastMeaningfulProgressY =
+            position.y;
+
+        lastMeaningfulProgressTime =
+            Time.time;
+
+        bouncesWithoutProgress = 0;
+        recoverySelectionRequested = false;
+
+        currentJumpMode = JumpModeInitial;
+        currentJumpStartTime = Time.time;
+        strongTargetUpgradeUntilTime = 0f;
+
+        nextPlatformScanTime = 0f;
+        nextCandidateLogTime = 0f;
+        nextRuntimeLogTime = 0f;
+        nextInputDebugTime = 0f;
+        nextEnemyScanTime = 0f;
+
+        LogVerbose(
+            "Ascending Heights gameplay confirmed. " +
+            "Interval-based trajectory planning is active. " +
+            $"SegmentType={(currentRunIsRevive ? "Revive" : "Initial")}."
+        );
+
+        LogVerbose(
+            $"Current map finish distance: " +
+            $"{finishHeight:F2}"
+        );
+    }
+
+    private void ScanVisibleEnemies()
+    {
+        foreach (PlatformCandidate candidate
+                 in planner.Candidates)
+        {
+            if (candidate == null ||
+                candidate.GameObject == null)
+            {
+                continue;
+            }
+
+            AscendingHeightsPlatform platform = null;
+
+            try
+            {
+                platform = candidate.GameObject
+                    .GetComponent<AscendingHeightsPlatform>();
+
+                if (platform == null)
+                {
+                    platform = candidate.GameObject
+                        .GetComponentInParent<AscendingHeightsPlatform>();
+                }
+            }
+            catch
+            {
+                continue;
+            }
+
+            if (platform == null)
+            {
+                continue;
+            }
+
+            InitializeEnemyMembers(platform);
+
+            object enemyValue = ReadEnemyMember(
+                platform,
+                platformEnemyObjectMember
+            );
+
+            object colliderValue = ReadEnemyMember(
+                platform,
+                platformEnemyColliderMember
+            );
+
+            GameObject enemyObject =
+                enemyValue as GameObject;
+
+            Component enemyComponent =
+                enemyValue as Component;
+
+            Collider2D enemyCollider =
+                colliderValue as Collider2D;
+
+            if (enemyObject == null &&
+                enemyComponent != null)
+            {
+                enemyObject = enemyComponent.gameObject;
+            }
+
+            if (enemyObject == null &&
+                enemyCollider != null)
+            {
+                enemyObject = enemyCollider.gameObject;
+            }
+
+            if (enemyObject == null ||
+                !enemyObject.activeInHierarchy ||
+                (enemyCollider != null &&
+                 !enemyCollider.enabled))
+            {
+                continue;
+            }
+
+            int enemyId = enemyObject.GetInstanceID();
+
+            if (!detectedEnemyIds.Add(enemyId))
+            {
+                continue;
+            }
+
+            runEnemiesDetected++;
+
+            Vector3 enemyPosition =
+                enemyObject.transform.position;
+
+            Vector2 enemySize = Vector2.zero;
+
+            if (enemyCollider != null)
+            {
+                Bounds enemyBounds = enemyCollider.bounds;
+                enemyPosition = enemyBounds.center;
+                enemySize = enemyBounds.size;
+            }
+
+            ClimberLog.Developer(
+                $"Enemy detected: Id={enemyId}, " +
+                $"Name={enemyObject.name}, " +
+                $"X={enemyPosition.x:F2}, " +
+                $"Y={enemyPosition.y:F2}, " +
+                $"Width={enemySize.x:F2}, " +
+                $"Height={enemySize.y:F2}, " +
+                $"PlatformId={candidate.InstanceId}, " +
+                $"PlatformType={candidate.Type}, " +
+                $"RunEnemiesDetected={runEnemiesDetected}"
+            );
+        }
+    }
+
+    private void ScanUnknownPlatforms()
+    {
+        foreach (PlatformCandidate candidate
+                 in planner.Candidates)
+        {
+            if (candidate == null ||
+                candidate.Type != PlatformType.Unknown)
+            {
+                continue;
+            }
+
+            string spriteName =
+                string.IsNullOrEmpty(candidate.SpriteName)
+                    ? "unknown"
+                    : candidate.SpriteName;
+
+            if (!observedUnknownPlatformSprites.Add(
+                    spriteName))
+            {
+                continue;
+            }
+
+            string objectName =
+                candidate.GameObject != null
+                    ? candidate.GameObject.name
+                    : "unknown";
+
+            ClimberLog.Developer(
+                $"Unknown platform detected: " +
+                $"Sprite={spriteName}, " +
+                $"Object={objectName}, " +
+                $"X={candidate.CurrentPosition.x:F2}, " +
+                $"Y={candidate.CurrentPosition.y:F2}, " +
+                $"Width={candidate.ColliderSize.x:F2}, " +
+                $"Height={candidate.ColliderSize.y:F2}"
+            );
+        }
+    }
+
+    private void InitializeEnemyMembers(
+        AscendingHeightsPlatform platform)
+    {
+        if (enemyMemberSearchCompleted ||
+            platform == null)
+        {
+            return;
+        }
+
+        enemyMemberSearchCompleted = true;
+
+        Type platformType = platform.GetType();
+
+        platformEnemyObjectMember = FindEnemyMember(
+            platformType,
+            "enemyObject"
+        );
+
+        platformEnemyColliderMember = FindEnemyMember(
+            platformType,
+            "enemyBoxCollider"
+        );
+
+        if (platformEnemyObjectMember == null &&
+            platformEnemyColliderMember == null)
+        {
+            LogEnemyDiagnosticWarningOnce(
+                "Enemy diagnostics could not locate enemyObject or " +
+                "enemyBoxCollider on AscendingHeightsPlatform."
+            );
+        }
+    }
+
+    [HideFromIl2Cpp]
+    private MemberInfo FindEnemyMember(
+        Type ownerType,
+        string memberName)
+    {
+        if (ownerType == null)
+        {
+            return null;
+        }
+
+        const BindingFlags flags =
+            BindingFlags.Instance |
+            BindingFlags.Public |
+            BindingFlags.NonPublic |
+            BindingFlags.IgnoreCase;
+
+        PropertyInfo property = ownerType.GetProperty(
+            memberName,
+            flags
+        );
+
+        if (property != null &&
+            property.CanRead)
+        {
+            return property;
+        }
+
+        return ownerType.GetField(
+            memberName,
+            flags
+        );
+    }
+
+    [HideFromIl2Cpp]
+    private object ReadEnemyMember(
+        object owner,
+        MemberInfo member)
+    {
+        if (owner == null ||
+            member == null)
+        {
+            return null;
+        }
+
+        try
+        {
+            if (member is PropertyInfo property &&
+                property.CanRead)
+            {
+                return property.GetValue(owner);
+            }
+
+            if (member is FieldInfo field)
+            {
+                return field.GetValue(owner);
+            }
+        }
+        catch (Exception exception)
+        {
+            LogEnemyDiagnosticWarningOnce(
+                $"Failed to read enemy diagnostic member " +
+                $"{member.Name}: {exception.Message}"
+            );
+        }
+
+        return null;
+    }
+
+    private void LogEnemyDiagnosticWarningOnce(
+        string message)
+    {
+        if (enemyDiagnosticWarningLogged)
+        {
+            return;
+        }
+
+        enemyDiagnosticWarningLogged = true;
+        ClimberLog.Warning(message);
+    }
+
+}
