@@ -61,7 +61,7 @@ public sealed class AutoProgressionRuntime : MonoBehaviour
         wasReady = true;
         if (!readyLogged)
         {
-            ProgressionLog.Info($"AutoProgression runtime ready. GameState={Il2Cpp.GameState.current}.");
+            ProgressionLog.Debug($"AutoProgression runtime ready. GameState={Il2Cpp.GameState.current}.");
             readyLogged = true;
         }
         bool ascensionResetDetected = ascension.DetectFirstSkillReset();
