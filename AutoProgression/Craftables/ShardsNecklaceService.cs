@@ -16,6 +16,7 @@ internal sealed class ShardsNecklaceService
     private readonly MaterialPurchaseService materials = new();
     private TemporaryCraftableItem item;
     private float nextCheckTime;
+    private float nextDiagnosticTime;
     private bool missingLogged;
 
     internal void Tick(float now)
@@ -36,7 +37,8 @@ internal sealed class ShardsNecklaceService
         }
 
         missingLogged = false;
-        if (!item.TabVisible() || !item.ExtraCondition()) return;
+        bool tabVisible = item.TabVisible();
+        bool extraCondition = item.ExtraCondition();
 
         double maximum = scrap.GetMaxAmount();
         if (maximum <= 0d) return;
@@ -45,6 +47,18 @@ internal sealed class ShardsNecklaceService
             Plugin.Config.ShardsNecklaceScrapThresholdPercent.Value,
             0f,
             100f) / 100d;
+
+        if (now >= nextDiagnosticTime)
+        {
+            nextDiagnosticTime = now + 5f;
+            ProgressionLog.Debug(
+                $"Shards Necklace status: Scrap={scrap.amount:0.##}, Max={maximum:0.##}, " +
+                $"Ratio={scrap.amount / maximum:P2}, Threshold={threshold:P2}, " +
+                $"TabVisible={tabVisible}, ExtraCondition={extraCondition}, " +
+                $"CanCraft={item.HowManyCanCraft()}.");
+        }
+
+        if (!tabVisible || !extraCondition) return;
         if (scrap.amount / maximum < threshold) return;
 
         int crafted = 0;
@@ -103,6 +117,7 @@ internal sealed class ShardsNecklaceService
     {
         item = null;
         nextCheckTime = 0f;
+        nextDiagnosticTime = 0f;
         missingLogged = false;
     }
 }
