@@ -48,6 +48,9 @@
       <Reference Include="UnityEngine.UIModule">
         <HintPath>$(Il2CppAssembliesDir)\UnityEngine.UIModule.dll</HintPath>
       </Reference>
+      <Reference Include="Unity.TextMeshPro">
+        <HintPath>$(Il2CppAssembliesDir)\Unity.TextMeshPro.dll</HintPath>
+      </Reference>
       <Reference Include="MelonLoader">
         <HintPath>$(MelonLoaderNet6Dir)\MelonLoader.dll</HintPath>
       </Reference>

@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using HarmonyLib;
 using Il2Cpp;
@@ -95,5 +96,10 @@ internal static class WeeklyQuestAdditionPatch
 internal static class WeeklyQuestManualRerollPatch
 {
     private static void Prefix() => WeeklyQuestGenerationBridge.BeginManualReroll();
-    private static void Postfix() => WeeklyQuestGenerationBridge.EndManualReroll();
+
+    private static Exception Finalizer(Exception __exception)
+    {
+        WeeklyQuestGenerationBridge.EndManualReroll();
+        return __exception;
+    }
 }

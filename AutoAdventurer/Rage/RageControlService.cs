@@ -34,6 +34,9 @@ internal sealed class RageControlService
     private bool observationPending;
     private string lastBlocker = string.Empty;
 
+    internal bool IsPostRageProtectionReady(float now) =>
+        observationPending && now >= observationReadyAt;
+
     internal void Tick(float now, bool automationEnabled)
     {
         if (!automationEnabled) return;
@@ -226,7 +229,7 @@ internal sealed class RageControlService
                 Plugin.Config.PostRageObservationSeconds.Value);
             nextBlockerPollTime = observationReadyAt;
             AdventurerLog.Debug(
-                $"Post-Rage observation scheduled for {Plugin.Config.PostRageObservationSeconds.Value:0.#} seconds.");
+                $"Post-Rage protection scheduled for {Plugin.Config.PostRageObservationSeconds.Value:0.#} seconds.");
         }
     }
 

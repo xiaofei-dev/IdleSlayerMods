@@ -81,13 +81,24 @@ is enabled by default and can be disabled independently from Automatic Rage.
 - Once selected, a quest is locked by internal ID and re-resolved from fresh
   snapshots until it completes. Temporary map or Portal unavailability does
   not cause another task to replace it.
+- When `Maximum Quest Time Minutes` expires, another executable quest is
+  selected with the current task excluded. If no alternative exists, the
+  current target, map, and requirements are validated again; a valid task
+  continues with fresh timers, while an invalid task is released for a full
+  rescan.
+- A task that fails target validation or makes no progress for the fixed
+  five-minute health check is placed on a P-session abnormal list. Every
+  subsequent scan excludes it. The list and reasons are written to Quest Debug
+  when P is disabled, then reset for the next P session.
 - The selected target map is also retained by string ID while it continues to
   contain a valid current-stage target. Category quests such as `KillGiants`
   and elemental kills therefore do not bounce between multiple valid maps;
   the map lock changes only after the previous map stops satisfying the task.
 - Random Daily quests reuse the same internal ID, so their lock identity also
   includes runtime type, quest type, exact monster/type target, and goal. A new
-  Daily cannot be mistaken for the completed locked Daily.
+  Daily cannot be mistaken for the completed locked Daily. Changes in other
+  Daily slots do not release the current lock; only disappearance or
+  replacement of the locked Daily triggers a rescan.
 - If the game has not initialized its quest-list data yet, it is refreshed
   only while the quest panel is closed; the active quest UI is never re-entered.
 - Completed or claimed entries trigger the same closed-panel refresh so newly
@@ -159,14 +170,32 @@ is enabled by default and can be disabled independently from Automatic Rage.
 - If a Bonus Stage or another scene interrupts travel preparation before the
   quest Portal is spawned, only the travel-intent lock is cleared. The task
   lock remains and the destination is recalculated after returning.
+- Required-character correction is checked every 0.25 seconds while Runner is
+  stable, independently of the five-second task scan. Rage still ends
+  naturally before switching. Applying a character also refreshes the live
+  player skin immediately instead of only persisting it for the next launch.
+  Random boxes remain silent travel blockers in
+  Quest Debug; only a confirmed map event logs its event type and lifecycle.
+- Map events are confirmed across all loaded event objects when either the
+  game's `RandomEvent.IsActive()` rule is true or its timer remains positive.
+  Logs include event type, internal name, and remaining time, avoiding missed
+  Horde, coin, Frenzy, Gemstone Rush, Lucky Coins, and Dual Randomness events.
+- Map-bound event `OnEventStart` and `OnEventEnd` methods are also observed
+  directly through Harmony, following AutoRageMode's proven Horde detection
+  approach. Only string descriptions are retained; no IL2CPP event object is
+  cached across scenes. Polling remains a fallback for events already active
+  when the runtime starts.
 - Automatic travel waits at least one minute by default before changing away
   from a dimension reached by an earlier automatic trip.
-- Quest Automation keeps session-only completion statistics from game startup.
-  Toggling `P` does not reset them. A task is counted only when it was locked
-  and positively observed as completed or claimed while Quest Automation was
-  enabled; expiration or removal from the active list is not counted.
+- Quest Automation keeps completion statistics for each `P` session. The
+  counters reset when `P` is enabled and a final summary is written when it is
+  disabled. Any normal or Daily quest positively observed as completed or
+  actually claimed while Quest Automation is enabled is counted, including a
+  claim initiated by another mod. Weekly quests and mere disappearance from
+  the active list are excluded, and duplicate claim callbacks are deduplicated.
 - Daily and non-Daily completions are counted separately. Every counted
-  completion writes a normal user log, writes the same message to Quest Debug
+  completion writes its localized name and internal quest ID to the normal
+  user log, writes the same message to Quest Debug
   when enabled, and shows an in-game notification with the session total,
   Daily count, and Normal count. `Show Completion Notifications` can disable
   only the in-game notification; both log outputs remain unchanged.
@@ -210,12 +239,21 @@ deployment is opt-in with `/p:EnableLocalDeploy=true`.
 This is an unofficial community mod. Idle Slayer and its assets belong to their
 respective owners.
 `Gameplay / Auto Boss` enables automatic boss dialogue advancement, reduces
-the active boss to 1 HP, and performs the finishing attack. Disable it to
-leave boss health and combat untouched.
+the active boss to 1 HP, and performs the finishing attack with the game's
+direct arrow action. It avoids the contextual Attack action, which can resolve
+as a jump in Boss mode. Disable it to leave boss health and combat untouched.
 
-`Quest Automation / Auto Claim Completed Quests` automatically claims every
-completed normal, Daily, or Weekly quest. It works independently from the
-Quest Automation toggle.
+AutoAdventurer does not claim completed quests. Claiming is left to the game or
+another mod such as AutoProgression. AutoAdventurer only observes successful
+claim events while Quest Automation is enabled so it can update session
+completion statistics without modifying quest state. Weekly Quest claim and
+reroll methods are not patched or observed by AutoAdventurer.
+
+`Quest Automation / Maximum Quest Time Minutes` limits the total time spent on
+one selected quest before a full rescan. Independently of configuration, a
+second watchdog checks progress every five minutes and rescans if the locked
+quest made no progress. Character requirements are still revalidated on every
+normal scan.
 
 Quest Automation pauses dimension travel during map-bound Random Events such
 as Hordes, coin waves, Gemstone Rush and Frenzy. Long-lived numeric CpS, Souls,

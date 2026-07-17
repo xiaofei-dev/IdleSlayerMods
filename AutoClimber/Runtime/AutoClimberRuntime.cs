@@ -345,6 +345,7 @@ public sealed partial class AutoClimberRuntime : MonoBehaviour
     private int sessionFirstTrySuccessCount;
     private int sessionRevivedSuccessCount;
     private bool currentRunIsRevive;
+    private bool currentRunUsesQuickSkip;
     private bool nextRunIsRevive;
 
     private bool enemyMemberSearchCompleted;
@@ -353,6 +354,9 @@ public sealed partial class AutoClimberRuntime : MonoBehaviour
     private MemberInfo platformEnemyColliderMember;
 
     private readonly HashSet<int> detectedEnemyIds =
+        new HashSet<int>();
+
+    private readonly HashSet<int> attemptedEnemyInterceptIds =
         new HashSet<int>();
 
     private readonly HashSet<long> observedGenerationResetKeys =
@@ -394,12 +398,14 @@ public sealed partial class AutoClimberRuntime : MonoBehaviour
         InitializeAutomationSettings();
 
         ClimberLog.User(
-            "AutoClimber route planner V5.3.0 initialized. " +
+            "AutoClimber route planner V6.0.0 initialized. " +
             "Generation-aware pooling, apex-retention tiers and center-return routing are active; " +
             "the runtime remains dormant outside Ascending Heights; " +
-            "enemy route targeting remains disabled. " +
+            "safe enemy-touch targeting is available. " +
             $"Enabled={automationEnabled}, " +
-            $"ToggleKey={automationToggleKey}."
+            $"ToggleKey={automationToggleKey}, " +
+            $"SkipMinigame={ClimberLog.IsQuickSkipModeEnabled}, " +
+            $"TargetEnemies={ClimberLog.IsEnemyTargetingEnabled}."
         );
 
         previousAscendingState =
@@ -433,6 +439,10 @@ public sealed partial class AutoClimberRuntime : MonoBehaviour
 
         bool currentAscendingState =
             GameState.IsAscendingHeights();
+
+        UpdateQuickSkipFinishDistance(
+            currentAscendingState
+        );
 
         if (!stateInitialized)
         {
@@ -581,9 +591,16 @@ public sealed partial class AutoClimberRuntime : MonoBehaviour
                       finishHeight
                   ) <= FinishDetectorVerticalTolerance;
 
+        // Quick-skip changes the map threshold after the game's finish UI and
+        // detector coordinates have already been prepared. In that mode the
+        // controller's spawned-finish flag is authoritative; reusing the
+        // normal map-Y comparison can leave the player idle on the real exit
+        // platform. Grounded confirmation still prevents an airborne turn to
+        // the right while approaching the finish map.
         bool stableOnFinishGround =
             finishMapSpawned &&
-            nearFinishPlatform &&
+            (nearFinishPlatform ||
+             ClimberLog.IsQuickSkipModeEnabled) &&
             playerMovement.IsGrounded() &&
             Mathf.Abs(playerVelocity.y) <= 0.10f;
 
@@ -748,6 +765,7 @@ public sealed partial class AutoClimberRuntime : MonoBehaviour
         autoRetryPending = false;
         nextRunIsRevive = false;
         AscendingHeightsRetryBridge.Reset();
+        RestoreQuickSkipFinishDistance();
         ResetRuntimeState();
 
         previousAscendingState =
@@ -853,6 +871,8 @@ public sealed partial class AutoClimberRuntime : MonoBehaviour
                 );
             }
 
+            RestoreQuickSkipFinishDistance();
+
             ResetRuntimeState();
         }
     }
@@ -886,21 +906,31 @@ public sealed partial class AutoClimberRuntime : MonoBehaviour
 
             if (continueChallenge)
             {
-                nextRunIsRevive = true;
+                // A quick-skip retry is never part of the V5 statistics.
+                // If the setting was switched off while the prompt was open,
+                // the following normal run starts as a fresh initial attempt.
+                nextRunIsRevive =
+                    !ClimberLog.IsQuickSkipModeEnabled;
                 prompt._SecondWindSuggest_b__7_0();
 
-                ClimberLog.User(
-                    "Auto retry: Continue Challenge confirmed."
-                );
+                if (!ClimberLog.IsQuickSkipModeEnabled)
+                {
+                    ClimberLog.User(
+                        "Auto retry: Continue Challenge confirmed."
+                    );
+                }
             }
             else
             {
                 nextRunIsRevive = false;
                 prompt.OnClose();
 
-                ClimberLog.User(
-                    "Auto retry: No confirmed; challenge exited."
-                );
+                if (!ClimberLog.IsQuickSkipModeEnabled)
+                {
+                    ClimberLog.User(
+                        "Auto retry: No confirmed; challenge exited."
+                    );
+                }
             }
         }
         catch (Exception exception)
@@ -978,9 +1008,13 @@ public sealed partial class AutoClimberRuntime : MonoBehaviour
         currentRunIsRevive =
             nextRunIsRevive;
 
+        currentRunUsesQuickSkip =
+            ClimberLog.IsQuickSkipModeEnabled;
+
         nextRunIsRevive = false;
 
-        if (!currentRunIsRevive)
+        if (!currentRunUsesQuickSkip &&
+            !currentRunIsRevive)
         {
             sessionChallengeCount++;
         }

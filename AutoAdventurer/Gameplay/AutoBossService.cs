@@ -8,10 +8,12 @@ internal sealed class AutoBossService
 {
     private const float DialogueIntervalSeconds = 0.2f;
     private const float AttackIntervalSeconds = 0.5f;
+    private const float ResultCloseIntervalSeconds = 0.5f;
 
     private BossMapController activeController;
     private float nextDialogueTime;
     private float nextAttackTime;
+    private float nextResultCloseTime;
     private bool healthReductionLogged;
 
     internal void Tick(float now)
@@ -21,6 +23,9 @@ internal sealed class AutoBossService
             Reset();
             return;
         }
+
+        if (TryCloseBossResult(now))
+            return;
 
         BossMapController controller = BossMapController.instance;
         if (!IsActiveBossController(controller))
@@ -66,10 +71,29 @@ internal sealed class AutoBossService
             return;
 
         PlayerMovement player = PlayerMovement.instance;
-        if (player == null) return;
+        if (player == null || player.bowDisabled) return;
 
-        player.Attack();
+        player.ShootArrow();
         nextAttackTime = now + AttackIntervalSeconds;
+    }
+
+    private bool TryCloseBossResult(float now)
+    {
+        if (now < nextResultCloseTime) return false;
+
+        BossResultScreen result =
+            UnityEngine.Object.FindObjectOfType<BossResultScreen>();
+        if (result == null || result.gameObject == null ||
+            !result.gameObject.activeInHierarchy || result.close ||
+            result.goingToDestroy || result.closeButton == null ||
+            !result.closeButton.gameObject.activeInHierarchy ||
+            !result.closeButton.interactable)
+            return false;
+
+        result.Close();
+        nextResultCloseTime = now + ResultCloseIntervalSeconds;
+        AdventurerLog.Debug("Auto Boss closed the boss result screen.");
+        return true;
     }
 
     private static bool IsActiveBossController(BossMapController controller) =>
@@ -82,6 +106,7 @@ internal sealed class AutoBossService
         activeController = null;
         nextDialogueTime = 0f;
         nextAttackTime = 0f;
+        nextResultCloseTime = 0f;
         healthReductionLogged = false;
     }
 }

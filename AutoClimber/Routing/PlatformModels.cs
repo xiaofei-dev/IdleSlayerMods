@@ -67,6 +67,12 @@ internal sealed class PlatformCandidate
     // for a logical platform signature that has just vanished from the pool.
     public float LifecycleHazardPenalty;
 
+    public bool HasEnemy;
+    public int EnemyInstanceId;
+    public float EnemyOffsetX;
+    public float EnemyOffsetY;
+    public float EnemyWidth;
+
     public float EstimatedLandingTime;
     public float PredictedLandingX;
 

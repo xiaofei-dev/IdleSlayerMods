@@ -6,6 +6,67 @@ using AutoClimber.Diagnostics;
 
 namespace AutoClimber;
 
+[HarmonyPatch(typeof(AscendingHeightsController), nameof(AscendingHeightsController.ShowPreModal))]
+internal static class AscendingHeightsQuickSkipPreModalPatch
+{
+    [HarmonyPrefix]
+    private static void Prefix(AscendingHeightsMap __0)
+    {
+        // Apply before the game calculates its target label, starting boost,
+        // finish spawn point and completion condition. Applying this from the
+        // runtime Update loop is too late for those cached values.
+        QuickSkipFinishDistanceOverride.Apply(__0);
+    }
+}
+
+[HarmonyPatch(typeof(AscendingHeightsController), nameof(AscendingHeightsController.StartBonus))]
+internal static class AscendingHeightsQuickSkipStartingBoostPatch
+{
+    [HarmonyPrefix]
+    private static void Prefix(out bool __state)
+    {
+        __state = false;
+
+        if (!ClimberLog.IsQuickSkipModeEnabled)
+        {
+            return;
+        }
+
+        Divinity higherAltitudes =
+            Divinities.list?.HigherAltitudes;
+
+        if (higherAltitudes == null ||
+            !higherAltitudes.unlocked)
+        {
+            return;
+        }
+
+        // The vanilla Higher Altitudes divinity injects +1000 starting
+        // distance. Cross-TM compensates by using -975, which works but also
+        // exposes a negative target. Suppress the injection only while the
+        // run is initialized, then restore the real unlock immediately.
+        higherAltitudes.unlocked = false;
+        __state = true;
+    }
+
+    [HarmonyPostfix]
+    private static void Postfix(bool __state)
+    {
+        if (!__state)
+        {
+            return;
+        }
+
+        Divinity higherAltitudes =
+            Divinities.list?.HigherAltitudes;
+
+        if (higherAltitudes != null)
+        {
+            higherAltitudes.unlocked = true;
+        }
+    }
+}
+
 // Bridges the runtime controller's direction requests into the game's own
 // movement state so background play does not depend on native key presses.
 internal static class BackgroundMovementBridge
@@ -91,6 +152,12 @@ internal static class EnemyDiagnosticsBridge
                 $"RunEnemyDefeats={RunConfirmedDeaths}"
             );
         }
+    }
+
+    internal static bool WasHit(int enemyInstanceId)
+    {
+        return enemyInstanceId != 0 &&
+               ConfirmedDeathIds.Contains(enemyInstanceId);
     }
 }
 
