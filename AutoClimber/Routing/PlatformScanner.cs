@@ -21,6 +21,16 @@ internal sealed class PlatformScanner
     private const float MovingPlatformSpeed = 3f;
     private const float HorizontalWorldLimit = 4.65f;
 
+    // Pooled platform objects keep their InstanceId when reused. A large
+    // vertical/type change or impossible horizontal teleport denotes a new
+    // logical generation; a scan gap alone only clears motion/stability
+    // history because boost targets can temporarily leave the scan box.
+    private const float GenerationHeightTolerance = 1.50f;
+    private const float GenerationObservationGapSeconds = 0.28f;
+    private const float GenerationStabilitySeconds = 0.18f;
+    private const int GenerationStabilityObservations = 2;
+    private const int StationaryObservationsToClearMovement = 2;
+
     // Approximate vertical gravity observed in runtime logs.
     private const float GravityMagnitude = 50f;
 
@@ -162,6 +172,23 @@ internal sealed class PlatformScanner
         return null;
     }
 
+    public PlatformCandidate FindCandidate(
+        int instanceId,
+        int generation)
+    {
+        foreach (PlatformCandidate candidate
+                 in candidates)
+        {
+            if (candidate.InstanceId == instanceId &&
+                candidate.Generation == generation)
+            {
+                return candidate;
+            }
+        }
+
+        return null;
+    }
+
     private PlatformCandidate BuildCandidate(
         GameObject gameObject,
         Collider2D collider,
@@ -205,18 +232,20 @@ internal sealed class PlatformScanner
         PlatformTrack track =
             UpdatePlatformTrack(
                 gameObject.GetInstanceID(),
-                currentPosition.x
+                currentPosition,
+                platformType
             );
 
         float directionX =
             track.DirectionX;
 
         bool isMoving =
-            Mathf.Abs(directionX) > 0.5f;
+            Mathf.Abs(track.VelocityX) > 0.50f;
 
         float platformVelocityX =
-            directionX *
-            MovingPlatformSpeed;
+            isMoving
+                ? track.VelocityX
+                : 0f;
 
         float deltaY =
             currentPosition.y -
@@ -229,6 +258,8 @@ internal sealed class PlatformScanner
                 Collider = collider,
                 InstanceId =
                     gameObject.GetInstanceID(),
+
+                Generation = track.Generation,
 
                 Type = platformType,
                 SpriteName = spriteName,
@@ -245,6 +276,30 @@ internal sealed class PlatformScanner
 
                 PlatformVelocityX =
                     platformVelocityX,
+
+                ObservationAge =
+                    Mathf.Max(
+                        0f,
+                        Time.time -
+                            track.GenerationObservedSince
+                    ),
+
+                ConsecutiveObservations =
+                    track.ConsecutiveObservations,
+
+                GenerationStable =
+                    track.ConsecutiveObservations >=
+                        GenerationStabilityObservations ||
+                    Time.time -
+                        track.GenerationObservedSince >=
+                        GenerationStabilitySeconds,
+
+                RecentlyRecycled =
+                    track.WasRecycled &&
+                    Time.time -
+                        track.GenerationChangedAt < 0.45f,
+
+                LifecycleHazardPenalty = 0f,
 
                 DeltaY = deltaY,
 
@@ -278,7 +333,8 @@ internal sealed class PlatformScanner
 
     private PlatformTrack UpdatePlatformTrack(
         int instanceId,
-        float currentX)
+        Vector2 currentPosition,
+        PlatformType platformType)
     {
         float currentTime =
             Time.time;
@@ -291,10 +347,19 @@ internal sealed class PlatformScanner
                 new PlatformTrack
                 {
                     InstanceId = instanceId,
-                    LastObservedX = currentX,
+                    Generation = 1,
+                    LastObservedX = currentPosition.x,
+                    LastObservedY = currentPosition.y,
                     LastObservedTime = currentTime,
+                    GenerationObservedSince = currentTime,
+                    GenerationChangedAt = currentTime,
+                    LastObservedType = platformType,
+                    ConsecutiveObservations = 1,
+                    StationaryObservations = 0,
                     DirectionX = 0f,
-                    HasPreviousObservation = false
+                    VelocityX = 0f,
+                    HasPreviousObservation = true,
+                    WasRecycled = false
                 };
 
             platformTracks.Add(
@@ -305,30 +370,122 @@ internal sealed class PlatformScanner
             return track;
         }
 
-        float deltaX =
-            currentX -
-            track.LastObservedX;
-
         float deltaTime =
             currentTime -
             track.LastObservedTime;
 
-        if (track.HasPreviousObservation &&
+        float deltaX =
+            currentPosition.x -
+            track.LastObservedX;
+
+        bool horizontalTeleport =
             deltaTime > 0.001f &&
-            Mathf.Abs(deltaX) > 0.015f)
+            Mathf.Abs(deltaX) >
+                MovingPlatformSpeed *
+                    deltaTime +
+                0.20f;
+
+        bool generationChanged =
+            Mathf.Abs(
+                currentPosition.y -
+                track.LastObservedY
+            ) > GenerationHeightTolerance ||
+            platformType != track.LastObservedType ||
+            horizontalTeleport;
+
+        bool observationSequenceReset =
+            !generationChanged &&
+            deltaTime >
+                GenerationObservationGapSeconds;
+
+        if (generationChanged)
         {
-            track.DirectionX =
-                Mathf.Sign(deltaX);
+            track.Generation++;
+            track.GenerationObservedSince = currentTime;
+            track.GenerationChangedAt = currentTime;
+            track.ConsecutiveObservations = 1;
+            track.StationaryObservations = 0;
+            track.DirectionX = 0f;
+            track.VelocityX = 0f;
+            track.HasPreviousObservation = true;
+            track.WasRecycled = true;
+        }
+        else if (observationSequenceReset)
+        {
+            // The broad scanner can temporarily lose a still-live target
+            // below its box during a boost jump. Keep the logical generation
+            // when height/type still match, but discard stale motion history.
+            track.GenerationObservedSince = currentTime;
+            track.ConsecutiveObservations = 1;
+            track.StationaryObservations = 0;
+            track.DirectionX = 0f;
+            track.VelocityX = 0f;
+            track.HasPreviousObservation = true;
+            track.WasRecycled = false;
+        }
+        else
+        {
+            track.ConsecutiveObservations++;
+
+            if (track.HasPreviousObservation &&
+                deltaTime > 0.001f &&
+                Mathf.Abs(deltaX) > 0.015f)
+            {
+                float measuredVelocity =
+                    deltaX / deltaTime;
+
+                float direction =
+                    Mathf.Sign(measuredVelocity);
+
+                track.DirectionX = direction;
+                track.StationaryObservations = 0;
+
+                if (Mathf.Abs(measuredVelocity) >= 0.50f &&
+                    Mathf.Abs(measuredVelocity) <= 6.00f)
+                {
+                    track.VelocityX =
+                        Mathf.Abs(track.VelocityX) >= 0.50f &&
+                        Mathf.Sign(track.VelocityX) ==
+                            direction
+                            ? Mathf.Lerp(
+                                track.VelocityX,
+                                measuredVelocity,
+                                0.45f
+                            )
+                            : measuredVelocity;
+                }
+                else
+                {
+                    track.VelocityX =
+                        direction * MovingPlatformSpeed;
+                }
+            }
+            else
+            {
+                track.StationaryObservations++;
+
+                if (track.StationaryObservations >=
+                    StationaryObservationsToClearMovement)
+                {
+                    track.DirectionX = 0f;
+                    track.VelocityX = 0f;
+                }
+            }
+
+            track.HasPreviousObservation = true;
         }
 
         track.LastObservedX =
-            currentX;
+            currentPosition.x;
+
+        track.LastObservedY =
+            currentPosition.y;
 
         track.LastObservedTime =
             currentTime;
 
-        track.HasPreviousObservation =
-            true;
+        track.LastObservedType =
+            platformType;
 
         return track;
     }

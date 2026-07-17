@@ -29,6 +29,7 @@ internal sealed class RageControlService
     private float nextCooldownLogTime;
     private bool automaticRageActive;
     private bool endRequested;
+    private bool refreshSuppressed;
     private bool managerMissingLogged;
     private bool observationPending;
     private string lastBlocker = string.Empty;
@@ -61,7 +62,8 @@ internal sealed class RageControlService
             if (IsExecuting())
             {
                 CheckAutomaticEndConditions(now);
-                if (!endRequested && now >= nextActivationCheckTime)
+                if (!endRequested && !refreshSuppressed &&
+                    now >= nextActivationCheckTime)
                 {
                     nextActivationCheckTime = now + GetActivationInterval();
                     TryActivate(now);
@@ -84,6 +86,8 @@ internal sealed class RageControlService
 
     internal void EndImmediately(string reason)
     {
+        // This method is intentionally called only by the configured manual
+        // stop key. Quest travel suppresses refresh and waits for natural end.
         try
         {
             ResolveManager(Time.unscaledTime, true);
@@ -137,6 +141,7 @@ internal sealed class RageControlService
             automaticRageStartedAt = now;
         }
         endRequested = false;
+        refreshSuppressed = false;
 
         // User-facing activation state is logged only by the K-key toggle.
         // Repeated skill execution remains diagnostic and is rate limited.
@@ -167,14 +172,16 @@ internal sealed class RageControlService
 
     private void CheckAutomaticEndConditions(float now)
     {
-        if (!automaticRageActive || endRequested) return;
+        if (!automaticRageActive || endRequested || refreshSuppressed) return;
 
         if (now >= nextKeyPollTime)
         {
             nextKeyPollTime = now + KeyPollIntervalSeconds;
             if (interruptions.HasChestHuntKey)
             {
-                EndImmediately("Chest Hunt Key detected.");
+                refreshSuppressed = true;
+                AdventurerLog.Debug(
+                    "Chest Hunt Key detected; Rage refresh stopped until the current execution ends naturally.");
                 return;
             }
         }
@@ -184,7 +191,10 @@ internal sealed class RageControlService
         if (maximumDuration > 0f &&
             now - automaticRageStartedAt >= maximumDuration)
         {
-            EndImmediately($"Maximum automatic Rage duration reached ({maximumDuration:0.#} seconds).");
+            refreshSuppressed = true;
+            AdventurerLog.Debug(
+                $"Maximum automatic Rage duration reached ({maximumDuration:0.#} seconds); " +
+                "Rage refresh stopped until the current execution ends naturally.");
         }
     }
 
@@ -199,13 +209,15 @@ internal sealed class RageControlService
             now - automaticRageStartedAt < ActivationConfirmationSeconds)
             return;
 
-        bool automaticRageJustEnded = automaticRageActive || endRequested;
+        bool automaticRageJustEnded =
+            automaticRageActive || endRequested || refreshSuppressed;
         if (automaticRageJustEnded)
             AdventurerLog.Debug("Rage Mode execution ended.");
 
         automaticRageActive = false;
         automaticRageStartedAt = 0f;
         endRequested = false;
+        refreshSuppressed = false;
 
         if (automaticRageJustEnded)
         {
@@ -280,6 +292,7 @@ internal sealed class RageControlService
         automaticRageActive = false;
         automaticRageStartedAt = 0f;
         endRequested = false;
+        refreshSuppressed = false;
         observationPending = false;
         observationReadyAt = 0f;
         nextBlockerPollTime = 0f;

@@ -42,7 +42,7 @@ internal sealed class AutoClimberConfig(string configName) : BaseConfig(configNa
             AutomationSection,
             "Auto Retry Enabled",
             autoRetryEnabled,
-            "Automatically continue the challenge after a failed run."
+            "Continue after a failed run when enabled; automatically choose No and exit when disabled."
         );
         EnabledOnStartup = Bind(
             AutomationSection,
@@ -57,7 +57,7 @@ internal sealed class AutoClimberConfig(string configName) : BaseConfig(configNa
             "Keyboard key used to enable or disable AutoClimber."
         );
 
-        // V5.2 needs detailed target-lifecycle traces for the 95% reliability
+        // V5.3 needs detailed retention/generation traces for reliability
         // validation. Enable it once for existing installations while still
         // respecting a later user choice to turn Debug Mode off.
         if (migrateLegacyValues)

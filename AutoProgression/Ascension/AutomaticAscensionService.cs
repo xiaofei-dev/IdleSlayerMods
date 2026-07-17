@@ -21,8 +21,12 @@ internal sealed class AutomaticAscensionService
     private bool leftMainScreenAfterAscension;
     private int stablePurchaseRounds;
 
+    internal bool StartedAscensionThisTick { get; private set; }
+
     internal bool Tick(float now, bool firstSkillResetDetected)
     {
+        StartedAscensionThisTick = false;
+
         if (firstSkillResetDetected && waitingForPostAscension)
             ascensionResetObserved = true;
 
@@ -83,6 +87,7 @@ internal sealed class AutomaticAscensionService
             leftMainScreenAfterAscension = false;
             stablePurchaseRounds = 0;
             nextCheckTime = 0f;
+            StartedAscensionThisTick = true;
             ProgressionLog.Info(
                 $"Automatic normal ascension started at {ratioPercent:0.##}% soul bonus.");
             return true;
@@ -147,6 +152,7 @@ internal sealed class AutomaticAscensionService
         ascensionResetObserved = false;
         leftMainScreenAfterAscension = false;
         stablePurchaseRounds = 0;
+        StartedAscensionThisTick = false;
     }
 
     internal void NotifyMainScreenUnavailable()

@@ -11,4 +11,10 @@ internal static class AdventurerLog
         if (Plugin.Config?.DebugMode.Value == true)
             Plugin.Logger.Msg($"[Debug] {message}");
     }
+
+    internal static void QuestDebug(string message)
+    {
+        if (Plugin.Config?.QuestAutomationDebugMode.Value == true)
+            Plugin.Logger.Msg($"[Quest Debug] {message}");
+    }
 }

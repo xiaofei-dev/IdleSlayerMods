@@ -19,6 +19,7 @@ public class Plugin : MelonMod
     {
         ModHelper.ModHelperMounted += SetModHelperInstance;
         Config = new(AutoProgressionInfo.PluginGuid);
+        HarmonyInstance.PatchAll();
         Logger.Msg(
             $"Plugin {AutoProgressionInfo.PluginGuid} v{AutoProgressionInfo.PluginVersion} " +
             $"(internal {AutoProgressionInfo.InternalVersion}) is loaded; " +

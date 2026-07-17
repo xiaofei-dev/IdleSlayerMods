@@ -19,6 +19,7 @@ internal sealed class QuestAutomationService
     private PortalButton portalButton;
     private float nextCheckTime;
     private bool missingLogged;
+    private bool refreshRequired = true;
 
     internal void Tick(float now)
     {
@@ -55,14 +56,18 @@ internal sealed class QuestAutomationService
             return;
         }
 
-        try
+        if (refreshRequired)
         {
-            questsList.RefreshList();
-        }
-        catch (Exception exception)
-        {
-            Plugin.Logger.Error($"Failed to refresh the quest list safely: {exception}");
-            return;
+            try
+            {
+                questsList.RefreshList();
+                refreshRequired = false;
+            }
+            catch (Exception exception)
+            {
+                Plugin.Logger.Error($"Failed to refresh the quest list safely: {exception}");
+                return;
+            }
         }
 
         var quests = questsList.lastScrollListData;
@@ -85,7 +90,9 @@ internal sealed class QuestAutomationService
             int claimed = ClaimCompleted(snapshot);
             if (claimed > 0)
             {
-                ProgressionLog.Info($"Automatically claimed {claimed} completed quest(s).");
+                ProgressionLog.Debug($"Automatically claimed {claimed} completed quest(s).");
+                refreshRequired = true;
+                nextCheckTime = now + RegenerationSettleSeconds;
                 return;
             }
         }
@@ -162,7 +169,10 @@ internal sealed class QuestAutomationService
         }
 
         if (regenerated)
+        {
+            refreshRequired = true;
             nextCheckTime = now + RegenerationSettleSeconds;
+        }
     }
 
     private void ApplyUnlimitedRerolls()
@@ -220,5 +230,6 @@ internal sealed class QuestAutomationService
         portalButton = null;
         nextCheckTime = 0f;
         missingLogged = false;
+        refreshRequired = true;
     }
 }

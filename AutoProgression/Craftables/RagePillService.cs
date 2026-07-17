@@ -17,10 +17,10 @@ internal sealed class RagePillService
     private float nextCheckTime;
     private bool missingObjectsLogged;
 
-    internal void Tick(float now)
+    internal bool Tick(float now)
     {
         var config = Plugin.Config;
-        if (!config.EnableRagePill.Value) return;
+        if (!config.EnableRagePill.Value) return false;
 
         if (!ResolveObjects())
         {
@@ -30,11 +30,11 @@ internal sealed class RagePillService
                     $"Rage Pill objects unavailable. RageManager={rageManager != null}, RagePill={ragePill != null}.");
                 missingObjectsLogged = true;
             }
-            return;
+            return false;
         }
         missingObjectsLogged = false;
 
-        if (now < nextCheckTime) return;
+        if (now < nextCheckTime) return false;
 
         float interval = Mathf.Max(0.5f, config.RagePillMinimumIntervalSeconds.Value);
         nextCheckTime = now + interval;
@@ -42,12 +42,12 @@ internal sealed class RagePillService
         if (rageManager.currentCd <= 0d ||
             !ragePill.ExtraCondition())
         {
-            return;
+            return false;
         }
 
         if (ragePill.HowManyCanCraft() <= 0)
         {
-            if (!config.BuyMissingMaterialsWithJewels.Value) return;
+            if (!config.BuyMissingMaterialsWithJewels.Value) return false;
 
             int percent = config.MaterialPurchasePercent.Value;
             materials.Buy(SlimeName, percent);
@@ -55,11 +55,12 @@ internal sealed class RagePillService
 
             // Material purchases are synchronous in the current game API, but always
             // re-check the recipe instead of assuming either purchase succeeded.
-            if (ragePill.HowManyCanCraft() <= 0) return;
+            if (ragePill.HowManyCanCraft() <= 0) return false;
         }
 
         ragePill.Craft();
         ProgressionLog.Debug("Rage Pill crafted to refresh Rage cooldown.");
+        return true;
     }
 
     private bool ResolveObjects()
@@ -82,6 +83,8 @@ internal sealed class RagePillService
 
     internal void Reset()
     {
+        ragePill = null;
+        rageManager = null;
         nextCheckTime = 0f;
         missingObjectsLogged = false;
     }

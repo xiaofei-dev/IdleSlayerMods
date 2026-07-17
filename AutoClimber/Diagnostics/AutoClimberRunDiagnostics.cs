@@ -192,6 +192,18 @@ public sealed partial class AutoClimberRuntime
             $"StrongHitRate={strongHitRate:F1}, " +
             $"BlockedDowngrades={runBlockedDowngrades}, " +
             $"BlockedUnsafeUpgrades={runBlockedUnsafeUpgrades}, " +
+            $"LifecycleLosses={runLifecycleLosses}, " +
+            $"LifecycleFallbacks={runLifecycleFallbackSelections}, " +
+            $"LifecycleFallbackHits={runLifecycleFallbackLandings}/" +
+            $"{runLifecycleFallbackSelections}, " +
+            $"GenerationResets={runGenerationResets}, " +
+            $"EdgeLastResorts={runEdgeLastResorts}, " +
+            $"EmergencyRescans={runEmergencyRescans}, " +
+            $"RetentionProvisionals={runRetentionProvisionalSelections}, " +
+            $"RetentionTargets={runRetentionSafeTargets}/" +
+            $"{runRetentionSafeTargets + runRetentionRiskyTargets}, " +
+            $"RiskyRetentionTargets={runRetentionRiskyTargets}, " +
+            $"MaxLockedApexDrop={runMaximumLockedApexDrop:F2}, " +
             $"TargetlessAirTime={runTargetlessAirborneSeconds:F2}"
         );
     }
@@ -330,12 +342,12 @@ public sealed partial class AutoClimberRuntime
         finishExitStarted = false;
         finishHeight = float.PositiveInfinity;
         finishGroundedSince = 0f;
-
-        finishStateMemberSearchCompleted = false;
-        actualFinishStateMember = null;
-        actualFinishStateMethod = null;
-        actualFinishStateOwner = null;
-        actualFinishStateMemberName = "";
+        finishMapSpawned = false;
+        finishPlatformLocated = false;
+        finishPlatformWorldY = float.PositiveInfinity;
+        finishLineDetectorTransform = null;
+        nextFinishDetectorSearchTime = 0f;
+        finishDetectorSearchWarningLogged = false;
 
         lastBounceY = 0f;
         lastBounceX = 0f;
@@ -349,15 +361,18 @@ public sealed partial class AutoClimberRuntime
         currentJumpWasGolden = false;
         currentJumpRetargetCount = 0;
         nextV5RetargetTime = 0f;
+        retentionProvisionalLogged = false;
         strongTargetUpgradeUntilTime = 0f;
         lastBlockedUpgradeCandidateId = 0;
 
         failedTargetId = 0;
+        failedTargetGeneration = 0;
         failedTargetUntilTime = 0f;
 
-        rejectedTargetIds.Clear();
+        rejectedTargetKeys.Clear();
         rejectedTargetYs.Clear();
         rejectedTargetTypes.Clear();
+        ClearLifecycleHazards();
 
         lastMeaningfulProgressY = 0f;
         lastMeaningfulProgressTime = 0f;
@@ -388,9 +403,20 @@ public sealed partial class AutoClimberRuntime
         runStrongTargetHits = 0;
         runBlockedDowngrades = 0;
         runBlockedUnsafeUpgrades = 0;
+        runLifecycleLosses = 0;
+        runLifecycleFallbackSelections = 0;
+        runLifecycleFallbackLandings = 0;
+        runGenerationResets = 0;
+        runEdgeLastResorts = 0;
+        runEmergencyRescans = 0;
+        runRetentionProvisionalSelections = 0;
+        runRetentionSafeTargets = 0;
+        runRetentionRiskyTargets = 0;
+        runMaximumLockedApexDrop = 0f;
         runTargetlessAirborneSeconds = 0f;
         targetlessAirborneStartedAt = 0f;
         targetlessAirborneActive = false;
+        emergencyPlatformRescanPending = false;
         runSummaryLogged = false;
         runEnemiesDetected = 0;
 
@@ -398,6 +424,7 @@ public sealed partial class AutoClimberRuntime
         platformEnemyObjectMember = null;
         platformEnemyColliderMember = null;
         detectedEnemyIds.Clear();
+        observedGenerationResetKeys.Clear();
         failureTrace.Clear();
 
         nextPlatformScanTime = 0f;

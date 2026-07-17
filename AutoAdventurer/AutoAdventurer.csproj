@@ -15,11 +15,15 @@
     </PropertyGroup>
 
     <ItemGroup>
+      <Compile Remove="Tools\**\*.cs" />
       <PackageReference Include="IdleSlayerMods.Common" Version="1.2.5-ML" />
       <PackageReference Include="LavaGang.MelonLoader" Version="0.7.1" />
     </ItemGroup>
 
     <ItemGroup>
+      <Reference Include="0Harmony">
+        <HintPath>$(MelonLoaderNet6Dir)\0Harmony.dll</HintPath>
+      </Reference>
       <Reference Include="Assembly-CSharp">
         <HintPath>$(Il2CppAssembliesDir)\Assembly-CSharp.dll</HintPath>
       </Reference>

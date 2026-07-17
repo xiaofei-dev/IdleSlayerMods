@@ -17,6 +17,7 @@ public class Plugin : MelonMod
     public override void OnInitializeMelon()
     {
         ModHelper.ModHelperMounted += instance => ModHelperInstance = instance;
+        HarmonyInstance.PatchAll();
         Config = new(AutoAdventurerInfo.PluginGuid);
         Logger.Msg(
             $"Plugin {AutoAdventurerInfo.PluginGuid} v{AutoAdventurerInfo.PluginVersion} " +

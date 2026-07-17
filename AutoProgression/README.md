@@ -42,6 +42,8 @@ Settings are grouped into these sections:
 - `Skills`: blocked skill options.
 - `Equipment`: idle and sleep timing for equipment purchasing.
 
+> **Currency warning:** `Use Paid 500x Bonuses` directly spends Jewels of Soul. `Buy Missing With Jewels` allows enabled craftable features to spend Jewels of Soul automatically when recipe materials are insufficient. Review these settings before enabling AutoProgression on an unmodified save.
+
 Existing configuration files are migrated when the configuration schema changes.
 
 ## Safety and Scope
@@ -49,6 +51,8 @@ Existing configuration files are migrated when the configuration schema changes.
 Automation runs only after the normal gameplay screen has remained stable long enough to be safely operated. Missing or temporarily unavailable game objects are handled without intentionally interrupting the game loop.
 
 Quest automation claims and refreshes quests; it does not travel to dimensions or perform quest objectives.
+
+Character control, quest target selection, Rage termination, and quest-guided Portal travel belong to a separate companion mod. Its implementation plan is documented in [`../CHARACTER_MOD_HANDOFF.md`](../CHARACTER_MOD_HANDOFF.md).
 
 ## Building
 

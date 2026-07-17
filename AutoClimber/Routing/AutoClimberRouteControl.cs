@@ -56,6 +56,9 @@ public sealed partial class AutoClimberRuntime
         bool hadLockedTarget =
             currentTargetId != 0;
 
+        bool landedTargetWasLifecycleFallback =
+            currentTargetIsLifecycleFallback;
+
         int landedTargetId =
             currentTargetId;
 
@@ -97,6 +100,12 @@ public sealed partial class AutoClimberRuntime
             {
                 runStrongTargetHits++;
             }
+        }
+
+        if (landedTargetWasLifecycleFallback &&
+            landedOnLockedTarget)
+        {
+            runLifecycleFallbackLandings++;
         }
 
         UpdateTargetlessAirborneTracking(false);
@@ -222,6 +231,9 @@ public sealed partial class AutoClimberRuntime
 
         currentJumpRetargetCount = 0;
         nextV5RetargetTime = 0f;
+        retentionProvisionalLogged = false;
+
+        ClearLifecycleHazards();
 
         lastBlockedUpgradeCandidateId = 0;
 
@@ -232,7 +244,7 @@ public sealed partial class AutoClimberRuntime
                 : 0f;
 
         // A bounce above finishAtDistance is not completion. Continue routing
-        // until IsActualFinishState() reports the game's real finish flag.
+        // until the spawned finish platform is located and landed on.
         ClearCurrentTarget();
 
         nextPlatformScanTime = 0f;
@@ -247,6 +259,14 @@ public sealed partial class AutoClimberRuntime
     {
         V5RouteDecision currentDecision = null;
         bool targetLostThisFrame = false;
+        bool targetTemporarilyUnobservedThisFrame = false;
+        bool lifecycleTargetLostThisFrame = false;
+        int lifecycleTargetId = 0;
+        int lifecycleTargetGeneration = 0;
+        PlatformType lifecycleTargetType =
+            PlatformType.Unknown;
+        float lifecycleTargetY = 0f;
+        string lifecycleFailureReason = "";
 
         if (currentTargetId != 0)
         {
@@ -267,30 +287,72 @@ public sealed partial class AutoClimberRuntime
 
             if (!targetTracked)
             {
-                if (ShouldKeepTemporarilyUnobservedTarget(
+                lifecycleTargetId = currentTargetId;
+                lifecycleTargetGeneration =
+                    currentTargetGeneration;
+                lifecycleTargetType = currentTargetType;
+                lifecycleTargetY = currentTargetY;
+                lifecycleFailureReason =
+                    targetRefreshFailure;
+
+                targetTemporarilyUnobservedThisFrame =
+                    ShouldKeepTemporarilyUnobservedTarget(
                         targetRefreshFailure,
                         playerPosition,
-                        playerVelocity))
+                        playerVelocity
+                    );
+
+                if (!targetTemporarilyUnobservedThisFrame)
                 {
-                    return;
+                    if (!currentTargetObservationLost)
+                    {
+                        runLifecycleLosses++;
+                    }
+
+                    RememberLifecycleHazard(
+                        currentTargetY,
+                        currentTargetType
+                    );
+
+                    RecordFailureTrace(
+                        $"V5TargetLost Id={currentTargetId}, " +
+                        $"Generation={currentTargetGeneration}, " +
+                        $"Type={currentTargetType}, " +
+                        $"Reason={targetRefreshFailure}, " +
+                        $"ExpectedX={currentTargetPredictedX:F2}, " +
+                        $"ExpectedY={currentTargetY:F2}, " +
+                        $"RemainingTime=" +
+                        $"{Mathf.Max(0f, currentTargetExpectedLandingAt - Time.time):F2}"
+                    );
+
+                    // A pooled Normal/Strong/Golden object is not evidence
+                    // that its logical landing height is unsafe. V5.1
+                    // replanned immediately in this situation. Preserve the
+                    // blacklist only for a consumed breakable platform; for
+                    // all other lifecycle losses, release the object identity
+                    // and let the current scan choose a replacement.
+                    if (currentTargetType ==
+                        PlatformType.Breakable)
+                    {
+                        TemporarilyBlockCurrentTarget(
+                            "The breakable target disappeared before landing."
+                        );
+                    }
+                    else
+                    {
+                        RecordFailureTrace(
+                            $"V5LifecycleReleaseWithoutBlock " +
+                            $"Id={currentTargetId}, " +
+                            $"Generation={currentTargetGeneration}, " +
+                            $"Type={currentTargetType}, " +
+                            $"Reason={targetRefreshFailure}"
+                        );
+                    }
+
+                    targetLostThisFrame = true;
+                    lifecycleTargetLostThisFrame = true;
+                    ClearCurrentTarget();
                 }
-
-                RecordFailureTrace(
-                    $"V5TargetLost Id={currentTargetId}, " +
-                    $"Type={currentTargetType}, " +
-                    $"Reason={targetRefreshFailure}, " +
-                    $"ExpectedX={currentTargetPredictedX:F2}, " +
-                    $"ExpectedY={currentTargetY:F2}, " +
-                    $"RemainingTime=" +
-                    $"{Mathf.Max(0f, currentTargetExpectedLandingAt - Time.time):F2}"
-                );
-
-                TemporarilyBlockCurrentTarget(
-                    "V5 confirmed that the logical target could not be rebound before its observation grace expired."
-                );
-
-                targetLostThisFrame = true;
-                ClearCurrentTarget();
             }
             else
             {
@@ -381,6 +443,8 @@ public sealed partial class AutoClimberRuntime
             failedTargetId != 0 &&
             Time.time < failedTargetUntilTime;
 
+        ApplyLifecycleHazardPenalties();
+
         int forwardFeasibleCount;
 
         V5RouteDecision bestDecision =
@@ -392,25 +456,17 @@ public sealed partial class AutoClimberRuntime
                 IsHighAltitudeMode(),
                 false,
                 currentTargetId,
+                currentTargetGeneration,
                 failedTargetId,
+                failedTargetGeneration,
                 failedTargetBlocked,
                 finishHeight,
                 out forwardFeasibleCount
             );
 
-        if (targetLostThisFrame)
-        {
-            bestDecision = ChooseSaferLateReplanDecision(
-                bestDecision,
-                playerPosition,
-                playerVelocity,
-                failedTargetId,
-                failedTargetBlocked
-            );
-        }
-
         if (currentTargetId != 0 &&
-            currentDecision != null)
+            currentDecision != null &&
+            !targetTemporarilyUnobservedThisFrame)
         {
             if (!ShouldUpgradeV5Target(
                     currentDecision,
@@ -454,12 +510,124 @@ public sealed partial class AutoClimberRuntime
                     lastBounceY,
                     IsHighAltitudeMode(),
                     true,
-                    0,
+                    currentTargetId,
+                    currentTargetGeneration,
                     failedTargetId,
+                    failedTargetGeneration,
                     failedTargetBlocked,
                     finishHeight,
                     out forwardFeasibleCount
                 );
+        }
+
+        if (targetLostThisFrame ||
+            targetTemporarilyUnobservedThisFrame)
+        {
+            int excludedLifecycleTargetId =
+                lifecycleTargetId != 0
+                    ? lifecycleTargetId
+                    : failedTargetId;
+
+            int excludedLifecycleTargetGeneration =
+                lifecycleTargetId != 0
+                    ? lifecycleTargetGeneration
+                    : failedTargetGeneration;
+
+            bool excludedLifecycleTargetActive =
+                lifecycleTargetId != 0 ||
+                failedTargetBlocked;
+
+            bestDecision = ChooseSaferLateReplanDecision(
+                bestDecision,
+                playerPosition,
+                playerVelocity,
+                excludedLifecycleTargetId,
+                excludedLifecycleTargetGeneration,
+                excludedLifecycleTargetActive,
+                allowEmergency,
+                lifecycleTargetY,
+                lifecycleTargetType
+            );
+        }
+
+        bool shouldUseRetentionProvisional =
+            bestDecision != null &&
+            !bestDecision.RetentionSafe &&
+            !bestDecision.IsFinishApproach &&
+            !bestDecision.IsEmergency &&
+            (currentJumpWasGolden ||
+             currentLaunchVelocityY >= 40f) &&
+            playerVelocity.y /
+                GravityMagnitude >
+                RetentionProvisionalMinimumTimeToApex;
+
+        if (shouldUseRetentionProvisional)
+        {
+            if (!retentionProvisionalLogged)
+            {
+                retentionProvisionalLogged = true;
+                runRetentionProvisionalSelections++;
+
+                RecordFailureTrace(
+                    $"V5RetentionProvisional CandidateId=" +
+                    $"{bestDecision.Candidate.InstanceId}, " +
+                    $"Generation={bestDecision.Candidate.Generation}, " +
+                    $"ApexDrop={bestDecision.ApexOvershoot:F2}, " +
+                    $"LandingTime={bestDecision.LandingTime:F2}, " +
+                    $"TimeToApex=" +
+                    $"{playerVelocity.y / GravityMagnitude:F2}"
+                );
+            }
+
+            // Keep steering toward the only feasible route while later scans
+            // search for a retention-safe upgrade. Returning here with no
+            // target used to center the player away from edge routes.
+        }
+
+        if (targetTemporarilyUnobservedThisFrame)
+        {
+            if (bestDecision == null)
+            {
+                // Keep steering toward the logical target only when this scan
+                // has no safe replacement. The next 0.10-second scan retries
+                // both object rebinding and fallback planning in parallel.
+                return;
+            }
+
+            PlatformCandidate fallbackCandidate =
+                bestDecision.Candidate;
+
+            string fallbackMessage =
+                $"V5LifecycleFallback OldId={lifecycleTargetId}, " +
+                $"OldGeneration={lifecycleTargetGeneration}, " +
+                $"OldType={lifecycleTargetType}, " +
+                $"OldY={lifecycleTargetY:F2}, " +
+                $"Reason={lifecycleFailureReason}, " +
+                $"NewId={fallbackCandidate.InstanceId}, " +
+                $"NewGeneration={fallbackCandidate.Generation}, " +
+                $"NewType={fallbackCandidate.Type}, " +
+                $"NewY={fallbackCandidate.CurrentPosition.y:F2}, " +
+                $"ReachRatio={bestDecision.ReachRatio:F2}, " +
+                $"Margin={bestDecision.LandingMargin:F2}, " +
+                $"ApexDrop={bestDecision.ApexOvershoot:F2}, " +
+                $"LifecycleRisk={bestDecision.LifecycleRisk:F0}, " +
+                $"StableScans={fallbackCandidate.ConsecutiveObservations}, " +
+                $"CenterReturns={bestDecision.CenterReturnSuccessorCount}";
+
+            RecordFailureTrace(fallbackMessage);
+            LogVerbose(fallbackMessage);
+
+            ClearCurrentTarget();
+
+            LockV5Target(
+                bestDecision,
+                playerPosition,
+                false,
+                forwardFeasibleCount,
+                true
+            );
+
+            return;
         }
 
         if (bestDecision == null)
@@ -471,11 +639,31 @@ public sealed partial class AutoClimberRuntime
             return;
         }
 
+        if (lifecycleTargetLostThisFrame)
+        {
+            string replanMessage =
+                $"V5LifecycleReplan OldId={lifecycleTargetId}, " +
+                $"OldGeneration={lifecycleTargetGeneration}, " +
+                $"OldType={lifecycleTargetType}, " +
+                $"OldY={lifecycleTargetY:F2}, " +
+                $"Reason={lifecycleFailureReason}, " +
+                $"NewId={bestDecision.Candidate.InstanceId}, " +
+                $"NewGeneration={bestDecision.Candidate.Generation}, " +
+                $"NewType={bestDecision.Candidate.Type}, " +
+                $"NewY={bestDecision.Candidate.CurrentPosition.y:F2}, " +
+                $"ApexDrop={bestDecision.ApexOvershoot:F2}, " +
+                $"LifecycleRisk={bestDecision.LifecycleRisk:F0}";
+
+            RecordFailureTrace(replanMessage);
+            LogVerbose(replanMessage);
+        }
+
         LockV5Target(
             bestDecision,
             playerPosition,
             false,
-            forwardFeasibleCount
+            forwardFeasibleCount,
+            lifecycleTargetLostThisFrame
         );
     }
 
@@ -488,12 +676,48 @@ public sealed partial class AutoClimberRuntime
         if (currentDecision == null ||
             proposedDecision == null ||
             proposedDecision.Candidate == null ||
-            proposedDecision.Candidate.InstanceId ==
-                currentTargetId ||
+            (proposedDecision.Candidate.InstanceId ==
+                 currentTargetId &&
+             proposedDecision.Candidate.Generation ==
+                 currentTargetGeneration) ||
             currentTargetIsRescue ||
-            currentJumpRetargetCount >= 1 ||
-            Time.time < nextV5RetargetTime ||
             playerVelocity.y <= 5f)
+        {
+            return false;
+        }
+
+        bool boostJump =
+            currentJumpWasGolden ||
+            currentLaunchVelocityY >= 40f;
+
+        bool retentionUpgrade =
+            !currentDecision.IsFinishApproach &&
+            !currentDecision.RetentionSafe &&
+            proposedDecision.RetentionSafe;
+
+        bool finishUpgrade =
+            proposedDecision.IsFinishApproach &&
+            !currentDecision.IsFinishApproach;
+
+        bool fastBoostUpgrade =
+            proposedDecision.RetentionSafe &&
+            proposedDecision.EdgeSafe &&
+            (proposedDecision.Candidate.Type ==
+                 PlatformType.Golden ||
+             proposedDecision.Candidate.Type ==
+                 PlatformType.Strong) &&
+            GetPlatformTypeRank(
+                proposedDecision.Candidate.Type
+            ) > GetPlatformTypeRank(currentTargetType);
+
+        int maximumRetargets =
+            boostJump
+                ? 2
+                : 1;
+
+        if (currentJumpRetargetCount >=
+                maximumRetargets ||
+            Time.time < nextV5RetargetTime)
         {
             return false;
         }
@@ -506,25 +730,36 @@ public sealed partial class AutoClimberRuntime
                     ? 0.95f
                     : 0.42f;
 
-        if (Time.time - currentJumpStartTime >
-            upgradeWindow)
+        if (!retentionUpgrade &&
+            !finishUpgrade &&
+            !fastBoostUpgrade &&
+            Time.time - currentJumpStartTime >
+                upgradeWindow)
         {
             return false;
         }
 
-        bool improvesRoute =
-            proposedDecision.SuccessorCount >
-                currentDecision.SuccessorCount ||
-            proposedDecision.ThirdStepOptionCount >
-                currentDecision.ThirdStepOptionCount + 1;
+        bool physicallyComfortable =
+            proposedDecision.LandingMargin >=
+                LateReplanMinimumLandingMargin &&
+            proposedDecision.ReachRatio <=
+                (IsHighAltitudeMode()
+                    ? LateReplanHighAltitudeMaximumReachRatio
+                    : LateReplanLowAltitudeMaximumReachRatio);
+
+        if (retentionUpgrade ||
+            finishUpgrade ||
+            fastBoostUpgrade)
+        {
+            return physicallyComfortable;
+        }
 
         bool meaningfulHeightGain =
             proposedDecision.Candidate
                 .CurrentPosition.y >=
             currentTargetY + 1.00f;
 
-        if (!improvesRoute &&
-            !meaningfulHeightGain)
+        if (!meaningfulHeightGain)
         {
             return false;
         }
@@ -550,7 +785,8 @@ public sealed partial class AutoClimberRuntime
         V5RouteDecision decision,
         Vector3 playerPosition,
         bool isUpgrade,
-        int forwardFeasibleCount)
+        int forwardFeasibleCount,
+        bool lifecycleFallback = false)
     {
         if (decision == null ||
             decision.Candidate == null)
@@ -578,7 +814,9 @@ public sealed partial class AutoClimberRuntime
             runNormalTargets++;
         }
 
-        if (Mathf.Abs(decision.LandingX) >
+        if (Mathf.Abs(
+                decision.CenterwardLandingX
+            ) >
             PreferredLandingWorldLimit)
         {
             runEdgeTargets++;
@@ -586,6 +824,9 @@ public sealed partial class AutoClimberRuntime
 
         currentTargetId =
             candidate.InstanceId;
+
+        currentTargetGeneration =
+            candidate.Generation;
 
         currentTargetType =
             candidate.Type;
@@ -606,13 +847,74 @@ public sealed partial class AutoClimberRuntime
             candidate.CurrentPosition.y;
 
         currentTargetPredictedX =
+            decision.CenterwardLandingX;
+
+        currentTargetLandingOffsetX =
+            decision.CenterwardLandingX -
             decision.LandingX;
 
         currentTargetSafeHalfWidth =
-            decision.EffectiveSafeHalfWidth;
+            decision.ControlHalfWidth;
 
         currentTargetIsRescue =
             decision.IsEmergency;
+
+        currentTargetIsLifecycleFallback =
+            lifecycleFallback;
+
+        retentionProvisionalLogged =
+            false;
+
+        if (lifecycleFallback)
+        {
+            runLifecycleFallbackSelections++;
+        }
+
+        if (decision.IsEdgeLastResort)
+        {
+            runEdgeLastResorts++;
+        }
+
+        if (decision.RetentionSafe)
+        {
+            runRetentionSafeTargets++;
+        }
+        else
+        {
+            runRetentionRiskyTargets++;
+        }
+
+        runMaximumLockedApexDrop =
+            Mathf.Max(
+                runMaximumLockedApexDrop,
+                decision.ApexOvershoot
+            );
+
+        if (!decision.RetentionSafe)
+        {
+            LogVerbose(
+                $"V5RiskyRetentionLastResort Id={candidate.InstanceId}, " +
+                $"Generation={candidate.Generation}, " +
+                $"Type={candidate.Type}, " +
+                $"Y={candidate.CurrentPosition.y:F2}, " +
+                $"LandingTime={decision.LandingTime:F2}, " +
+                $"ApexDrop={decision.ApexOvershoot:F2}, " +
+                $"StableScans={candidate.ConsecutiveObservations}"
+            );
+        }
+
+        if (decision.IsEdgeLastResort)
+        {
+            LogVerbose(
+                $"V5EdgeLastResort Id={candidate.InstanceId}, " +
+                $"Generation={candidate.Generation}, " +
+                $"LandingX={decision.LandingX:F2}, " +
+                $"CenterwardX={decision.CenterwardLandingX:F2}, " +
+                $"EdgeReserve={decision.EdgeReserve:F2}, " +
+                $"CenterReturns=" +
+                $"{decision.CenterReturnSuccessorCount}"
+            );
+        }
 
         currentTargetExpectedLandingAt =
             Time.time +
@@ -634,6 +936,9 @@ public sealed partial class AutoClimberRuntime
             Time.time;
 
         currentTargetPersistedOffScanLogged =
+            false;
+
+        emergencyPlatformRescanPending =
             false;
 
         ClearTemporaryTargetObservationState();
@@ -707,13 +1012,23 @@ public sealed partial class AutoClimberRuntime
 
         RecordFailureTrace(
             $"TargetLocked Model=V5, Id={currentTargetId}, " +
+            $"Generation={currentTargetGeneration}, " +
             $"Type={currentTargetType}, X={currentTargetPredictedX:F2}, " +
+            $"PlatformCenterX={decision.LandingX:F2}, " +
+            $"ControlHalfWidth={decision.ControlHalfWidth:F2}, " +
+            $"InwardLanding={decision.InwardLandingPlanned}, " +
             $"Y={currentTargetY:F2}, LandingTime={decision.LandingTime:F2}, " +
             $"ImpactSpeed={decision.DescendingSpeed:F2}, " +
             $"ReachRatio={decision.ReachRatio:F2}, " +
             $"Margin={decision.LandingMargin:F2}, " +
             $"Successors={decision.SuccessorCount}, " +
-            $"ThirdStep={decision.ThirdStepOptionCount}, " +
+            $"CenterReturns={decision.CenterReturnSuccessorCount}, " +
+            $"ApexDrop={decision.ApexOvershoot:F2}, " +
+            $"LifecycleRisk={decision.LifecycleRisk:F0}, " +
+            $"RetentionSafe={decision.RetentionSafe}, " +
+            $"EdgeReserve={decision.EdgeReserve:F2}, " +
+            $"StableScans={candidate.ConsecutiveObservations}, " +
+            $"EdgeLastResort={decision.IsEdgeLastResort}, " +
             $"ForwardOptions={forwardFeasibleCount}, " +
             $"Score={decision.Score:F1}, " +
             $"Emergency={decision.IsEmergency}, " +
@@ -735,6 +1050,26 @@ public sealed partial class AutoClimberRuntime
         out string failureReason)
     {
         failureReason = "Unknown";
+
+        PlatformCandidate observedCandidate =
+            planner.FindCandidateById(
+                currentTargetId
+            );
+
+        if (observedCandidate != null &&
+            observedCandidate.Generation !=
+                currentTargetGeneration)
+        {
+            failureReason =
+                "RecycledGenerationChanged";
+            return false;
+        }
+
+        if (observedCandidate != null)
+        {
+            currentTargetCandidate =
+                observedCandidate;
+        }
 
         if (currentTargetCandidate == null ||
             currentTargetCandidate.GameObject == null)
@@ -865,8 +1200,9 @@ public sealed partial class AutoClimberRuntime
             Time.time;
 
         if (!currentTargetPersistedOffScanLogged &&
-            planner.FindCandidateById(
-                currentTargetId) == null)
+            planner.FindCandidate(
+                currentTargetId,
+                currentTargetGeneration) == null)
         {
             currentTargetPersistedOffScanLogged =
                 true;
@@ -878,6 +1214,7 @@ public sealed partial class AutoClimberRuntime
         }
 
         failureReason = "";
+        emergencyPlatformRescanPending = false;
         return true;
     }
 
@@ -898,6 +1235,8 @@ public sealed partial class AutoClimberRuntime
             if (candidate == null ||
                 candidate.InstanceId ==
                     currentTargetId ||
+                !candidate.GenerationStable ||
+                candidate.RecentlyRecycled ||
                 !IsBaseCandidateUsable(candidate))
             {
                 continue;
@@ -916,9 +1255,11 @@ public sealed partial class AutoClimberRuntime
             }
 
             float candidateLandingX =
-                v5RoutePlanner.PredictPlatformX(
-                    candidate,
-                    remainingLandingTime
+                ApplyCurrentTargetLandingBias(
+                    v5RoutePlanner.PredictPlatformX(
+                        candidate,
+                        remainingLandingTime
+                    )
                 );
 
             float landingDistance =
@@ -995,6 +1336,9 @@ public sealed partial class AutoClimberRuntime
         currentTargetId =
             bestMatch.InstanceId;
 
+        currentTargetGeneration =
+            bestMatch.Generation;
+
         currentTargetType =
             bestMatch.Type;
 
@@ -1018,6 +1362,9 @@ public sealed partial class AutoClimberRuntime
 
         currentTargetLastSeenTime =
             Time.time;
+
+        currentTargetPersistedOffScanLogged =
+            false;
 
         currentTargetColliderOffset =
             Vector2.zero;
@@ -1047,6 +1394,7 @@ public sealed partial class AutoClimberRuntime
         RecordFailureTrace(
             $"V5TargetRebound OldId={oldTargetId}, " +
             $"NewId={currentTargetId}, " +
+            $"Generation={currentTargetGeneration}, " +
             $"Type={currentTargetType}, " +
             $"Y={currentTargetY:F2}, " +
             $"MatchScore={bestMatchScore:F2}, " +
@@ -1087,6 +1435,7 @@ public sealed partial class AutoClimberRuntime
             failureReason == "GameObjectInactive" ||
             failureReason == "ColliderDisabled" ||
             failureReason == "RecycledHeightChanged" ||
+            failureReason == "RecycledGenerationChanged" ||
             failureReason == "TargetReadException";
 
         if (!transientFailure ||
@@ -1112,6 +1461,13 @@ public sealed partial class AutoClimberRuntime
             currentTargetObservationLostAt = Time.time;
             currentTargetObservationLostReason =
                 failureReason;
+
+            runLifecycleLosses++;
+
+            RememberLifecycleHazard(
+                currentTargetY,
+                currentTargetType
+            );
 
             RecordFailureTrace(
                 $"V5TargetTemporarilyUnobserved Id={currentTargetId}, " +
@@ -1189,50 +1545,72 @@ public sealed partial class AutoClimberRuntime
         Vector3 playerPosition,
         Vector2 playerVelocity,
         int blockedTargetId,
-        bool blockedTargetActive)
+        int blockedTargetGeneration,
+        bool blockedTargetActive,
+        bool allowEmergency,
+        float previousTargetY,
+        PlatformType previousTargetType)
     {
-        if (proposedDecision == null)
-        {
-            return null;
-        }
-
         float maximumReachRatio =
             IsHighAltitudeMode()
                 ? LateReplanHighAltitudeMaximumReachRatio
                 : LateReplanLowAltitudeMaximumReachRatio;
 
-        bool proposedIsSafe =
-            proposedDecision.ReachRatio <=
-                maximumReachRatio &&
-            proposedDecision.LandingMargin >=
-                LateReplanMinimumLandingMargin;
+        float preferredHeightGain =
+            previousTargetType == PlatformType.Golden
+                ? LifecycleFallbackPreferredGoldenGain
+                : previousTargetType == PlatformType.Strong ||
+                  currentLaunchVelocityY >= 40f
+                    ? LifecycleFallbackPreferredStrongGain
+                    : LifecycleFallbackPreferredNormalGain;
 
-        if (proposedIsSafe)
-        {
-            return proposedDecision;
-        }
+        float preferredWorldLimit =
+            IsHighAltitudeMode()
+                ? HighAltitudePreferredWorldLimit
+                : PreferredLandingWorldLimit;
+
+        float absoluteWorldLimit =
+            IsHighAltitudeMode()
+                ? HighAltitudeAbsoluteWorldLimit
+                : HorizontalWorldLimit;
 
         V5RouteDecision safestAlternative = null;
+        float safestAlternativeScore =
+            float.MinValue;
+
+        V5RouteDecision physicalFallback = null;
+        float physicalFallbackScore =
+            float.MinValue;
+
+        V5RouteDecision edgeSafePhysicalFallback = null;
+        float edgeSafePhysicalFallbackScore =
+            float.MinValue;
+
+        V5RouteDecision retentionSafePhysicalFallback = null;
+        float retentionSafePhysicalFallbackScore =
+            float.MinValue;
 
         foreach (PlatformCandidate candidate
                  in planner.Candidates)
         {
             if (!IsBaseCandidateUsable(candidate) ||
                 (blockedTargetActive &&
-                 candidate.InstanceId == blockedTargetId))
+                 candidate.InstanceId == blockedTargetId &&
+                 candidate.Generation ==
+                    blockedTargetGeneration))
             {
                 continue;
             }
 
             V5RouteDecision decision =
-                v5RoutePlanner.EvaluatePersistentTarget(
+                v5RoutePlanner.EvaluateLateReplanCandidate(
                     candidate,
                     planner.Candidates,
                     playerPosition,
                     playerVelocity,
                     lastBounceY,
                     IsHighAltitudeMode(),
-                    true,
+                    allowEmergency,
                     finishHeight
                 );
 
@@ -1244,32 +1622,172 @@ public sealed partial class AutoClimberRuntime
                 continue;
             }
 
-            if (safestAlternative == null ||
-                decision.Score >
-                    safestAlternative.Score)
+            float heightGain =
+                previousTargetY > 0f
+                    ? candidate.CurrentPosition.y -
+                        previousTargetY
+                    : preferredHeightGain;
+
+            float fallbackScore =
+                decision.Score -
+                Mathf.Max(
+                    0f,
+                    preferredHeightGain -
+                        heightGain
+                ) * 420f -
+                Mathf.Max(
+                    0f,
+                    decision.LandingTime -
+                        LateReplanPreferredLandingTime
+                ) * 700f +
+                decision.CenterReturnSuccessorCount *
+                    260f;
+
+            if (candidate.GenerationStable)
+            {
+                fallbackScore += 220f;
+            }
+            else
+            {
+                fallbackScore -= 420f;
+            }
+
+            if (heightGain < 3f)
+            {
+                fallbackScore -= 750f;
+            }
+
+            float absoluteLandingX =
+                Mathf.Abs(
+                    decision.CenterwardLandingX
+                );
+
+            bool edgeSafe =
+                decision.IsFinishApproach ||
+                absoluteLandingX <=
+                    preferredWorldLimit ||
+                (absoluteLandingX <= absoluteWorldLimit &&
+                 decision.InwardLandingPlanned &&
+                 decision.CenterReturnSuccessorCount > 0);
+
+            bool stableEnough =
+                candidate.GenerationStable &&
+                !candidate.RecentlyRecycled &&
+                (!candidate.IsMoving &&
+                 candidate.Type != PlatformType.Breakable &&
+                 decision.ApexOvershoot <=
+                    RetentionPreferredApexOvershoot ||
+                 candidate.ConsecutiveObservations >= 3);
+
+            bool landingTimeSafe =
+                decision.LandingTime <=
+                    LateReplanPreferredLandingTime ||
+                (decision.LandingTime <=
+                    LateReplanMaximumSafeLandingTime &&
+                 decision.ApexOvershoot <= 6.50f);
+
+            bool retentionSafe =
+                decision.IsFinishApproach ||
+                (decision.ApexOvershoot <=
+                    RetentionMaximumSafeApexOvershoot &&
+                 landingTimeSafe &&
+                 stableEnough);
+
+            decision.RetentionSafe =
+                retentionSafe;
+
+            decision.EdgeSafe =
+                edgeSafe;
+
+            decision.IsEdgeLastResort =
+                !edgeSafe;
+
+            if (edgeSafe &&
+                retentionSafe &&
+                (safestAlternative == null ||
+                 fallbackScore >
+                    safestAlternativeScore))
             {
                 safestAlternative = decision;
+                safestAlternativeScore =
+                    fallbackScore;
+            }
+
+            if (retentionSafe &&
+                (retentionSafePhysicalFallback == null ||
+                 fallbackScore >
+                    retentionSafePhysicalFallbackScore))
+            {
+                retentionSafePhysicalFallback = decision;
+                retentionSafePhysicalFallbackScore =
+                    fallbackScore;
+            }
+
+            if (physicalFallback == null ||
+                fallbackScore >
+                    physicalFallbackScore)
+            {
+                physicalFallback = decision;
+                physicalFallbackScore =
+                    fallbackScore;
+            }
+
+            if (edgeSafe &&
+                (edgeSafePhysicalFallback == null ||
+                 fallbackScore >
+                    edgeSafePhysicalFallbackScore))
+            {
+                edgeSafePhysicalFallback = decision;
+                edgeSafePhysicalFallbackScore =
+                    fallbackScore;
             }
         }
 
-        if (safestAlternative == null ||
-            safestAlternative.Candidate.InstanceId ==
-                proposedDecision.Candidate.InstanceId)
+        V5RouteDecision selected =
+            safestAlternative;
+
+        if (selected == null)
         {
-            return proposedDecision;
+            selected =
+                retentionSafePhysicalFallback ??
+                edgeSafePhysicalFallback ??
+                physicalFallback;
+        }
+
+        if (selected == null)
+        {
+            return null;
+        }
+
+        bool sameAsProposed =
+            proposedDecision != null &&
+            proposedDecision.Candidate != null &&
+            selected.Candidate.InstanceId ==
+                proposedDecision.Candidate.InstanceId &&
+            selected.Candidate.Generation ==
+                proposedDecision.Candidate.Generation;
+
+        if (sameAsProposed)
+        {
+            return selected;
         }
 
         RecordFailureTrace(
-            $"V5LateReplanSafetyOverride OldId=" +
-            $"{proposedDecision.Candidate.InstanceId}, " +
-            $"OldReach={proposedDecision.ReachRatio:F2}, " +
-            $"OldMargin={proposedDecision.LandingMargin:F2}, " +
-            $"NewId={safestAlternative.Candidate.InstanceId}, " +
-            $"NewReach={safestAlternative.ReachRatio:F2}, " +
-            $"NewMargin={safestAlternative.LandingMargin:F2}"
+            $"V5LateReplanSurvivalChoice " +
+            $"OldId={blockedTargetId}, " +
+            $"OldGeneration={blockedTargetGeneration}, " +
+            $"OldY={previousTargetY:F2}, " +
+            $"NewId={selected.Candidate.InstanceId}, " +
+            $"NewGeneration={selected.Candidate.Generation}, " +
+            $"NewY={selected.Candidate.CurrentPosition.y:F2}, " +
+            $"NewReach={selected.ReachRatio:F2}, " +
+            $"NewMargin={selected.LandingMargin:F2}, " +
+            $"ApexDrop={selected.ApexOvershoot:F2}, " +
+            $"StableScans={selected.Candidate.ConsecutiveObservations}, " +
+            $"StrictSafe={safestAlternative != null}"
         );
 
-        return safestAlternative;
+        return selected;
     }
 
     private void RecordV5MissSnapshot(
@@ -1335,6 +1853,10 @@ public sealed partial class AutoClimberRuntime
         V5RouteDecision decision)
     {
         currentTargetPredictedX =
+            decision.CenterwardLandingX;
+
+        currentTargetLandingOffsetX =
+            decision.CenterwardLandingX -
             decision.LandingX;
 
         currentTargetY =
@@ -1342,7 +1864,7 @@ public sealed partial class AutoClimberRuntime
                 .CurrentPosition.y;
 
         currentTargetSafeHalfWidth =
-            decision.EffectiveSafeHalfWidth;
+            decision.ControlHalfWidth;
 
         currentTargetExpectedLandingAt =
             Time.time +
@@ -1353,6 +1875,34 @@ public sealed partial class AutoClimberRuntime
 
         currentTargetReachRatio =
             decision.ReachRatio;
+    }
+
+    private float ApplyCurrentTargetLandingBias(
+        float platformCenterX)
+    {
+        float offsetMagnitude =
+            Mathf.Abs(
+                currentTargetLandingOffsetX
+            );
+
+        float absoluteCenterX =
+            Mathf.Abs(platformCenterX);
+
+        if (offsetMagnitude <= 0.001f ||
+            absoluteCenterX <= 0.001f)
+        {
+            return platformCenterX;
+        }
+
+        float appliedOffset =
+            Mathf.Min(
+                offsetMagnitude,
+                absoluteCenterX * 0.50f
+            );
+
+        return platformCenterX -
+               Mathf.Sign(platformCenterX) *
+                   appliedOffset;
     }
 
     private void UpdateCurrentTarget(
@@ -2079,6 +2629,8 @@ public sealed partial class AutoClimberRuntime
 
         if (candidate.InstanceId ==
                 failedTargetId &&
+            candidate.Generation ==
+                failedTargetGeneration &&
             Time.time <
                 failedTargetUntilTime)
         {
@@ -2114,8 +2666,11 @@ public sealed partial class AutoClimberRuntime
             return true;
         }
 
-        if (rejectedTargetIds.Contains(
-                candidate.InstanceId))
+        if (rejectedTargetKeys.Contains(
+                GetPlatformIdentityKey(
+                    candidate.InstanceId,
+                    candidate.Generation
+                )))
         {
             return true;
         }
@@ -2158,12 +2713,16 @@ public sealed partial class AutoClimberRuntime
         failedTargetId =
             currentTargetId;
 
+        failedTargetGeneration =
+            currentTargetGeneration;
+
         failedTargetUntilTime =
             Time.time +
             FailedTargetCooldownSeconds;
 
         RecordFailureTrace(
             $"TargetBlocked Id={currentTargetId}, " +
+            $"Generation={currentTargetGeneration}, " +
             $"Type={currentTargetType}, Y={currentTargetY:F2}, " +
             $"Reason={reason}"
         );
@@ -2187,8 +2746,11 @@ public sealed partial class AutoClimberRuntime
             return;
         }
 
-        rejectedTargetIds.Add(
-            candidate.InstanceId
+        rejectedTargetKeys.Add(
+            GetPlatformIdentityKey(
+                candidate.InstanceId,
+                candidate.Generation
+            )
         );
 
         AddRejectedSignature(
@@ -2199,6 +2761,7 @@ public sealed partial class AutoClimberRuntime
         LogVerbose(
             $"Route node rejected: " +
             $"Id={candidate.InstanceId}, " +
+            $"Generation={candidate.Generation}, " +
             $"Type={candidate.Type}, " +
             $"Sprite={candidate.SpriteName}, " +
             $"Y={candidate.CurrentPosition.y:F2}. " +
@@ -3317,6 +3880,7 @@ public sealed partial class AutoClimberRuntime
         LogVerbose(
             $"Target selected: " +
             $"Id={candidate.InstanceId}, " +
+            $"Generation={candidate.Generation}, " +
             $"Type={candidate.Type}, " +
             $"Sprite={candidate.SpriteName}, " +
             $"CurrentX=" +
@@ -3339,7 +3903,8 @@ public sealed partial class AutoClimberRuntime
             $"MaximumReach=" +
             $"{candidate.MaximumHorizontalReach:F2}, " +
             $"Priority=" +
-            $"{candidate.PriorityScore:F2}"
+            $"{candidate.PriorityScore:F2}, " +
+            $"StableScans={candidate.ConsecutiveObservations}"
         );
     }
 
@@ -3401,6 +3966,7 @@ public sealed partial class AutoClimberRuntime
             LogVerbose(
                 $"Top candidate {index + 1}: " +
                 $"Id={candidate.InstanceId}, " +
+                $"Generation={candidate.Generation}, " +
                 $"Type={candidate.Type}, " +
                 $"CurrentX=" +
                 $"{candidate.CurrentPosition.x:F2}, " +
@@ -3429,6 +3995,162 @@ public sealed partial class AutoClimberRuntime
                     : "no reachable candidates and no locked target.")
             );
         }
+    }
+
+    [HideFromIl2Cpp]
+    private void RememberLifecycleHazard(
+        float platformY,
+        PlatformType platformType)
+    {
+        float expiresAt =
+            Time.time +
+            LifecycleHazardLifetimeSeconds;
+
+        for (int index = 0;
+             index < lifecycleHazardYs.Count;
+             index++)
+        {
+            if (Mathf.Abs(
+                    lifecycleHazardYs[index] -
+                    platformY
+                ) <= 0.50f &&
+                IsLogicalTargetTypeCompatible(
+                    lifecycleHazardTypes[index],
+                    platformType
+                ))
+            {
+                lifecycleHazardExpiresAt[index] =
+                    expiresAt;
+                return;
+            }
+        }
+
+        lifecycleHazardYs.Add(platformY);
+        lifecycleHazardTypes.Add(platformType);
+        lifecycleHazardExpiresAt.Add(expiresAt);
+
+        while (lifecycleHazardYs.Count > 8)
+        {
+            lifecycleHazardYs.RemoveAt(0);
+            lifecycleHazardTypes.RemoveAt(0);
+            lifecycleHazardExpiresAt.RemoveAt(0);
+        }
+    }
+
+    private void ClearLifecycleHazards()
+    {
+        lifecycleHazardYs.Clear();
+        lifecycleHazardTypes.Clear();
+        lifecycleHazardExpiresAt.Clear();
+    }
+
+    private void ApplyLifecycleHazardPenalties()
+    {
+        for (int index =
+                 lifecycleHazardYs.Count - 1;
+             index >= 0;
+             index--)
+        {
+            if (Time.time <=
+                lifecycleHazardExpiresAt[index])
+            {
+                continue;
+            }
+
+            lifecycleHazardYs.RemoveAt(index);
+            lifecycleHazardTypes.RemoveAt(index);
+            lifecycleHazardExpiresAt.RemoveAt(index);
+        }
+
+        foreach (PlatformCandidate candidate
+                 in planner.Candidates)
+        {
+            if (candidate == null)
+            {
+                continue;
+            }
+
+            candidate.LifecycleHazardPenalty = 0f;
+
+            for (int index = 0;
+                 index < lifecycleHazardYs.Count;
+                 index++)
+            {
+                float heightDistance =
+                    Mathf.Abs(
+                        candidate.CurrentPosition.y -
+                        lifecycleHazardYs[index]
+                    );
+
+                if (heightDistance >
+                    LifecycleHazardHeightTolerance)
+                {
+                    continue;
+                }
+
+                float lifetimeRatio =
+                    Mathf.Clamp01(
+                        (lifecycleHazardExpiresAt[index] -
+                         Time.time) /
+                        LifecycleHazardLifetimeSeconds
+                    );
+
+                float typeFactor =
+                    IsLogicalTargetTypeCompatible(
+                        lifecycleHazardTypes[index],
+                        candidate.Type
+                    )
+                        ? 1f
+                        : 0.70f;
+
+                float penalty =
+                    1200f *
+                    (1f -
+                     heightDistance /
+                        LifecycleHazardHeightTolerance) *
+                    lifetimeRatio *
+                    typeFactor;
+
+                candidate.LifecycleHazardPenalty =
+                    Mathf.Max(
+                        candidate.LifecycleHazardPenalty,
+                        penalty
+                    );
+            }
+        }
+    }
+
+    private void ObservePlatformGenerationResets()
+    {
+        foreach (PlatformCandidate candidate
+                 in planner.Candidates)
+        {
+            if (candidate == null ||
+                !candidate.RecentlyRecycled)
+            {
+                continue;
+            }
+
+            long key = GetPlatformIdentityKey(
+                candidate.InstanceId,
+                candidate.Generation
+            );
+
+            if (!observedGenerationResetKeys.Add(key))
+            {
+                continue;
+            }
+
+            runGenerationResets++;
+        }
+    }
+
+    private long GetPlatformIdentityKey(
+        int instanceId,
+        int generation)
+    {
+        return ((long)instanceId << 32) ^
+               (uint)generation;
     }
 
     private void UpdateAutomaticHorizontalControl(
@@ -3538,13 +4260,33 @@ public sealed partial class AutoClimberRuntime
                     Time.time
             );
 
-        if (TryRefreshPersistentTargetCandidate())
+        string refreshFailureReason;
+
+        if (TryRefreshPersistentTargetCandidate(
+                out refreshFailureReason))
         {
             currentTargetPredictedX =
-                v5RoutePlanner.PredictPlatformX(
-                    currentTargetCandidate,
-                    remainingLandingTime
+                ApplyCurrentTargetLandingBias(
+                    v5RoutePlanner.PredictPlatformX(
+                        currentTargetCandidate,
+                        remainingLandingTime
+                    )
                 );
+        }
+        else
+        {
+            if (!emergencyPlatformRescanPending)
+            {
+                nextPlatformScanTime = 0f;
+                emergencyPlatformRescanPending = true;
+                runEmergencyRescans++;
+
+                RecordFailureTrace(
+                    $"V5EmergencyRescan Id={currentTargetId}, " +
+                    $"Generation={currentTargetGeneration}, " +
+                    $"Reason={refreshFailureReason}"
+                );
+            }
         }
 
         float projectedPlayerX =
