@@ -20,9 +20,9 @@ internal sealed class ShardsNecklaceService
     private float nextDiagnosticTime;
     private bool missingLogged;
 
-    internal void Tick(float now)
+    internal bool Tick(float now)
     {
-        if (!Plugin.Config.EnableShardsNecklaceScrapOverflow.Value || now < nextCheckTime) return;
+        if (!Plugin.Config.EnableShardsNecklaceScrapOverflow.Value || now < nextCheckTime) return false;
         nextCheckTime = now + CheckIntervalSeconds;
 
         Drop scrap = Drops.list?.Scrap;
@@ -34,7 +34,7 @@ internal sealed class ShardsNecklaceService
                 ProgressionLog.Debug($"Shards Necklace objects unavailable. Scrap={scrap != null}, Item={item != null}.");
                 missingLogged = true;
             }
-            return;
+            return false;
         }
 
         missingLogged = false;
@@ -42,7 +42,7 @@ internal sealed class ShardsNecklaceService
         bool extraCondition = item.ExtraCondition();
 
         double maximum = scrap.GetMaxAmount();
-        if (maximum <= 0d) return;
+        if (maximum <= 0d) return false;
 
         double threshold = Math.Clamp(
             Plugin.Config.ShardsNecklaceScrapThresholdPercent.Value,
@@ -59,8 +59,8 @@ internal sealed class ShardsNecklaceService
                 $"CanCraft={item.HowManyCanCraft()}.");
         }
 
-        if (!tabVisible || !extraCondition) return;
-        if (scrap.amount / maximum < threshold) return;
+        if (!tabVisible || !extraCondition) return false;
+        if (scrap.amount / maximum < threshold) return false;
 
         int crafted = 0;
         while (crafted < MaxCraftsPerTick && scrap.amount / maximum >= threshold)
@@ -80,7 +80,10 @@ internal sealed class ShardsNecklaceService
         {
             ProgressionLog.Info(
                 $"Shards Necklace Scrap overflow: crafted {crafted}, Scrap={scrap.amount:0.##}/{maximum:0.##} ({scrap.amount / maximum:P1}).");
+            return true;
         }
+
+        return false;
     }
 
     private void BuyMissingRequirements()

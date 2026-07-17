@@ -9,32 +9,42 @@ internal sealed class AutomaticBoostService
 {
     private const float CheckIntervalSeconds = 0.1f;
     private const float PostAscensionDelaySeconds = 5f;
-    private const float RunnerStableSeconds = 2f;
-    private const float MinimumTriggerDebounceSeconds = 0.5f;
+    // MainScreenGuard already owns the post-transition stabilization delay.
+    // Keeping a second delay here made Auto Boost wait again after the screen
+    // had already been declared safe.
+    private const float RunnerStableSeconds = 0f;
     private const float RepeatedActionLogIntervalSeconds = 30f;
     private const int RequiredStableAbilityChecks = 3;
 
     private float nextCheckTime;
     private float suspendedUntil;
-    private float nextAllowedTriggerTime;
     private float runnerValidSince = -1f;
+    private float cooldownReadySince = -1f;
     private float nextTriggerLogTime;
     private bool hasFirstSkillState;
     private bool previousFirstSkillBought;
     private string stableAbilityType = string.Empty;
     private int stableAbilityChecks;
     private bool managerMissingLogged;
+    private bool immediateActivationRequested;
+
+    internal void RequestImmediateActivation(float now)
+    {
+        immediateActivationRequested = true;
+        runnerValidSince = now - RunnerStableSeconds;
+    }
 
     internal void Tick(float now, bool enabled)
     {
         if (!enabled)
         {
+            immediateActivationRequested = false;
             runnerValidSince = -1f;
             ResetAbilityStability();
             return;
         }
 
-        if (!IsRunnerStable(now)) return;
+        if (!IsGameplayStateStable(now)) return;
         ObserveAscensionReset(now);
         if (now < nextCheckTime) return;
         nextCheckTime = now + CheckIntervalSeconds;
@@ -57,21 +67,62 @@ internal sealed class AutomaticBoostService
 
             managerMissingLogged = false;
             Ability selected = manager.selectedAbility;
-            if (!TrackStableSupportedAbility(selected)) return;
-            if (now < suspendedUntil || now < nextAllowedTriggerTime) return;
+            bool immediate = immediateActivationRequested;
+            if (immediate)
+            {
+                if (selected is not Boost && selected is not WindDash)
+                {
+                    immediateActivationRequested = false;
+                    ResetAbilityStability();
+                    return;
+                }
+            }
+            else if (!TrackStableSupportedAbility(selected)) return;
+
+            if (now < suspendedUntil) return;
             if (!selected.Unlocked())
             {
+                immediateActivationRequested = false;
                 ResetAbilityStability();
                 return;
             }
-            if (selected.GetCurrentCooldown() > 0d) return;
+            if (selected.GetCurrentCooldown() > 0d)
+            {
+                immediateActivationRequested = false;
+                cooldownReadySince = -1f;
+                return;
+            }
+
+            if (!immediate && cooldownReadySince < 0f)
+            {
+                cooldownReadySince = now;
+                return;
+            }
+
+            float activationDelay = Math.Max(0f,
+                Plugin.Config.AutoBoostActivationDelaySeconds.Value);
+            if (!immediate && now - cooldownReadySince < activationDelay) return;
+
+            // Wind Dash can pass above portals and elite enemies when it is
+            // activated during a jump. Ground contact is map-independent and
+            // is therefore safer than comparing an absolute world Y value.
+            // Once the ability is ready, poll every frame until the player is
+            // back at the safe height; no additional activation delay is used.
+            if (selected is WindDash &&
+                Plugin.Config.WindDashRequireGrounded.Value &&
+                !IsWindDashHeightSafe())
+            {
+                nextCheckTime = now;
+                return;
+            }
 
             // Ability.Activate() does not reliably publish its cooldown before
             // the next managed poll. Mirror the proven game-mod path and write
-            // the authoritative cooldown immediately, plus a local debounce.
+            // the authoritative cooldown immediately.
             selected.Activate();
             selected.currentCd = selected.GetCooldown();
-            nextAllowedTriggerTime = now + MinimumTriggerDebounceSeconds;
+            immediateActivationRequested = false;
+            cooldownReadySince = -1f;
             if (now >= nextTriggerLogTime)
             {
                 nextTriggerLogTime = now + RepeatedActionLogIntervalSeconds;
@@ -86,9 +137,10 @@ internal sealed class AutomaticBoostService
         }
     }
 
-    private bool IsRunnerStable(float now)
+    private bool IsGameplayStateStable(float now)
     {
-        if (GameState.current != GameStates.RunnerMode)
+        GameStates state = GameState.current;
+        if (state != GameStates.RunnerMode && state != GameStates.RageMode)
         {
             runnerValidSince = -1f;
             ResetAbilityStability();
@@ -158,7 +210,6 @@ internal sealed class AutomaticBoostService
     private void SuspendAndClear(float now, float seconds)
     {
         suspendedUntil = Math.Max(suspendedUntil, now + Math.Max(0f, seconds));
-        nextAllowedTriggerTime = suspendedUntil;
         ResetAbilityStability();
         managerMissingLogged = false;
     }
@@ -167,21 +218,28 @@ internal sealed class AutomaticBoostService
     {
         stableAbilityType = string.Empty;
         stableAbilityChecks = 0;
+        cooldownReadySince = -1f;
     }
 
     private static string GetAbilityName(Ability ability) =>
         ability?.GetIl2CppType()?.Name ?? "Unknown";
 
+    private static bool IsWindDashHeightSafe()
+    {
+        PlayerMovement player = PlayerMovement.instance;
+        return player != null && player.IsGrounded();
+    }
+
     internal void Reset()
     {
         nextCheckTime = 0f;
         suspendedUntil = 0f;
-        nextAllowedTriggerTime = 0f;
         nextTriggerLogTime = 0f;
         runnerValidSince = -1f;
         hasFirstSkillState = false;
         previousFirstSkillBought = false;
         managerMissingLogged = false;
+        immediateActivationRequested = false;
         ResetAbilityStability();
     }
 }

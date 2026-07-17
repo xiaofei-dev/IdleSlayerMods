@@ -7,63 +7,52 @@ namespace AutoAdventurer.Gameplay;
 
 internal sealed class SliderSkipService
 {
-    private const string OverlayPath = "UIManager/Popup Slider/Overlay";
-    private const string SliderPath =
-        "UIManager/Popup Slider/Overlay/Panel/Confirm Button/Slider";
     private const float CheckIntervalSeconds = 0.1f;
 
     private float nextCheckTime;
     private bool handledCurrentStage;
+    private bool visibleLogged;
 
     internal void Tick(float now)
     {
         if (!Plugin.Config.SkipBonusStartSlider.Value)
         {
             handledCurrentStage = false;
+            visibleLogged = false;
             return;
         }
-
-        // The slider exists only while a special stage is waiting to start.
-        // Avoid touching its transient IL2CPP UI hierarchy during normal play.
-        GameStates state = GameState.current;
-        if (state != GameStates.PreBonusMode && state != GameStates.PreBossMode)
-        {
-            handledCurrentStage = false;
-            return;
-        }
-
-        // A special stage presents this slider only once. After a successful
-        // confirmation, remain completely idle until the stage state changes.
-        if (handledCurrentStage) return;
 
         if (now < nextCheckTime) return;
         nextCheckTime = now + CheckIntervalSeconds;
 
         try
         {
-            // GameObject.Find only returns active hierarchy objects. Resolve
-            // transient UI references on demand so no IL2CPP wrapper survives
-            // a popup rebuild or minigame transition.
-            GameObject overlay = GameObject.Find(OverlayPath);
-            bool active = overlay != null && overlay.activeInHierarchy;
-            if (active)
+            PopupSlider popup = PopupSlider.instance;
+            if (popup == null || !popup.IsVisible())
             {
-                GameObject sliderObject = GameObject.Find(SliderPath);
-                BonusStartSlider slider =
-                    sliderObject?.GetComponent<BonusStartSlider>();
-                if (slider?.confirmAction != null)
-                {
-                    slider.confirmAction.Invoke();
-                    handledCurrentStage = true;
-                    AdventurerLog.User("Bonus start slider skipped.");
-                }
-                else
-                {
-                    AdventurerLog.Debug(
-                        "Bonus start slider became active but its action was unavailable.");
-                }
+                handledCurrentStage = false;
+                visibleLogged = false;
+                return;
             }
 
+            if (!visibleLogged)
+            {
+                visibleLogged = true;
+                AdventurerLog.Debug("Bonus start slider detected.");
+            }
+
+            // The popup can appear while GameState still reports RunnerMode.
+            // Wait until its own slider has completed initialization, then
+            // invoke exactly once for this visible popup.
+            if (handledCurrentStage) return;
+
+            BonusStartSlider slider = popup.slider;
+            if (slider == null || !slider.sliderReady || slider.confirmAction == null)
+                return;
+
+            handledCurrentStage = true;
+            slider.confirmAction.Invoke();
+            AdventurerLog.User("Bonus start slider skipped.");
         }
         catch (Exception exception)
         {
@@ -77,5 +66,6 @@ internal sealed class SliderSkipService
     {
         nextCheckTime = 0f;
         handledCurrentStage = false;
+        visibleLogged = false;
     }
 }

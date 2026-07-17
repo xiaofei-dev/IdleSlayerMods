@@ -24,9 +24,9 @@ internal sealed class TimedCraftableService
         };
     }
 
-    internal void Tick(float now)
+    internal bool Tick(float now)
     {
-        if (now < nextCheckTime) return;
+        if (now < nextCheckTime) return false;
         nextCheckTime = now + CheckIntervalSeconds;
         float refillAtMinutes = Mathf.Max(0f, Plugin.Config.TimedCraftablesRefillAtMinutes.Value);
         float targetMinutes = Mathf.Max(
@@ -76,7 +76,10 @@ internal sealed class TimedCraftableService
             double previousRemaining = entry.Item.currentTime;
             entry.Item.Craft();
             ProgressionLog.Debug($"{entry.DisplayName} crafted at {previousRemaining:0.0}s remaining.");
+            return true;
         }
+
+        return false;
     }
 
     private void BuyMissingRequirements(TemporaryCraftableItem item)
@@ -111,7 +114,11 @@ internal sealed class TimedCraftableService
     {
         nextCheckTime = 0f;
         foreach (Entry entry in entries)
+        {
+            entry.Item = null;
+            entry.MissingLogged = false;
             entry.Refilling = false;
+        }
     }
 
     private sealed class Entry

@@ -36,6 +36,22 @@ internal sealed class ClimbRoutePlanner
     private const float LowAltitudeAbsoluteReachRatio = 1.05f;
     private const float EmergencyAbsoluteReachRatio = 1.08f;
 
+    // Runtime evidence shows a sharp lifecycle boundary: successful locked
+    // landings stay at or below roughly 8.6 world units beneath the apex,
+    // while failed pooled targets begin around 8.7. Treat 7.25 as preferred
+    // and 8.50 as the safe upper tier. Risky routes remain available only as
+    // a last resort so unique layouts are not filtered out.
+    private const float PreferredApexOvershoot = 7.25f;
+    private const float MaximumSafeApexOvershoot = 8.50f;
+    private const float PreferredLifecycleLandingTime = 2.20f;
+    private const float MaximumSafeLifecycleLandingTime = 2.65f;
+    private const float MaximumSafeFutureLifecycleRisk = 1050f;
+
+    private const float LowAltitudePreferredWorldLimit = 3.50f;
+    private const float HighAltitudePreferredWorldLimit = 3.10f;
+    private const float LowAltitudeAbsoluteWorldLimit = 4.35f;
+    private const float HighAltitudeAbsoluteWorldLimit = 4.10f;
+
     internal V5RouteDecision SelectBest(
         IReadOnlyList<PlatformCandidate> candidates,
         Vector3 playerPosition,
@@ -44,7 +60,9 @@ internal sealed class ClimbRoutePlanner
         bool highAltitude,
         bool allowEmergency,
         int excludedTargetId,
+        int excludedTargetGeneration,
         int failedTargetId,
+        int failedTargetGeneration,
         bool failedTargetBlocked,
         float finishHeight,
         out int forwardFeasibleCount)
@@ -60,7 +78,9 @@ internal sealed class ClimbRoutePlanner
             if (!IsCandidateUsable(
                     candidate,
                     excludedTargetId,
+                    excludedTargetGeneration,
                     failedTargetId,
+                    failedTargetGeneration,
                     failedTargetBlocked))
             {
                 continue;
@@ -108,53 +128,15 @@ internal sealed class ClimbRoutePlanner
 
         forwardFeasibleCount = forward.Count;
 
-        int continuingCandidates = 0;
+        ApplySurvivalTiers(
+            forward,
+            highAltitude
+        );
 
-        foreach (V5RouteDecision decision in forward)
-        {
-            if (decision.SuccessorCount > 0)
-            {
-                continuingCandidates++;
-            }
-        }
-
-        if (highAltitude &&
-            continuingCandidates > 0)
-        {
-            bool constrainedChain =
-                continuingCandidates <= 2;
-
-            foreach (V5RouteDecision decision in forward)
-            {
-                if (decision.SuccessorCount == 0)
-                {
-                    decision.Score -= 1400f;
-                    continue;
-                }
-
-                if (constrainedChain)
-                {
-                    decision.Score += 320f;
-                }
-            }
-        }
-        else if (highAltitude)
-        {
-            // The camera has not revealed a confirmed successor for any
-            // candidate yet. Prefer a short, stable provisional landing over
-            // a three-second breakable leap that can be recycled mid-flight.
-            foreach (V5RouteDecision decision in forward)
-            {
-                decision.Score -=
-                    decision.LandingTime * 240f;
-
-                if (decision.Candidate.Type ==
-                    PlatformType.Breakable)
-                {
-                    decision.Score -= 360f;
-                }
-            }
-        }
+        ApplySurvivalTiers(
+            emergency,
+            highAltitude
+        );
 
         V5RouteDecision best = FindHighestScore(forward);
 
@@ -191,6 +173,32 @@ internal sealed class ClimbRoutePlanner
             targetWasEmergency,
             finishHeight,
             true
+        );
+    }
+
+    internal V5RouteDecision EvaluateLateReplanCandidate(
+        PlatformCandidate candidate,
+        IReadOnlyList<PlatformCandidate> candidates,
+        Vector3 playerPosition,
+        Vector2 playerVelocity,
+        float lastBounceY,
+        bool highAltitude,
+        bool allowEmergency,
+        float finishHeight)
+    {
+        // This is a newly selected rescue route, not an already committed
+        // target. Keep the V5.1 minimum descending-impact checks active and
+        // respect the caller's timing gate before allowing a controlled drop.
+        return Evaluate(
+            candidate,
+            candidates,
+            playerPosition,
+            playerVelocity,
+            lastBounceY,
+            highAltitude,
+            allowEmergency,
+            finishHeight,
+            false
         );
     }
 
@@ -318,6 +326,15 @@ internal sealed class ClimbRoutePlanner
             return decision;
         }
 
+        bool finishApproach =
+            IsFinishApproach(
+                candidate.CurrentPosition.y,
+                finishHeight
+            );
+
+        decision.IsFinishApproach =
+            finishApproach;
+
         float minimumDescendingSpeed =
             candidate.IsMoving ||
             candidate.Type == PlatformType.Breakable
@@ -348,19 +365,6 @@ internal sealed class ClimbRoutePlanner
                     movementUncertainty
             );
 
-        float centerDistance =
-            Mathf.Abs(
-                landingX -
-                playerPosition.x
-            );
-
-        float requiredDistance =
-            Mathf.Max(
-                0f,
-                centerDistance -
-                    safeHalfWidth
-            );
-
         float maximumReach =
             HorizontalMoveSpeed *
                 landingTime +
@@ -372,15 +376,59 @@ internal sealed class ClimbRoutePlanner
             return decision;
         }
 
-        float reachRatio =
-            requiredDistance /
-            maximumReach;
-
         float maximumReachRatio = emergencyTarget
             ? EmergencyAbsoluteReachRatio
             : highAltitude
                 ? HighAltitudeAbsoluteReachRatio
                 : LowAltitudeAbsoluteReachRatio;
+
+        bool inwardLandingPlanned =
+            !emergencyTarget &&
+            ShouldPlanInwardLanding(
+                landingX,
+                highAltitude
+            );
+
+        float plannedLandingX;
+        float controlHalfWidth;
+        float requiredDistance;
+
+        CalculateControlLandingInterval(
+            landingX,
+            safeHalfWidth,
+            playerPosition.x,
+            inwardLandingPlanned,
+            out plannedLandingX,
+            out controlHalfWidth,
+            out requiredDistance
+        );
+
+        float reachRatio =
+            requiredDistance /
+            maximumReach;
+
+        // An inward half-platform landing is preferred at the boundary. If it
+        // is not physically reachable, retain the full platform only as a
+        // last-resort route instead of turning a saveable jump into Target=None.
+        if (reachRatio > maximumReachRatio &&
+            inwardLandingPlanned)
+        {
+            inwardLandingPlanned = false;
+
+            CalculateControlLandingInterval(
+                landingX,
+                safeHalfWidth,
+                playerPosition.x,
+                false,
+                out plannedLandingX,
+                out controlHalfWidth,
+                out requiredDistance
+            );
+
+            reachRatio =
+                requiredDistance /
+                maximumReach;
+        }
 
         if (reachRatio > maximumReachRatio)
         {
@@ -409,6 +457,55 @@ internal sealed class ClimbRoutePlanner
             maximumReach -
             requiredDistance;
 
+        decision.CenterwardLandingX =
+            plannedLandingX;
+
+        decision.ControlHalfWidth =
+            controlHalfWidth;
+
+        decision.InwardLandingPlanned =
+            inwardLandingPlanned;
+
+        decision.EdgeReserve =
+            HorizontalWorldLimit -
+            Mathf.Abs(
+                decision.CenterwardLandingX
+            );
+
+        // Retention risk is about how long the platform must remain alive
+        // from now until contact. Once the player is descending, the historic
+        // apex is no longer future exposure and must not make a near-contact
+        // rescue look unsafe.
+        decision.PredictedApexY =
+            playerPosition.y +
+            (playerVelocity.y > 0f
+                ? playerVelocity.y * playerVelocity.y /
+                    (2f * GravityMagnitude)
+                : 0f);
+
+        decision.ApexOvershoot =
+            Mathf.Max(
+                0f,
+                decision.PredictedApexY -
+                    candidate.CurrentPosition.y
+            );
+
+        decision.GenerationStable =
+            candidate.GenerationStable;
+
+        decision.LifecycleRisk =
+            GetLifecycleRisk(
+                candidate,
+                landingTime,
+                decision.ApexOvershoot,
+                landingTime
+            );
+
+        if (finishApproach)
+        {
+            decision.LifecycleRisk = 0f;
+        }
+
         EvaluateRouteContinuity(
             decision,
             candidates,
@@ -423,9 +520,39 @@ internal sealed class ClimbRoutePlanner
         float edgeExposure =
             Mathf.Max(
                 0f,
-                Mathf.Abs(landingX) -
+                Mathf.Abs(decision.CenterwardLandingX) -
                     edgeStart
             );
+
+        decision.EdgeExposure = edgeExposure;
+
+        decision.RetentionSafe =
+            IsRetentionSafeDecision(decision);
+
+        float preferredWorldLimit = highAltitude
+            ? HighAltitudePreferredWorldLimit
+            : LowAltitudePreferredWorldLimit;
+
+        float absoluteWorldLimit = highAltitude
+            ? HighAltitudeAbsoluteWorldLimit
+            : LowAltitudeAbsoluteWorldLimit;
+
+        float absoluteCenterwardLandingX =
+            Mathf.Abs(
+                decision.CenterwardLandingX
+            );
+
+        decision.EdgeSafe =
+            finishApproach ||
+            absoluteCenterwardLandingX <=
+                preferredWorldLimit ||
+            (absoluteCenterwardLandingX <=
+                absoluteWorldLimit &&
+             decision.InwardLandingPlanned &&
+             decision.CenterReturnSuccessorCount > 0);
+
+        decision.IsEdgeLastResort =
+            !decision.EdgeSafe;
 
         float safetyScore =
             (1f - Mathf.Clamp01(reachRatio)) *
@@ -474,11 +601,12 @@ internal sealed class ClimbRoutePlanner
             safetyScore +
             GetTypeBonus(candidate.Type) +
             decision.RouteScore -
-            edgeExposure * 360f -
-            Mathf.Abs(landingX) * 12f -
+            edgeExposure * 520f -
+            Mathf.Abs(decision.CenterwardLandingX) * 12f -
             emergencyPenalty -
             movingPenalty -
-            longFlightPenalty;
+            longFlightPenalty -
+            decision.LifecycleRisk;
 
         decision.RejectionReason = "";
         return decision;
@@ -505,7 +633,7 @@ internal sealed class ClimbRoutePlanner
             GetExpectedBounceVelocity(source);
 
         int successorCount = 0;
-        int totalThirdStepOptions = 0;
+        int centerReturnSuccessorCount = 0;
         float bestSuccessorScore =
             float.MinValue;
 
@@ -522,49 +650,59 @@ internal sealed class ClimbRoutePlanner
             float successorTime;
             float successorX;
             float successorRatio;
+            float successorLifecycleRisk;
 
             if (!TryEvaluateFutureLeg(
                     source.CurrentPosition.y,
-                    sourceDecision.LandingX,
+                    sourceDecision.CenterwardLandingX,
                     sourceDecision.LandingTime,
                     launchVelocity,
                     successor,
                     highAltitude,
                     out successorTime,
                     out successorX,
-                    out successorRatio))
+                    out successorRatio,
+                    out successorLifecycleRisk))
             {
                 continue;
             }
 
             successorCount++;
 
-            int thirdOptions = CountThirdStepOptions(
-                successor,
-                successorX,
-                sourceDecision.LandingTime +
-                    successorTime,
-                candidates,
+            float preferredWorldLimit =
                 highAltitude
-            );
+                    ? HighAltitudePreferredWorldLimit
+                    : LowAltitudePreferredWorldLimit;
 
-            totalThirdStepOptions +=
-                Mathf.Min(thirdOptions, 3);
+            bool entersPreferredLane =
+                Mathf.Abs(successorX) <=
+                    preferredWorldLimit;
+
+            bool movesTowardCenter =
+                Mathf.Abs(successorX) <=
+                    Mathf.Abs(sourceDecision.CenterwardLandingX) -
+                        0.80f;
+
+            if (entersPreferredLane ||
+                movesTowardCenter)
+            {
+                centerReturnSuccessorCount++;
+            }
 
             float gain =
                 successor.CurrentPosition.y -
                 source.CurrentPosition.y;
 
             float successorScore =
-                gain * 28f +
+                gain * 10f +
                 (1f - Mathf.Clamp01(successorRatio)) *
-                    260f +
-                GetTypeBonus(successor.Type) * 0.45f +
-                Mathf.Min(thirdOptions, 3) * 65f -
+                    60f +
+                GetTypeBonus(successor.Type) * 0.10f -
+                successorLifecycleRisk * 0.08f -
                 Mathf.Max(
                     0f,
                     Mathf.Abs(successorX) - 3.10f
-                ) * 220f;
+                ) * 60f;
 
             bestSuccessorScore =
                 Mathf.Max(
@@ -576,72 +714,28 @@ internal sealed class ClimbRoutePlanner
         sourceDecision.SuccessorCount =
             successorCount;
 
-        sourceDecision.ThirdStepOptionCount =
-            totalThirdStepOptions;
+        sourceDecision.CenterReturnSuccessorCount =
+            centerReturnSuccessorCount;
 
         if (successorCount == 0)
         {
+            bool sourceIsBoost =
+                source.Type == PlatformType.Golden ||
+                source.Type == PlatformType.Strong;
+
             sourceDecision.RouteScore =
-                highAltitude
-                    ? -850f
-                    : -350f;
+                sourceIsBoost
+                    ? -20f
+                    : highAltitude
+                        ? -100f
+                        : -60f;
             return;
         }
 
         sourceDecision.RouteScore =
-            Mathf.Min(successorCount, 4) * 115f +
-            Mathf.Min(totalThirdStepOptions, 8) * 42f +
-            bestSuccessorScore * 0.50f;
-    }
-
-    private int CountThirdStepOptions(
-        PlatformCandidate source,
-        float sourceLandingX,
-        float elapsedFromNow,
-        IReadOnlyList<PlatformCandidate> candidates,
-        bool highAltitude)
-    {
-        int options = 0;
-        float launchVelocity =
-            GetExpectedBounceVelocity(source);
-
-        foreach (PlatformCandidate successor in candidates)
-        {
-            if (successor == null ||
-                successor.InstanceId ==
-                    source.InstanceId ||
-                !IsRealPlatformType(successor.Type))
-            {
-                continue;
-            }
-
-            float landingTime;
-            float landingX;
-            float reachRatio;
-
-            if (!TryEvaluateFutureLeg(
-                    source.CurrentPosition.y,
-                    sourceLandingX,
-                    elapsedFromNow,
-                    launchVelocity,
-                    successor,
-                    highAltitude,
-                    out landingTime,
-                    out landingX,
-                    out reachRatio))
-            {
-                continue;
-            }
-
-            options++;
-
-            if (options >= 4)
-            {
-                break;
-            }
-        }
-
-        return options;
+            Mathf.Min(successorCount, 3) * 25f +
+            Mathf.Min(centerReturnSuccessorCount, 1) * 35f +
+            Mathf.Clamp(bestSuccessorScore, -80f, 80f) * 0.35f;
     }
 
     private bool TryEvaluateFutureLeg(
@@ -653,11 +747,13 @@ internal sealed class ClimbRoutePlanner
         bool highAltitude,
         out float landingTime,
         out float landingX,
-        out float reachRatio)
+        out float reachRatio,
+        out float lifecycleRisk)
     {
         landingTime = -1f;
         landingX = 0f;
         reachRatio = float.MaxValue;
+        lifecycleRisk = float.MaxValue;
 
         float minimumProgress = highAltitude
             ? HighAltitudeMinimumProgress
@@ -681,6 +777,12 @@ internal sealed class ClimbRoutePlanner
             return false;
         }
 
+        if (landingTime >
+            MaximumSafeLifecycleLandingTime)
+        {
+            return false;
+        }
+
         float minimumDescendingSpeed =
             target.IsMoving ||
             target.Type == PlatformType.Breakable
@@ -693,7 +795,7 @@ internal sealed class ClimbRoutePlanner
             return false;
         }
 
-        landingX = PredictPlatformX(
+        float platformCenterX = PredictPlatformX(
             target,
             elapsedBeforeLaunch +
                 landingTime
@@ -705,15 +807,9 @@ internal sealed class ClimbRoutePlanner
                 GetBaseSafeHalfWidth(target.Type) -
                     GetMovementUncertainty(
                         target,
-                        landingTime
+                        elapsedBeforeLaunch +
+                            landingTime
                     )
-            );
-
-        float requiredDistance =
-            Mathf.Max(
-                0f,
-                Mathf.Abs(landingX - sourceX) -
-                    safeHalfWidth
             );
 
         float maximumReach =
@@ -726,17 +822,68 @@ internal sealed class ClimbRoutePlanner
             return false;
         }
 
-        reachRatio =
-            requiredDistance /
-            maximumReach;
-
         float maximumRatio = highAltitude
             ? 0.95f
             : 1.02f;
 
+        float ignoredControlHalfWidth;
+        float requiredDistance;
+        bool inwardLandingPlanned =
+            ShouldPlanInwardLanding(
+                platformCenterX,
+                highAltitude
+            );
+
+        CalculateControlLandingInterval(
+            platformCenterX,
+            safeHalfWidth,
+            sourceX,
+            inwardLandingPlanned,
+            out landingX,
+            out ignoredControlHalfWidth,
+            out requiredDistance
+        );
+
+        reachRatio =
+            requiredDistance /
+            maximumReach;
+
+        if (reachRatio > maximumRatio &&
+            inwardLandingPlanned)
+        {
+            CalculateControlLandingInterval(
+                platformCenterX,
+                safeHalfWidth,
+                sourceX,
+                false,
+                out landingX,
+                out ignoredControlHalfWidth,
+                out requiredDistance
+            );
+
+            reachRatio =
+                requiredDistance /
+                maximumReach;
+        }
+
+        float apexOvershoot =
+            descendingSpeed * descendingSpeed /
+                (2f * GravityMagnitude);
+
+        lifecycleRisk =
+            GetLifecycleRisk(
+                target,
+                landingTime,
+                apexOvershoot,
+                elapsedBeforeLaunch +
+                    landingTime
+            );
+
         return reachRatio <= maximumRatio &&
-               Mathf.Abs(landingX) <=
-                   HorizontalWorldLimit + 0.01f;
+               lifecycleRisk <=
+                    MaximumSafeFutureLifecycleRisk &&
+               Mathf.Abs(platformCenterX) <=
+                    HorizontalWorldLimit + 0.01f;
     }
 
     private bool TryCalculateDescendingLandingTime(
@@ -773,6 +920,230 @@ internal sealed class ClimbRoutePlanner
 
         return landingTime > 0.015f &&
                landingTime <= MaximumLandingTime;
+    }
+
+    private bool ShouldPlanInwardLanding(
+        float platformCenterX,
+        bool highAltitude)
+    {
+        float preferredWorldLimit = highAltitude
+            ? HighAltitudePreferredWorldLimit
+            : LowAltitudePreferredWorldLimit;
+
+        return Mathf.Abs(platformCenterX) >
+               preferredWorldLimit;
+    }
+
+    private void CalculateControlLandingInterval(
+        float platformCenterX,
+        float safeHalfWidth,
+        float sourceX,
+        bool inwardLanding,
+        out float plannedLandingX,
+        out float controlHalfWidth,
+        out float requiredDistance)
+    {
+        float leftBoundary =
+            platformCenterX -
+            safeHalfWidth;
+
+        float rightBoundary =
+            platformCenterX +
+            safeHalfWidth;
+
+        if (inwardLanding)
+        {
+            if (platformCenterX > 0f)
+            {
+                rightBoundary =
+                    platformCenterX;
+            }
+            else if (platformCenterX < 0f)
+            {
+                leftBoundary =
+                    platformCenterX;
+            }
+        }
+
+        plannedLandingX =
+            (leftBoundary + rightBoundary) *
+            0.50f;
+
+        controlHalfWidth =
+            Mathf.Max(
+                0.08f,
+                (rightBoundary - leftBoundary) *
+                    0.50f
+            );
+
+        requiredDistance =
+            sourceX < leftBoundary
+                ? leftBoundary - sourceX
+                : sourceX > rightBoundary
+                    ? sourceX - rightBoundary
+                    : 0f;
+    }
+
+    private void ApplySurvivalTiers(
+        List<V5RouteDecision> decisions,
+        bool highAltitude)
+    {
+        if (decisions == null ||
+            decisions.Count == 0)
+        {
+            return;
+        }
+
+        float preferredWorldLimit = highAltitude
+            ? HighAltitudePreferredWorldLimit
+            : LowAltitudePreferredWorldLimit;
+
+        float absoluteWorldLimit = highAltitude
+            ? HighAltitudeAbsoluteWorldLimit
+            : LowAltitudeAbsoluteWorldLimit;
+
+        foreach (V5RouteDecision decision in decisions)
+        {
+            decision.RetentionSafe =
+                IsRetentionSafeDecision(decision);
+
+            float absoluteLandingX =
+                Mathf.Abs(decision.CenterwardLandingX);
+
+            bool insidePreferredLane =
+                absoluteLandingX <=
+                    preferredWorldLimit;
+
+            bool hasCenterReturn =
+                decision.CenterReturnSuccessorCount > 0;
+
+            decision.EdgeSafe =
+                decision.IsFinishApproach ||
+                insidePreferredLane ||
+                (absoluteLandingX <= absoluteWorldLimit &&
+                 decision.InwardLandingPlanned &&
+                 hasCenterReturn);
+
+            decision.IsEdgeLastResort =
+                !decision.EdgeSafe;
+        }
+    }
+
+    private bool IsRetentionSafeDecision(
+        V5RouteDecision decision)
+    {
+        if (decision == null ||
+            decision.Candidate == null)
+        {
+            return false;
+        }
+
+        if (!decision.GenerationStable ||
+            decision.Candidate.RecentlyRecycled)
+        {
+            return false;
+        }
+
+        if (decision.IsFinishApproach)
+        {
+            return true;
+        }
+
+        if (decision.ApexOvershoot >
+                MaximumSafeApexOvershoot ||
+            decision.LandingTime >
+                MaximumSafeLifecycleLandingTime)
+        {
+            return false;
+        }
+
+        bool needsExtraObservation =
+            decision.Candidate.IsMoving ||
+            decision.Candidate.Type ==
+                PlatformType.Breakable ||
+            decision.ApexOvershoot >
+                PreferredApexOvershoot;
+
+        return !needsExtraObservation ||
+               decision.Candidate
+                   .ConsecutiveObservations >= 3;
+    }
+
+    private float GetLifecycleRisk(
+        PlatformCandidate candidate,
+        float landingTime,
+        float apexOvershoot,
+        float totalForecastTime)
+    {
+        float risk =
+            Mathf.Max(
+                0f,
+                apexOvershoot -
+                    PreferredApexOvershoot
+            ) * 550f;
+
+        risk +=
+            Mathf.Max(
+                0f,
+                landingTime -
+                    PreferredLifecycleLandingTime
+            ) * 500f;
+
+        risk +=
+            Mathf.Max(
+                0f,
+                totalForecastTime -
+                    PreferredLifecycleLandingTime
+            ) * 300f;
+
+        if (apexOvershoot >
+            MaximumSafeApexOvershoot)
+        {
+            risk += 900f;
+        }
+
+        if (landingTime >
+            MaximumSafeLifecycleLandingTime)
+        {
+            risk += 900f;
+        }
+
+        if (candidate != null)
+        {
+            if (!candidate.GenerationStable)
+            {
+                risk +=
+                    totalForecastTime > 0.90f
+                        ? 420f
+                        : 160f;
+            }
+
+            if (candidate.RecentlyRecycled)
+            {
+                risk +=
+                    totalForecastTime > 0.90f
+                        ? 650f
+                        : 240f;
+            }
+
+            if ((candidate.IsMoving ||
+                 candidate.Type ==
+                    PlatformType.Breakable ||
+                 apexOvershoot >
+                    PreferredApexOvershoot) &&
+                candidate.ConsecutiveObservations < 3)
+            {
+                risk += 500f;
+            }
+
+            risk +=
+                Mathf.Max(
+                    0f,
+                    candidate.LifecycleHazardPenalty
+                );
+        }
+
+        return risk;
     }
 
     private float GetMovementUncertainty(
@@ -836,19 +1207,24 @@ internal sealed class ClimbRoutePlanner
     private bool IsCandidateUsable(
         PlatformCandidate candidate,
         int excludedTargetId,
+        int excludedTargetGeneration,
         int failedTargetId,
+        int failedTargetGeneration,
         bool failedTargetBlocked)
     {
         if (candidate == null ||
-            candidate.InstanceId == excludedTargetId ||
+            (candidate.InstanceId == excludedTargetId &&
+             candidate.Generation ==
+                excludedTargetGeneration) ||
             !IsRealPlatformType(candidate.Type))
         {
             return false;
         }
 
         return !failedTargetBlocked ||
-               candidate.InstanceId !=
-                   failedTargetId;
+               candidate.InstanceId != failedTargetId ||
+               candidate.Generation !=
+                   failedTargetGeneration;
     }
 
     private bool IsRealPlatformType(
@@ -873,6 +1249,52 @@ internal sealed class ClimbRoutePlanner
     private V5RouteDecision FindHighestScore(
         List<V5RouteDecision> decisions)
     {
+        V5RouteDecision finishRoute = null;
+        V5RouteDecision preferredBoost = null;
+        int preferredBoostRank = 0;
+
+        // Fast completion has one deliberate hard preference: a physically
+        // stable Golden/Strong platform beats ordinary routing. Everything
+        // else uses the single score below; edge and one-step look-ahead data
+        // remain small tie-breakers instead of extra selection gates.
+        foreach (V5RouteDecision decision in decisions)
+        {
+            if (decision.IsFinishApproach &&
+                decision.RetentionSafe &&
+                (finishRoute == null ||
+                 decision.Score > finishRoute.Score))
+            {
+                finishRoute = decision;
+            }
+
+            int boostRank =
+                GetBoostRank(decision);
+
+            if (boostRank <= 0)
+            {
+                continue;
+            }
+
+            if (preferredBoost == null ||
+                boostRank > preferredBoostRank ||
+                (boostRank == preferredBoostRank &&
+                 decision.Score > preferredBoost.Score))
+            {
+                preferredBoost = decision;
+                preferredBoostRank = boostRank;
+            }
+        }
+
+        if (finishRoute != null)
+        {
+            return finishRoute;
+        }
+
+        if (preferredBoost != null)
+        {
+            return preferredBoost;
+        }
+
         V5RouteDecision best = null;
 
         foreach (V5RouteDecision decision in decisions)
@@ -885,6 +1307,26 @@ internal sealed class ClimbRoutePlanner
         }
 
         return best;
+    }
+
+    private int GetBoostRank(
+        V5RouteDecision decision)
+    {
+        if (decision == null ||
+            decision.Candidate == null ||
+            !decision.RetentionSafe ||
+            !decision.EdgeSafe)
+        {
+            return 0;
+        }
+
+        return decision.Candidate.Type ==
+                PlatformType.Golden
+            ? 2
+            : decision.Candidate.Type ==
+                PlatformType.Strong
+                ? 1
+                : 0;
     }
 
     private float ReflectHorizontalPosition(

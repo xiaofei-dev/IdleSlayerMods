@@ -12,207 +12,113 @@ namespace AutoClimber;
 
 public sealed partial class AutoClimberRuntime
 {
-    private bool IsActualFinishState(
+    [HideFromIl2Cpp]
+    private float GetExpectedFinishPlatformWorldY(
+        AscendingHeightsMap map)
+    {
+        if (map == null ||
+            float.IsNaN(map.finishAtDistance) ||
+            float.IsInfinity(map.finishAtDistance))
+        {
+            return float.PositiveInfinity;
+        }
+
+        // Ascending Heights reports distance at half of Unity world-space Y.
+        // The finish-map ground is a fixed 47 world units above its spawn
+        // boundary (the current 1000-distance map lands at Y=2047). The
+        // spawned detector remains the authoritative completion-region check.
+        return map.finishAtDistance *
+                   FinishDistanceWorldScale +
+               FinishPlatformWorldOffset;
+    }
+
+    [HideFromIl2Cpp]
+    private bool IsFinishPlatformSpawned(
         AscendingHeightsController controller)
     {
-        if (controller == null)
+        return controller != null &&
+               controller.currentAscendingHeightsMap != null &&
+               controller.currentAscendingHeightsMap.hasFinishLine &&
+               controller.finishMapSpawned;
+    }
+
+    [HideFromIl2Cpp]
+    private bool TryGetFinishPlatformY(
+        AscendingHeightsController controller,
+        out float finishPlatformY)
+    {
+        finishPlatformY = float.PositiveInfinity;
+
+        if (!IsFinishPlatformSpawned(controller))
         {
             return false;
         }
 
-        if (!finishStateMemberSearchCompleted)
+        if (finishLineDetectorTransform != null &&
+            finishLineDetectorTransform.gameObject != null &&
+            finishLineDetectorTransform.gameObject.activeInHierarchy)
         {
-            finishStateMemberSearchCompleted = true;
+            finishPlatformY =
+                finishLineDetectorTransform.position.y;
 
-            string[] candidateNames =
+            return !float.IsNaN(finishPlatformY) &&
+                   !float.IsInfinity(finishPlatformY);
+        }
+
+        if (Time.time < nextFinishDetectorSearchTime)
+        {
+            return false;
+        }
+
+        nextFinishDetectorSearchTime =
+            Time.time +
+            FinishDetectorSearchIntervalSeconds;
+
+        try
+        {
+            MonoBehaviour[] behaviours =
+                Resources
+                    .FindObjectsOfTypeAll<MonoBehaviour>();
+
+            foreach (MonoBehaviour behaviour in behaviours)
             {
-                "isFinish",
-                "isFinished",
-                "IsFinish",
-                "IsFinished",
-                "finished",
-                "Finished"
-            };
-
-            List<object> owners = new List<object>
-            {
-                controller,
-                controller.currentAscendingHeightsMap
-            };
-
-            try
-            {
-                MonoBehaviour[] behaviours =
-                    Resources
-                        .FindObjectsOfTypeAll<MonoBehaviour>();
-
-                foreach (MonoBehaviour behaviour in behaviours)
-                {
-                    if (behaviour != null &&
-                        behaviour.GetType().Name.Equals(
-                            "AscendingHeightsFinishLineDetector",
-                            StringComparison.OrdinalIgnoreCase))
-                    {
-                        owners.Add(behaviour);
-                        break;
-                    }
-                }
-            }
-            catch (Exception exception)
-            {
-                ClimberLog.Warning(
-                    "Failed to locate the finish-line detector: " +
-                    exception.Message
-                );
-            }
-
-            BindingFlags flags =
-                BindingFlags.Instance |
-                BindingFlags.Public |
-                BindingFlags.NonPublic;
-
-            foreach (object owner in owners)
-            {
-                if (owner == null)
+                if (behaviour == null ||
+                    behaviour.gameObject == null ||
+                    !behaviour.gameObject.activeInHierarchy ||
+                    !behaviour.GetType().Name.Equals(
+                        "AscendingHeightsFinishLineDetector",
+                        StringComparison.OrdinalIgnoreCase))
                 {
                     continue;
                 }
 
-                Type ownerType = owner.GetType();
+                finishLineDetectorTransform =
+                    behaviour.transform;
 
-                MethodInfo finishLineMethod =
-                    ownerType.GetMethod(
-                        "FinishLineReached",
-                        flags,
-                        null,
-                        Type.EmptyTypes,
-                        null
-                    );
+                finishPlatformY =
+                    finishLineDetectorTransform.position.y;
 
-                if (finishLineMethod != null &&
-                    finishLineMethod.ReturnType == typeof(bool))
-                {
-                    actualFinishStateOwner = owner;
-                    actualFinishStateMethod = finishLineMethod;
-                    actualFinishStateMemberName =
-                        $"{ownerType.Name}.{finishLineMethod.Name}()";
+                finishDetectorSearchWarningLogged = false;
 
-                    LogVerbose(
-                        "Actual finish-state method found: " +
-                        actualFinishStateMemberName
-                    );
-
-                    break;
-                }
-
-                foreach (string candidateName
-                         in candidateNames)
-                {
-                    PropertyInfo property =
-                        ownerType.GetProperty(
-                            candidateName,
-                            flags
-                        );
-
-                    if (property != null &&
-                        property.PropertyType ==
-                            typeof(bool) &&
-                        property.CanRead)
-                    {
-                        actualFinishStateOwner = owner;
-                        actualFinishStateMember = property;
-                        actualFinishStateMemberName =
-                            $"{ownerType.Name}.{property.Name}";
-
-                        LogVerbose(
-                            "Actual finish-state property found: " +
-                            actualFinishStateMemberName
-                        );
-
-                        break;
-                    }
-
-                    FieldInfo field =
-                        ownerType.GetField(
-                            candidateName,
-                            flags
-                        );
-
-                    if (field != null &&
-                        field.FieldType ==
-                            typeof(bool))
-                    {
-                        actualFinishStateOwner = owner;
-                        actualFinishStateMember = field;
-                        actualFinishStateMemberName =
-                            $"{ownerType.Name}.{field.Name}";
-
-                        LogVerbose(
-                            "Actual finish-state field found: " +
-                            actualFinishStateMemberName
-                        );
-
-                        break;
-                    }
-                }
-
-                if (actualFinishStateMember != null ||
-                    actualFinishStateMethod != null)
-                {
-                    break;
-                }
-            }
-
-            if (actualFinishStateMember == null &&
-                actualFinishStateMethod == null)
-            {
-                ClimberLog.Warning(
-                    "No finish-line state provider was found. " +
-                    "Normal routing will continue; the score threshold will never trigger right movement."
+                LogVerbose(
+                    "Spawned finish-line detector located at world Y=" +
+                    $"{finishPlatformY:F2}."
                 );
-            }
-        }
 
-        if ((actualFinishStateMember == null &&
-             actualFinishStateMethod == null) ||
-            actualFinishStateOwner == null)
-        {
-            return false;
-        }
-
-        try
-        {
-            if (actualFinishStateMethod != null)
-            {
-                return (bool)actualFinishStateMethod.Invoke(
-                    actualFinishStateOwner,
-                    null
-                );
-            }
-
-            if (actualFinishStateMember
-                is PropertyInfo property)
-            {
-                return (bool)property.GetValue(
-                    actualFinishStateOwner
-                );
-            }
-
-            if (actualFinishStateMember
-                is FieldInfo field)
-            {
-                return (bool)field.GetValue(
-                    actualFinishStateOwner
-                );
+                return true;
             }
         }
         catch (Exception exception)
         {
-            ClimberLog.Warning(
-                "Failed to read actual finish state " +
-                actualFinishStateMemberName +
-                ": " + exception.Message
-            );
+            if (!finishDetectorSearchWarningLogged)
+            {
+                finishDetectorSearchWarningLogged = true;
+
+                ClimberLog.Warning(
+                    "Failed to locate the spawned finish-line detector: " +
+                    exception.Message
+                );
+            }
         }
 
         return false;
@@ -674,8 +580,9 @@ public sealed partial class AutoClimberRuntime
 
         bool targetVisibleInLatestScan =
             currentTargetId != 0 &&
-            planner.FindCandidateById(
-                currentTargetId
+            planner.FindCandidate(
+                currentTargetId,
+                currentTargetGeneration
             ) != null;
 
         float targetlessAirborneSeconds =
@@ -691,6 +598,7 @@ public sealed partial class AutoClimberRuntime
         string targetText =
             currentTargetId != 0
                 ? $"TargetId={currentTargetId}, " +
+                  $"TargetGeneration={currentTargetGeneration}, " +
                   $"TargetType={currentTargetType}, " +
                   $"TargetPredictedX=" +
                   $"{currentTargetPredictedX:F2}, " +
@@ -718,6 +626,11 @@ public sealed partial class AutoClimberRuntime
                   ).ToString("F2")
                 : "N/A";
 
+        string finishPlatformYText =
+            finishPlatformLocated
+                ? finishPlatformWorldY.ToString("F2")
+                : "N/A";
+
         LogVerbose(
             $"Runtime: " +
             $"X={playerPosition.x:F2}, " +
@@ -726,9 +639,13 @@ public sealed partial class AutoClimberRuntime
             $"VelocityY={playerVelocity.y:F2}, " +
             $"Grounded={grounded}, " +
             $"ScoreThresholdReached={finished}, " +
+            $"FinishMapSpawned={finishMapSpawned}, " +
+            $"FinishPlatformLocated={finishPlatformLocated}, " +
+            $"FinishPlatformY={finishPlatformYText}, " +
+            $"ExpectedFinishPlatformY={finishHeight:F2}, " +
             $"FlagExitActive={finishExitStarted}, " +
             $"JumpMode={jumpModeText}, " +
-            $"RejectedFake={rejectedTargetIds.Count}, " +
+            $"RejectedFake={rejectedTargetKeys.Count}, " +
             $"Recovery={recoverySelectionRequested}, " +
             $"TargetlessAirTime=" +
             $"{targetlessAirborneSeconds:F2}, " +
@@ -759,12 +676,14 @@ public sealed partial class AutoClimberRuntime
     {
         desiredHorizontalDirection = 0f;
         currentTargetId = 0;
+        currentTargetGeneration = 0;
 
         currentTargetType =
             PlatformType.Unknown;
 
         currentTargetSpriteName = "";
         currentTargetPredictedX = 0f;
+        currentTargetLandingOffsetX = 0f;
         currentTargetY = 0f;
         currentTargetLastSeenTime = 0f;
 
@@ -779,6 +698,9 @@ public sealed partial class AutoClimberRuntime
             float.MaxValue;
         currentTargetPersistedOffScanLogged =
             false;
+        currentTargetIsLifecycleFallback =
+            false;
+        emergencyPlatformRescanPending = false;
 
         ClearTemporaryTargetObservationState();
         nearLandingCommitmentLogged = false;

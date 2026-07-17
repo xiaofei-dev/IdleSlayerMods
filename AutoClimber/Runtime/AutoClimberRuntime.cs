@@ -113,18 +113,28 @@ public sealed partial class AutoClimberRuntime : MonoBehaviour
 
     // A platform pool can briefly disable or replace the object backing a
     // route node while the logical platform is still the intended landing.
-    // Keep the route alive across several scans and rebind by spatial
-    // signature instead of immediately falling back to a late risky target.
-    private const float LogicalTargetObservationGraceSeconds = 0.32f;
+    // Allow one scan to rebind by spatial signature. If a physical fallback
+    // exists, switch immediately instead of steering at a stale pooled object.
+    private const float LogicalTargetObservationGraceSeconds = 0.15f;
     private const float LogicalTargetRebindHeightTolerance = 2.25f;
     private const float LogicalTargetRebindMaximumLandingDistance = 1.75f;
     private const float LogicalTargetMismatchedTypeHeightTolerance = 0.75f;
     private const float LogicalTargetMismatchedTypeLandingDistance = 0.90f;
     private const float NearLandingCommitmentSeconds = 0.18f;
     private const float NearLandingCommitmentVerticalTolerance = 1.35f;
-    private const float LateReplanHighAltitudeMaximumReachRatio = 0.78f;
-    private const float LateReplanLowAltitudeMaximumReachRatio = 0.86f;
-    private const float LateReplanMinimumLandingMargin = 1.25f;
+    private const float LateReplanHighAltitudeMaximumReachRatio = 0.90f;
+    private const float LateReplanLowAltitudeMaximumReachRatio = 0.94f;
+    private const float LateReplanMinimumLandingMargin = 0.40f;
+    private const float RetentionPreferredApexOvershoot = 7.25f;
+    private const float RetentionMaximumSafeApexOvershoot = 8.50f;
+    private const float LateReplanPreferredLandingTime = 1.25f;
+    private const float LateReplanMaximumSafeLandingTime = 1.60f;
+    private const float LifecycleHazardHeightTolerance = 2.25f;
+    private const float LifecycleHazardLifetimeSeconds = 4.00f;
+    private const float LifecycleFallbackPreferredNormalGain = 3.00f;
+    private const float LifecycleFallbackPreferredStrongGain = 6.00f;
+    private const float LifecycleFallbackPreferredGoldenGain = 8.00f;
+    private const float RetentionProvisionalMinimumTimeToApex = 0.35f;
 
     // The visual scanner has already shown that fake platforms use the
     // literal sprite name "fake". They must never become route nodes.
@@ -155,7 +165,11 @@ public sealed partial class AutoClimberRuntime : MonoBehaviour
     private const float RescueMaximumDrop = 28.00f;
     private const float RescueHorizontalSafetyRatio = 0.90f;
     private const float FinishLandingTolerance = 3.00f;
+    private const float FinishDetectorVerticalTolerance = 6.00f;
     private const float FinishGroundedConfirmationSeconds = 0.20f;
+    private const float FinishDistanceWorldScale = 2.00f;
+    private const float FinishPlatformWorldOffset = 47.00f;
+    private const float FinishDetectorSearchIntervalSeconds = 0.50f;
 
     // Recovery is intentionally less conservative than normal routing.
     // A difficult route is better than an infinite bounce loop.
@@ -185,12 +199,12 @@ public sealed partial class AutoClimberRuntime : MonoBehaviour
     private bool finishExitStarted;
     private float finishHeight;
     private float finishGroundedSince;
-
-    private bool finishStateMemberSearchCompleted;
-    private MemberInfo actualFinishStateMember;
-    private MethodInfo actualFinishStateMethod;
-    private object actualFinishStateOwner;
-    private string actualFinishStateMemberName = "";
+    private bool finishMapSpawned;
+    private bool finishPlatformLocated;
+    private float finishPlatformWorldY;
+    private Transform finishLineDetectorTransform;
+    private float nextFinishDetectorSearchTime;
+    private bool finishDetectorSearchWarningLogged;
 
     private float desiredHorizontalDirection;
 
@@ -212,9 +226,11 @@ public sealed partial class AutoClimberRuntime : MonoBehaviour
     private bool inputDebugStateInitialized;
 
     private int currentTargetId;
+    private int currentTargetGeneration;
     private PlatformType currentTargetType;
     private string currentTargetSpriteName = "";
     private float currentTargetPredictedX;
+    private float currentTargetLandingOffsetX;
     private float currentTargetY;
     private float currentTargetLastSeenTime;
     private bool currentTargetIsRescue;
@@ -239,6 +255,8 @@ public sealed partial class AutoClimberRuntime : MonoBehaviour
     private float currentTargetObservationLostAt;
     private string currentTargetObservationLostReason = "";
     private bool nearLandingCommitmentLogged;
+    private bool currentTargetIsLifecycleFallback;
+    private bool retentionProvisionalLogged;
     private int currentJumpRetargetCount;
     private float nextV5RetargetTime;
 
@@ -252,6 +270,7 @@ public sealed partial class AutoClimberRuntime : MonoBehaviour
     private int lastBlockedUpgradeCandidateId;
 
     private int failedTargetId;
+    private int failedTargetGeneration;
     private float failedTargetUntilTime;
 
     private float currentTargetAnchorY;
@@ -260,14 +279,23 @@ public sealed partial class AutoClimberRuntime : MonoBehaviour
     // Permanent rejection is reserved for confirmed fake platforms.
     // Normal misses use only a short cooldown because moving platforms can
     // become safe again on a later bounce.
-    private readonly HashSet<int> rejectedTargetIds =
-        new HashSet<int>();
+    private readonly HashSet<long> rejectedTargetKeys =
+        new HashSet<long>();
 
     private readonly List<float> rejectedTargetYs =
         new List<float>();
 
     private readonly List<PlatformType> rejectedTargetTypes =
         new List<PlatformType>();
+
+    private readonly List<float> lifecycleHazardYs =
+        new List<float>();
+
+    private readonly List<PlatformType> lifecycleHazardTypes =
+        new List<PlatformType>();
+
+    private readonly List<float> lifecycleHazardExpiresAt =
+        new List<float>();
 
     private float lastMeaningfulProgressY;
     private float lastMeaningfulProgressTime;
@@ -293,9 +321,20 @@ public sealed partial class AutoClimberRuntime : MonoBehaviour
     private int runStrongTargetHits;
     private int runBlockedDowngrades;
     private int runBlockedUnsafeUpgrades;
+    private int runLifecycleLosses;
+    private int runLifecycleFallbackSelections;
+    private int runLifecycleFallbackLandings;
+    private int runGenerationResets;
+    private int runEdgeLastResorts;
+    private int runEmergencyRescans;
+    private int runRetentionProvisionalSelections;
+    private int runRetentionSafeTargets;
+    private int runRetentionRiskyTargets;
+    private float runMaximumLockedApexDrop;
     private float runTargetlessAirborneSeconds;
     private float targetlessAirborneStartedAt;
     private bool targetlessAirborneActive;
+    private bool emergencyPlatformRescanPending;
     private bool runSummaryLogged;
     private int runEnemiesDetected;
 
@@ -315,6 +354,9 @@ public sealed partial class AutoClimberRuntime : MonoBehaviour
 
     private readonly HashSet<int> detectedEnemyIds =
         new HashSet<int>();
+
+    private readonly HashSet<long> observedGenerationResetKeys =
+        new HashSet<long>();
 
     private readonly HashSet<string> observedUnknownPlatformSprites =
         new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -352,8 +394,8 @@ public sealed partial class AutoClimberRuntime : MonoBehaviour
         InitializeAutomationSettings();
 
         ClimberLog.User(
-            "AutoClimber route planner V5.2 initialized. " +
-            "Logical-target persistence, safe-impact routing and three-step route scoring are active; " +
+            "AutoClimber route planner V5.3.0 initialized. " +
+            "Generation-aware pooling, apex-retention tiers and center-return routing are active; " +
             "the runtime remains dormant outside Ascending Heights; " +
             "enemy route targeting remains disabled. " +
             $"Enabled={automationEnabled}, " +
@@ -490,9 +532,9 @@ public sealed partial class AutoClimberRuntime : MonoBehaviour
             controller.currentAscendingHeightsMap != null)
         {
             finishHeight =
-                controller
-                    .currentAscendingHeightsMap
-                    .finishAtDistance;
+                GetExpectedFinishPlatformWorldY(
+                    controller.currentAscendingHeightsMap
+                );
         }
 
         bool finishThresholdReached =
@@ -510,7 +552,38 @@ public sealed partial class AutoClimberRuntime : MonoBehaviour
             );
         }
 
+        finishMapSpawned =
+            IsFinishPlatformSpawned(controller);
+
+        float detectedFinishPlatformY;
+
+        if (finishMapSpawned &&
+            TryGetFinishPlatformY(
+                controller,
+                out detectedFinishPlatformY))
+        {
+            finishPlatformLocated = true;
+            finishPlatformWorldY =
+                detectedFinishPlatformY;
+        }
+
+        bool nearFinishPlatform =
+            finishPlatformLocated
+                ? Mathf.Abs(
+                      playerPosition.y -
+                      finishPlatformWorldY
+                  ) <= FinishDetectorVerticalTolerance
+                : finishMapSpawned &&
+                  !float.IsInfinity(finishHeight) &&
+                  !float.IsNaN(finishHeight) &&
+                  Mathf.Abs(
+                      playerPosition.y -
+                      finishHeight
+                  ) <= FinishDetectorVerticalTolerance;
+
         bool stableOnFinishGround =
+            finishMapSpawned &&
+            nearFinishPlatform &&
             playerMovement.IsGrounded() &&
             Mathf.Abs(playerVelocity.y) <= 0.10f;
 
@@ -527,7 +600,6 @@ public sealed partial class AutoClimberRuntime : MonoBehaviour
         }
 
         bool finalLandingConfirmed =
-            finishHeightDetected &&
             stableOnFinishGround &&
             Time.time - finishGroundedSince >=
                 FinishGroundedConfirmationSeconds;
@@ -540,7 +612,9 @@ public sealed partial class AutoClimberRuntime : MonoBehaviour
             desiredHorizontalDirection = 1f;
 
             LogVerbose(
-                "Non-bouncing final platform landing confirmed. " +
+                "Spawned finish-platform landing confirmed. " +
+                $"PlayerY={playerPosition.y:F2}, " +
+                $"FinishY={(finishPlatformLocated ? finishPlatformWorldY : finishHeight):F2}. " +
                 "Holding right until the flag ends the minigame."
             );
         }
@@ -577,6 +651,8 @@ public sealed partial class AutoClimberRuntime : MonoBehaviour
                 playerPosition,
                 playerVelocity
             );
+
+            ObservePlatformGenerationResets();
 
             UpdateCurrentTargetV5(
                 playerPosition,
@@ -783,11 +859,6 @@ public sealed partial class AutoClimberRuntime : MonoBehaviour
 
     private void TryAutoRetry()
     {
-        if (AutoClimberPlugin.Config?.EnableAutoRetry?.Value != true)
-        {
-            return;
-        }
-
         if (!autoRetryPending ||
             Time.realtimeSinceStartup <
                 autoRetryAtRealtime)
@@ -809,12 +880,28 @@ public sealed partial class AutoClimberRuntime : MonoBehaviour
         try
         {
             autoRetryPending = false;
-            nextRunIsRevive = true;
-            prompt._SecondWindSuggest_b__7_0();
+            bool continueChallenge =
+                AutoClimberPlugin.Config?
+                    .EnableAutoRetry?.Value == true;
 
-            ClimberLog.User(
-                "Auto retry: Continue Challenge confirmed."
-            );
+            if (continueChallenge)
+            {
+                nextRunIsRevive = true;
+                prompt._SecondWindSuggest_b__7_0();
+
+                ClimberLog.User(
+                    "Auto retry: Continue Challenge confirmed."
+                );
+            }
+            else
+            {
+                nextRunIsRevive = false;
+                prompt.OnClose();
+
+                ClimberLog.User(
+                    "Auto retry: No confirmed; challenge exited."
+                );
+            }
         }
         catch (Exception exception)
         {
@@ -922,18 +1009,19 @@ public sealed partial class AutoClimberRuntime : MonoBehaviour
         finishHeight = float.PositiveInfinity;
         finishGroundedSince = 0f;
 
-        finishStateMemberSearchCompleted = false;
-        actualFinishStateMember = null;
-        actualFinishStateMethod = null;
-        actualFinishStateOwner = null;
-        actualFinishStateMemberName = "";
+        finishMapSpawned = false;
+        finishPlatformLocated = false;
+        finishPlatformWorldY = float.PositiveInfinity;
+        finishLineDetectorTransform = null;
+        nextFinishDetectorSearchTime = 0f;
+        finishDetectorSearchWarningLogged = false;
 
         if (controller.currentAscendingHeightsMap != null)
         {
             finishHeight =
-                controller
-                    .currentAscendingHeightsMap
-                    .finishAtDistance;
+                GetExpectedFinishPlatformWorldY(
+                    controller.currentAscendingHeightsMap
+                );
         }
 
         activePlayerInstanceId =
@@ -972,7 +1060,8 @@ public sealed partial class AutoClimberRuntime : MonoBehaviour
 
         LogVerbose(
             $"Current map finish distance: " +
-            $"{finishHeight:F2}"
+            $"{controller.currentAscendingHeightsMap?.finishAtDistance:F2}, " +
+            $"expected finish-platform world Y: {finishHeight:F2}"
         );
     }
 

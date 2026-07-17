@@ -14,13 +14,13 @@ internal sealed class EggOpeningService
     private float nextCheckTime;
     private bool missingLogged;
 
-    internal void Tick(float now)
+    internal bool Tick(float now)
     {
-        if (now < nextCheckTime) return;
+        if (now < nextCheckTime) return false;
         nextCheckTime = now + CheckIntervalSeconds;
 
         LootBoxManager lootBoxes = LootBoxManager.instance;
-        if (lootBoxes != null && lootBoxes.IsBeingOpened()) return;
+        if (lootBoxes != null && lootBoxes.IsBeingOpened()) return false;
 
         Drop dragonEgg = Drops.list?.DragonEgg;
         Drop dragonScale = Drops.list?.DragonScale;
@@ -28,7 +28,7 @@ internal sealed class EggOpeningService
         if (dragonEgg == null || dragonScale == null || simurghEgg == null)
         {
             LogMissing(dragonEgg, dragonScale, simurghEgg);
-            return;
+            return false;
         }
 
         dragonEggOpener ??= FindSingleEggOpener(dragonEgg);
@@ -36,7 +36,7 @@ internal sealed class EggOpeningService
         if (dragonEggOpener == null || simurghEggOpener == null)
         {
             LogMissing(dragonEgg, dragonScale, simurghEgg);
-            return;
+            return false;
         }
 
         missingLogged = false;
@@ -46,16 +46,18 @@ internal sealed class EggOpeningService
                 simurghEggOpener,
                 Math.Max(0, Plugin.Config.SimurghEggReserveAmount.Value),
                 "Simurgh Egg"))
-            return;
+            return true;
 
         if (dragonScale.amount < dragonScale.GetMaxAmount())
         {
-            TryOpen(
+            return TryOpen(
                 dragonEgg,
                 dragonEggOpener,
                 Math.Max(0, Plugin.Config.DragonEggReserveAmount.Value),
                 "Dragon Egg");
         }
+
+        return false;
     }
 
     private static bool TryOpen(

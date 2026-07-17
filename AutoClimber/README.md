@@ -5,7 +5,8 @@ AutoClimber automatically controls movement during the Ascending Heights minigam
 ## Features
 
 - Detects and evaluates reachable Ascending Heights platforms.
-- Plans multi-step climbing routes and preserves committed targets between scans.
+- Prioritizes the finish and safe golden/strong jump pads, using only a small
+  one-step route tie-break for ordinary platforms.
 - Handles difficult landings, route recovery, and stalled movement.
 - Supports background movement control while the game window is unfocused.
 - Can automatically continue the challenge after a failed run.
@@ -32,7 +33,8 @@ Available settings include:
 - `Debug Mode`: show detailed route and lifecycle diagnostics.
 - `Enabled On Startup`: start with automation enabled.
 - `Toggle Key`: keyboard key used to toggle automation.
-- `Auto Retry Enabled`: automatically continue after a failed run.
+- `Auto Retry Enabled`: continue after a failed run when enabled; automatically
+  choose No and exit the challenge when disabled.
 
 ## Building
 

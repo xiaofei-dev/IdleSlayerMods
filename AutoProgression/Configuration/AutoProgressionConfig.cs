@@ -6,7 +6,7 @@ namespace AutoProgression.Configuration;
 
 internal sealed class AutoProgressionConfig(string configName) : BaseConfig(configName)
 {
-    internal const int CurrentConfigurationVersion = 5;
+    internal const int CurrentConfigurationVersion = 6;
     private const string LegacySection = "AutoProgression";
 
     internal MelonPreferences_Entry<int> ConfigurationVersion;
@@ -22,6 +22,7 @@ internal sealed class AutoProgressionConfig(string configName) : BaseConfig(conf
     internal MelonPreferences_Entry<bool> RegenerateDailyQuests;
     internal MelonPreferences_Entry<bool> RegenerateWeeklyQuests;
     internal MelonPreferences_Entry<bool> UnlimitedQuestRerolls;
+    internal MelonPreferences_Entry<bool> PreferMinimumRageWeeklyQuest;
     internal MelonPreferences_Entry<bool> ResetPortalCooldown;
     internal MelonPreferences_Entry<bool> EnableRagePill;
     internal MelonPreferences_Entry<bool> EnableWhetstone;
@@ -65,7 +66,7 @@ internal sealed class AutoProgressionConfig(string configName) : BaseConfig(conf
 
         EnablePaidBonuses = BindMigrated(
             "Paid Bonuses", "Use Paid 500x Bonuses", "Use Paid 500x Bonuses", true,
-            "Use both Jewels of Soul 500x bonuses while AutoProgression is active.", migrateLegacyValues);
+            "WARNING: This option spends Jewels of Soul. Use both paid 500x bonuses while AutoProgression is active.", migrateLegacyValues);
 
         DragonEggReserveAmount = BindMigrated(
             "Egg Opening", "Dragon Egg Reserve Amount", "Egg Opening - Dragon Egg Reserve Amount", 300,
@@ -86,28 +87,31 @@ internal sealed class AutoProgressionConfig(string configName) : BaseConfig(conf
         UnlimitedQuestRerolls = BindMigrated(
             "Quests", "Unlimited Quest Rerolls", "Quests - Unlimited Quest Rerolls", true,
             "Keep Daily and Weekly Quest rerolls enabled.", migrateLegacyValues);
+        PreferMinimumRageWeeklyQuest = BindMigrated(
+            "Quests", "Prefer 180k Rage Weekly Quest", "Quests - Prefer 180k Rage Weekly Quest", true,
+            "After a new Weekly Quest is generated, reroll one generated slot until the 180,000 Rage Mode kill quest appears. Existing additional Weekly Quests are preserved, and manual rerolls do not trigger this feature.", migrateLegacyValues);
         ResetPortalCooldown = BindMigrated(
             "Quests", "Reset Portal Cooldown", "Quests - Reset Portal Cooldown", true,
             "Keep the normal Portal cooldown at zero while AutoProgression is active.", migrateLegacyValues);
 
         EnableRagePill = BindMigrated(
             "Craftables", "Rage Pill Enabled", "Craftables - Rage Pill Enabled", true,
-            "Use Rage Pills to refresh Rage while Rage has an active cooldown.", migrateLegacyValues);
+            "Use Rage Pills to refresh Rage while Rage has an active cooldown. WARNING: This can spend Jewels of Soul on missing materials when the global material-purchase option is enabled.", migrateLegacyValues);
         RagePillMinimumIntervalSeconds = BindMigrated(
             "Craftables", "Rage Pill Minimum Interval Seconds", "Craftables - Rage Pill Minimum Interval Seconds", 10f,
             "Minimum time between Rage Pill use attempts.", migrateLegacyValues);
         EnableWhetstone = BindMigrated(
             "Craftables", "Whetstone Enabled", "Craftables - Whetstone Enabled", true,
-            "Keep the Whetstone temporary effect active.", migrateLegacyValues);
+            "Keep the Whetstone temporary effect active. WARNING: This can spend Jewels of Soul on missing materials when the global material-purchase option is enabled.", migrateLegacyValues);
         EnableAlternateDimensionStaff = BindMigrated(
             "Craftables", "Alternate Dimension Staff Enabled", "Craftables - Alternate Dimension Staff Enabled", true,
-            "Keep the Alternate Dimension Staff temporary effect active.", migrateLegacyValues);
+            "Keep the Alternate Dimension Staff temporary effect active. WARNING: This can spend Jewels of Soul on missing materials when the global material-purchase option is enabled.", migrateLegacyValues);
         EnableBidimensionalStaff = BindMigrated(
             "Craftables", "Bidimensional Staff Enabled", "Craftables - Bidimensional Staff Enabled", true,
-            "Keep the Bidimensional Staff temporary effect active.", migrateLegacyValues);
+            "Keep the Bidimensional Staff temporary effect active. WARNING: This can spend Jewels of Soul on missing materials when the global material-purchase option is enabled.", migrateLegacyValues);
         EnableShardsNecklaceScrapOverflow = BindMigrated(
             "Craftables", "Shards Necklace Scrap Overflow Enabled", "Craftables - Shards Necklace Scrap Overflow Enabled", true,
-            "Craft Shards Necklaces when Scrap reaches the configured capacity percentage.", migrateLegacyValues);
+            "Craft Shards Necklaces when Scrap reaches the configured capacity percentage. WARNING: This can spend Jewels of Soul on missing materials when the global material-purchase option is enabled.", migrateLegacyValues);
         ShardsNecklaceScrapThresholdPercent = BindMigrated(
             "Craftables", "Shards Necklace Scrap Threshold Percent", "Craftables - Shards Necklace Scrap Threshold Percent", 95f,
             "Craft Shards Necklaces at or above this Scrap percentage and stop below it.", migrateLegacyValues);
@@ -120,10 +124,10 @@ internal sealed class AutoProgressionConfig(string configName) : BaseConfig(conf
 
         BuyMissingMaterialsWithJewels = BindMigrated(
             "Materials", "Buy Missing With Jewels", "Materials - Buy Missing With Jewels", true,
-            "Allow craftable modules to buy missing materials with Jewels of Soul.", migrateLegacyValues);
+            "WARNING: This option spends Jewels of Soul. Allow enabled craftable modules to buy missing materials automatically.", migrateLegacyValues);
         MaterialPurchasePercent = BindMigrated(
             "Materials", "Purchase Percent", "Materials - Purchase Percent", 100,
-            "Material refill option. Supported values are 25, 50, and 100.", migrateLegacyValues);
+            "Material refill option for Jewel purchases. Supported values are 25, 50, and 100. WARNING: Higher values may spend more Jewels of Soul per purchase.", migrateLegacyValues);
 
         PurchasePriority = BindMigrated(
             "Purchases", "Priority", "Purchases - Priority", "Skills",
@@ -197,6 +201,7 @@ internal sealed class AutoProgressionConfig(string configName) : BaseConfig(conf
         "Quests - Regenerate Daily Quests",
         "Quests - Regenerate Weekly Quests",
         "Quests - Unlimited Quest Rerolls",
+        "Quests - Prefer 180k Rage Weekly Quest",
         "Quests - Reset Portal Cooldown",
         "Craftables - Rage Pill Enabled",
         "Craftables - Rage Pill Minimum Interval Seconds",

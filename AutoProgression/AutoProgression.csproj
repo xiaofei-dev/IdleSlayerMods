@@ -20,6 +20,9 @@
     </ItemGroup>
 
     <ItemGroup>
+      <Reference Include="0Harmony">
+        <HintPath>$(MelonLoaderNet6Dir)\0Harmony.dll</HintPath>
+      </Reference>
       <Reference Include="Assembly-CSharp">
         <HintPath>$(Il2CppAssembliesDir)\Assembly-CSharp.dll</HintPath>
       </Reference>
