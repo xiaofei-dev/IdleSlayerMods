@@ -20,7 +20,12 @@ internal sealed class TimedCraftableService
         {
             new Entry("craftable_item_whetstone", "Whetstone", () => Plugin.Config.EnableWhetstone),
             new Entry("craftable_item_alternate_dimension_staff", "Alternate Dimension Staff", () => Plugin.Config.EnableAlternateDimensionStaff),
-            new Entry("craftable_item_bidimensional_staff", "Bidimensional Staff", () => Plugin.Config.EnableBidimensionalStaff)
+            new Entry("craftable_item_bidimensional_staff", "Bidimensional Staff", () => Plugin.Config.EnableBidimensionalStaff),
+            new Entry(
+                "craftable_item_deathwave_scepter",
+                "Deathwave Scepter",
+                () => Plugin.Config.EnableDeathwaveScepter,
+                HasDeathwaveFeatherReserve)
         };
     }
 
@@ -55,6 +60,11 @@ internal sealed class TimedCraftableService
             entry.MissingLogged = false;
 
             if (!entry.Item.TabVisible() || !entry.Item.ExtraCondition()) continue;
+            if (!entry.AdditionalCondition())
+            {
+                entry.Refilling = false;
+                continue;
+            }
 
             // Enter refill mode at the lower threshold, then keep stacking even
             // after crossing it until the upper target has been reached.
@@ -110,6 +120,15 @@ internal sealed class TimedCraftableService
         return null;
     }
 
+    private static bool HasDeathwaveFeatherReserve()
+    {
+        Drop feather = Drops.list?.SimurghFeather;
+        int reserve = System.Math.Max(
+            0,
+            Plugin.Config.DeathwaveScepterFeatherReserveAmount.Value);
+        return feather != null && feather.amount > reserve;
+    }
+
     internal void Reset()
     {
         nextCheckTime = 0f;
@@ -126,15 +145,21 @@ internal sealed class TimedCraftableService
         internal readonly string InternalName;
         internal readonly string DisplayName;
         internal readonly System.Func<MelonPreferences_Entry<bool>> Enabled;
+        internal readonly System.Func<bool> AdditionalCondition;
         internal TemporaryCraftableItem Item;
         internal bool MissingLogged;
         internal bool Refilling;
 
-        internal Entry(string internalName, string displayName, System.Func<MelonPreferences_Entry<bool>> enabled)
+        internal Entry(
+            string internalName,
+            string displayName,
+            System.Func<MelonPreferences_Entry<bool>> enabled,
+            System.Func<bool> additionalCondition = null)
         {
             InternalName = internalName;
             DisplayName = displayName;
             Enabled = enabled;
+            AdditionalCondition = additionalCondition ?? (() => true);
         }
     }
 }

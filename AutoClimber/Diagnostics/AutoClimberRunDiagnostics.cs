@@ -74,7 +74,8 @@ public sealed partial class AutoClimberRuntime
         string endReason)
     {
         if (!climbingConfirmed ||
-            runSummaryLogged)
+            runSummaryLogged ||
+            currentRunUsesQuickSkip)
         {
             return;
         }
@@ -158,7 +159,7 @@ public sealed partial class AutoClimberRuntime
             $"LastResult={(runSucceeded ? "Success" : "Failure")}, " +
             $"EndReason={endReason}, " +
             $"EnemiesDetected={runEnemiesDetected}, " +
-            $"EnemyDefeats=" +
+            $"EnemyHits=" +
             $"{EnemyDiagnosticsBridge.RunConfirmedDeaths}"
         );
 
@@ -211,6 +212,11 @@ public sealed partial class AutoClimberRuntime
     private void RecordFailureTrace(
         string message)
     {
+        if (currentRunUsesQuickSkip)
+        {
+            return;
+        }
+
         float elapsed = runStartTime > 0f
             ? Mathf.Max(0f, Time.time - runStartTime)
             : 0f;
@@ -309,6 +315,11 @@ public sealed partial class AutoClimberRuntime
     private void LogFailureTrace(
         string endReason)
     {
+        if (currentRunUsesQuickSkip)
+        {
+            return;
+        }
+
         ClimberLog.User(
             $"Failure trace: EndReason={endReason}, " +
             $"MaxY={highestObservedPlayerY:F2}, " +
@@ -334,6 +345,7 @@ public sealed partial class AutoClimberRuntime
 
         climbingConfirmed = false;
         currentRunIsRevive = false;
+        currentRunUsesQuickSkip = false;
 
         velocityInitialized = false;
         previousVelocityY = 0f;
@@ -424,6 +436,7 @@ public sealed partial class AutoClimberRuntime
         platformEnemyObjectMember = null;
         platformEnemyColliderMember = null;
         detectedEnemyIds.Clear();
+        attemptedEnemyInterceptIds.Clear();
         observedGenerationResetKeys.Clear();
         failureTrace.Clear();
 
@@ -473,6 +486,7 @@ public sealed partial class AutoClimberRuntime
             "BehaviourDisabled"
         );
 
+        RestoreQuickSkipFinishDistance();
         StopMovementControlSession();
     }
 
@@ -482,6 +496,7 @@ public sealed partial class AutoClimberRuntime
             "BehaviourDestroyed"
         );
 
+        RestoreQuickSkipFinishDistance();
         StopMovementControlSession();
     }
 

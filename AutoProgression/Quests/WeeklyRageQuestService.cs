@@ -10,12 +10,14 @@ internal sealed class WeeklyRageQuestService
 {
     private const int PreferredGoal = 180000;
     private const int MaximumRerollsPerGeneration = 200;
+    private const float PostGenerationSettleSeconds = 5f;
 
     private readonly HashSet<int> protectedQuestIds = new();
-    private WeeklyQuestReroll reroll;
     private WeeklyQuest target;
+    private int[] generatedQuestIds = Array.Empty<int>();
     private bool processing;
     private int attempts;
+    private float rerollReadyAt;
 
     internal bool IsProcessing => processing;
 
@@ -26,32 +28,84 @@ internal sealed class WeeklyRageQuestService
         if (!processing && !TryBeginNextGeneration())
             return false;
 
+        if (Time.unscaledTime < rerollReadyAt)
+            return false;
+
         if (HasPreferredQuest(FindActiveWeeklyQuests()))
             return FinishSuccessfully();
 
-        reroll ??= WeeklyQuestReroll.instance;
+        if (target == null && !PrepareTargetAfterSettle())
+            return Finish();
+
+        WeeklyQuestReroll reroll = WeeklyQuestReroll.instance;
         if (reroll == null || target == null)
         {
-            ProgressionLog.Debug("Weekly Rage quest reroll objects are unavailable.");
+            ProgressionLog.Debug("Weekly Rage quest replacement objects are unavailable.");
             return Finish();
         }
 
+        Exception invocationException = null;
         try
         {
-            // RewardForShowing is the game's native reroll completion path.
-            // Setting the target directly avoids opening an ad or UI popup.
-            reroll.weeklyQuestToReroll = target;
-            reroll.RewardForShowing();
+            // The game consumes this flag after every native reroll. Normal
+            // quest maintenance is paused while this service is processing,
+            // so each automatic attempt must restore it independently.
             reroll.rerollEnabled = true;
+            if (!reroll.rerollEnabled)
+            {
+                Plugin.Logger.Warning(
+                    "Automatic Weekly Quest reroll could not restore the native reroll permission.");
+                return Finish();
+            }
+
+            int targetId = target.GetInstanceID();
+            int boundBefore = reroll.weeklyQuestToReroll?.GetInstanceID() ?? 0;
+            ProgressionLog.Debug(
+                $"Preparing native Weekly Quest reroll: TargetId={targetId}, " +
+                $"BoundBefore={boundBefore}, RerollEnabled={reroll.rerollEnabled}.");
+
+            reroll.PrepareReroll(target);
+            int boundAfter = reroll.weeklyQuestToReroll?.GetInstanceID() ?? 0;
+            if (boundAfter != targetId)
+            {
+                Plugin.Logger.Warning(
+                    $"Automatic Weekly Quest reroll did not bind its selected target. " +
+                    $"TargetId={targetId}, BoundAfter={boundAfter}.");
+                return Finish();
+            }
+
             attempts++;
+            reroll.RewardForShowing();
         }
         catch (Exception exception)
         {
-            Plugin.Logger.Error($"Automatic Weekly Quest reroll failed safely: {exception}");
-            return Finish();
+            // Some game versions finish the native replacement before their UI
+            // icon update throws. Validate the quest data below before deciding
+            // whether this attempt failed.
+            invocationException = exception;
         }
 
         List<WeeklyQuest> active = FindActiveWeeklyQuests();
+        ProgressionLog.Debug(
+            $"Native Weekly Quest reroll returned: TargetId={target.GetInstanceID()}, " +
+            $"TargetActive={target.active}, ActiveCount={active.Count}, " +
+            $"BoundAfter={reroll.weeklyQuestToReroll?.GetInstanceID() ?? 0}.");
+        if (target.active)
+        {
+            if (invocationException != null)
+                Plugin.Logger.Error($"Automatic Weekly Quest reroll failed safely: {invocationException}");
+            else
+                Plugin.Logger.Warning("Automatic Weekly Quest reroll did not replace its selected quest.");
+
+            return Finish();
+        }
+
+        if (invocationException != null)
+        {
+            ProgressionLog.Debug(
+                "The native Weekly Quest reroll completed before a non-fatal UI update exception.");
+        }
+
         if (HasPreferredQuest(active))
             return FinishSuccessfully();
 
@@ -80,27 +134,36 @@ internal sealed class WeeklyRageQuestService
             if (!Plugin.Config.PreferMinimumRageWeeklyQuest.Value)
                 continue;
 
-            List<WeeklyQuest> active = FindActiveWeeklyQuests();
-            if (active.Count == 0 || HasPreferredQuest(active))
-                continue;
-
-            target = FindRageQuest(active) ??
-                     FindByInstanceId(active, newlyActiveIds ?? Array.Empty<int>()) ??
-                     active[^1];
-
+            target = null;
+            generatedQuestIds = newlyActiveIds ?? Array.Empty<int>();
             protectedQuestIds.Clear();
-            foreach (WeeklyQuest quest in active)
-            {
-                if (quest != target)
-                    protectedQuestIds.Add(quest.GetInstanceID());
-            }
-
             attempts = 0;
+            rerollReadyAt = Time.unscaledTime + PostGenerationSettleSeconds;
             processing = true;
             return true;
         }
 
         return false;
+    }
+
+    private bool PrepareTargetAfterSettle()
+    {
+        List<WeeklyQuest> active = FindActiveWeeklyQuests();
+        if (active.Count == 0)
+            return false;
+
+        target = FindRageQuest(active) ??
+                 FindByInstanceId(active, generatedQuestIds) ??
+                 active[^1];
+
+        protectedQuestIds.Clear();
+        foreach (WeeklyQuest quest in active)
+        {
+            if (quest != target)
+                protectedQuestIds.Add(quest.GetInstanceID());
+        }
+
+        return true;
     }
 
     private bool FinishSuccessfully()
@@ -114,8 +177,10 @@ internal sealed class WeeklyRageQuestService
     {
         processing = false;
         target = null;
+        generatedQuestIds = Array.Empty<int>();
         protectedQuestIds.Clear();
         attempts = 0;
+        rerollReadyAt = 0f;
         return true;
     }
 
@@ -182,10 +247,11 @@ internal sealed class WeeklyRageQuestService
 
     internal void Reset()
     {
-        reroll = null;
         target = null;
+        generatedQuestIds = Array.Empty<int>();
         processing = false;
         attempts = 0;
+        rerollReadyAt = 0f;
         protectedQuestIds.Clear();
         WeeklyQuestGenerationBridge.DiscardPending();
     }

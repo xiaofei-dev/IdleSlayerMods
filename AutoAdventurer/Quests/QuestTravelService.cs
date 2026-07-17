@@ -13,7 +13,9 @@ internal sealed class QuestTravelService
     private const float ScanIntervalSeconds = 5f;
     private const float PortalRequestTimeoutSeconds = 60f;
     private const float CharacterSwitchStabilitySeconds = 0.5f;
+    private const float CharacterSwitchCheckIntervalSeconds = 0.25f;
     private const float EventCheckIntervalSeconds = 0.5f;
+    private const float StalledProgressCheckSeconds = 300f;
 
     private readonly QuestDiscoveryService discovery = new();
     private readonly QuestTargetResolver resolver = new();
@@ -27,23 +29,39 @@ internal sealed class QuestTravelService
     private string requestedQuestId = string.Empty;
     private string requestedQuestKey = string.Empty;
     private string lastSelection = string.Empty;
+    private string pendingQuestStatusReason = string.Empty;
+    private float nextQuestStatusLogTime;
     private string lockedQuestId = string.Empty;
     private string lockedQuestKey = string.Empty;
     private string lockedQuestDisplayName = string.Empty;
+    private int lockedQuestInstanceId;
     private string lockedTargetMapId = string.Empty;
+    private string lockedRequiredCharacterId = string.Empty;
     private bool lockedQuestIsDaily;
     private bool lockedQuestSuppressesRage;
     private bool lockedQuestNeedsCharacterSwitch;
+    private float lockedQuestStartedAt;
+    private double lockedQuestProgressBaseline;
+    private float nextLockedQuestProgressCheckAt;
     private float characterSwitchStableAt;
+    private float nextCharacterSwitchCheckAt;
     private string characterWaitLoggedForQuestKey = string.Empty;
     private bool lastQuestSnapshotAvailable;
     private bool requestedForSoulFallback;
+    private bool pendingTravelObservedRage;
+    private float pendingTravelPortalReadyAt;
+    private float postRagePortalBlockedUntil;
     private string lastSoulFallbackMapId = string.Empty;
     private int sessionDailyQuestsCompleted;
     private int sessionNormalQuestsCompleted;
+    private readonly HashSet<int> countedDailyQuestInstances = new();
+    private readonly HashSet<int> countedNormalQuestInstances = new();
+    private readonly Dictionary<string, string> abnormalQuestReasons =
+        new(StringComparer.Ordinal);
     private float nextEventCheckTime;
     private bool activeRandomEvent;
     private string activeRandomEventName = string.Empty;
+    private string activeRandomEventKey = string.Empty;
     private bool activeRandomBox;
     private string activeRandomBoxDescription = string.Empty;
 
@@ -52,9 +70,12 @@ internal sealed class QuestTravelService
 
     internal bool SuppressAutomaticRage =>
         !HasMapActivityBlocker &&
-        (!string.IsNullOrEmpty(requestedMapId) || lockedQuestSuppressesRage ||
+        (Time.unscaledTime < postRagePortalBlockedUntil ||
+         !string.IsNullOrEmpty(requestedMapId) || lockedQuestSuppressesRage ||
          lockedQuestNeedsCharacterSwitch ||
          Time.unscaledTime < characterSwitchStableAt);
+
+    internal void PrioritizePostRageScan() => nextScanTime = 0f;
 
     internal void Tick(float now, bool enabled)
     {
@@ -70,8 +91,9 @@ internal sealed class QuestTravelService
                     string blocker = activeRandomEvent
                         ? activeRandomEventName
                         : activeRandomBoxDescription;
-                    AdventurerLog.QuestDebug(
-                        $"Travel intent released: map activity blocker={blocker}; quest lock retained; automatic Rage suppression released.");
+                    if (activeRandomEvent)
+                        AdventurerLog.QuestDebug(
+                            $"Travel intent released: active map event={blocker}; quest lock retained; automatic Rage suppression released.");
                     ClearPendingTravel();
                 }
                 return;
@@ -81,6 +103,17 @@ internal sealed class QuestTravelService
             {
                 ObservePendingTravel(now);
                 return;
+            }
+
+            // Character-selection windows can be much shorter than the main
+            // five-second quest scan. Re-resolve and correct a locked
+            // character task at frame-scale intervals while Runner is usable.
+            if (lockedQuestNeedsCharacterSwitch &&
+                now >= nextCharacterSwitchCheckAt)
+            {
+                nextCharacterSwitchCheckAt = now +
+                                             CharacterSwitchCheckIntervalSeconds;
+                TryCorrectLockedCharacter(now);
             }
 
             if (now < nextScanTime) return;
@@ -110,6 +143,7 @@ internal sealed class QuestTravelService
             if (rage != null &&
                 rage.currentState == RageModeManager.RageModeStates.Execution)
             {
+                pendingTravelObservedRage = true;
                 AdventurerLog.User(
                     $"Quest travel is waiting for Rage Mode to end naturally before travelling to {selection.MapId}.");
                 return;
@@ -140,6 +174,7 @@ internal sealed class QuestTravelService
             lastAutomaticArrivalAt = now;
             ClearPendingTravel();
             discovery.Reset();
+            pendingQuestStatusReason = "arrived in target map";
             nextScanTime = now + ScanIntervalSeconds;
             return;
         }
@@ -147,7 +182,30 @@ internal sealed class QuestTravelService
         RageModeManager rage = RageModeManager.instance;
         if (portalRequestedAt <= 0f && rage != null &&
             rage.currentState == RageModeManager.RageModeStates.Execution)
+        {
+            pendingTravelObservedRage = true;
             return;
+        }
+
+        if (portalRequestedAt <= 0f && pendingTravelObservedRage)
+        {
+            if (pendingTravelPortalReadyAt <= 0f)
+            {
+                float protectionSeconds = Math.Max(0f,
+                    Plugin.Config.PostRageObservationSeconds.Value);
+                pendingTravelPortalReadyAt = now +
+                    protectionSeconds;
+                postRagePortalBlockedUntil = Math.Max(
+                    postRagePortalBlockedUntil,
+                    pendingTravelPortalReadyAt);
+                AdventurerLog.QuestDebug(
+                    $"Travel intent: Rage Mode ended; protecting the map for {protectionSeconds:0.#} seconds before opening a Portal or allowing another Rage activation.");
+            }
+
+            if (now < pendingTravelPortalReadyAt) return;
+            pendingTravelObservedRage = false;
+            pendingTravelPortalReadyAt = 0f;
+        }
 
         if (portalRequestedAt <= 0f)
         {
@@ -208,17 +266,84 @@ internal sealed class QuestTravelService
         lastQuestSnapshotAvailable = discovery.LastSnapshotAvailable;
         if (!lastQuestSnapshotAvailable) return null;
 
-        if (discovery.ActiveDailySetChanged &&
-            !string.IsNullOrEmpty(lockedQuestKey))
+        // DailyQuest components are recycled when the active set rerolls.
+        // Their IL2CPP instance IDs therefore identify a slot, not a unique
+        // quest occurrence. A new active set begins a fresh Daily dedupe
+        // generation while normal quest instances remain session-stable.
+        if (discovery.ActiveDailySetChanged)
         {
-            bool completed = discovery.WatchedQuestCompleted;
+            countedDailyQuestInstances.Clear();
             AdventurerLog.QuestDebug(
-                $"Quest lock released: quest={lockedQuestDisplayName} [{lockedQuestId}]; " +
-                $"reason={(completed ? "completed while the active Daily quest set changed" : "active Daily quest set changed")}; " +
-                "a fresh selection will be made.");
-            if (completed)
-                RecordCompletedQuest();
-            ClearQuestLock();
+                "Quest statistics: active Daily set changed; Daily completion dedupe generation reset.");
+        }
+
+        if (!string.IsNullOrEmpty(lockedQuestKey))
+        {
+            float watchdogMinutes = Math.Max(0f,
+                Plugin.Config.MaximumQuestTimeMinutes.Value);
+            if (watchdogMinutes > 0f && lockedQuestStartedAt > 0f &&
+                Time.unscaledTime - lockedQuestStartedAt >=
+                watchdogMinutes * 60f)
+            {
+                Quest expired = FindQuest(quests, lockedQuestKey);
+                if (expired != null)
+                {
+                    string expiredKey = lockedQuestKey;
+                    var alternatives = new List<Quest>();
+                    foreach (Quest quest in quests)
+                    {
+                        if (quest != null && !IsAbnormalQuest(quest) &&
+                            !string.Equals(
+                                QuestTargetSelection.BuildLockKey(quest),
+                                expiredKey, StringComparison.Ordinal))
+                            alternatives.Add(quest);
+                    }
+
+                    QuestTargetSelection alternative =
+                        resolver.Select(alternatives);
+                    if (alternative != null)
+                    {
+                        AdventurerLog.QuestDebug(
+                            $"Quest maximum time reached: quest={lockedQuestDisplayName} [{lockedQuestId}]; " +
+                            $"elapsedLimit={watchdogMinutes:0.##} minute(s); switching to another executable quest={alternative.QuestDisplayName} [{alternative.QuestId}].");
+                        ClearPendingTravel();
+                        ClearQuestLock();
+                        // Keep the expired task out of this selection pass so
+                        // ranking cannot immediately choose it again.
+                        quests = alternatives;
+                    }
+                    else
+                    {
+                        QuestTargetSelection validation =
+                            resolver.ResolveLocked(expired,
+                                lockedTargetMapId);
+                        if (validation != null)
+                        {
+                            double currentProgress = Math.Max(0d,
+                                expired.questCurrentGoal);
+                            AdventurerLog.QuestDebug(
+                                $"Quest maximum time reached: quest={lockedQuestDisplayName} [{lockedQuestId}]; " +
+                                "no other executable quest is available; target validation passed, so execution will continue with a fresh timer.");
+                            lockedQuestStartedAt = Time.unscaledTime;
+                            lockedQuestProgressBaseline = currentProgress;
+                            nextLockedQuestProgressCheckAt =
+                                Time.unscaledTime +
+                                StalledProgressCheckSeconds;
+                        }
+                        else
+                        {
+                            QuarantineQuest(expiredKey,
+                                lockedQuestDisplayName, lockedQuestId,
+                                "maximum time reached and target validation failed");
+                            AdventurerLog.QuestDebug(
+                                $"Quest lock released: quest={lockedQuestDisplayName} [{lockedQuestId}]; " +
+                                $"reason=maximum time reached and target validation failed after {watchdogMinutes:0.##} minute(s); a full rescan will be made.");
+                            ClearPendingTravel();
+                            ClearQuestLock();
+                        }
+                    }
+                }
+            }
         }
 
         if (!string.IsNullOrEmpty(lockedQuestKey))
@@ -233,7 +358,9 @@ internal sealed class QuestTravelService
                 AdventurerLog.QuestDebug(
                     $"Quest lock released: quest={lockedQuestDisplayName} [{lockedQuestId}]; reason={releaseReason}; rageSuppression={lockedQuestSuppressesRage}.");
                 if (completed)
-                    RecordCompletedQuest();
+                    RecordCompletedQuest(
+                        lockedQuestInstanceId, lockedQuestIsDaily,
+                        lockedQuestDisplayName, lockedQuestId);
                 ClearQuestLock();
             }
             else
@@ -246,6 +373,42 @@ internal sealed class QuestTravelService
                     locked, lockedTargetMapId);
                 lockedQuestNeedsCharacterSwitch =
                     characters.RequiresSwitch(locked);
+                lockedRequiredCharacterId =
+                    locked.characterRequired?.name ?? string.Empty;
+                if (Time.unscaledTime >= nextLockedQuestProgressCheckAt)
+                {
+                    double currentProgress = Math.Max(0d,
+                        locked.questCurrentGoal);
+                    if (currentProgress <= lockedQuestProgressBaseline)
+                    {
+                        QuarantineQuest(lockedQuestKey,
+                            lockedQuestDisplayName, lockedQuestId,
+                            $"progress did not increase for {StalledProgressCheckSeconds / 60f:0.#} minutes at {currentProgress:0.##}");
+                        AdventurerLog.QuestDebug(
+                            $"Quest lock released: quest={lockedQuestDisplayName} [{lockedQuestId}]; " +
+                            $"reason=progress did not increase during the last {StalledProgressCheckSeconds / 60f:0.#} minutes " +
+                            $"(progress={currentProgress:0.##}); a full rescan will be made.");
+                        ClearPendingTravel();
+                        ClearQuestLock();
+                    }
+                    else
+                    {
+                        AdventurerLog.QuestDebug(
+                            $"Quest watchdog healthy: quest={lockedQuestDisplayName} [{lockedQuestId}]; " +
+                            $"progress={lockedQuestProgressBaseline:0.##}->{currentProgress:0.##}; next check in 5 minutes.");
+                        lockedQuestProgressBaseline = currentProgress;
+                        nextLockedQuestProgressCheckAt =
+                            Time.unscaledTime + StalledProgressCheckSeconds;
+                    }
+                }
+
+                if (string.IsNullOrEmpty(lockedQuestKey))
+                {
+                    // The stalled-progress watchdog released this lock. Fall
+                    // through and select again from the fresh snapshot.
+                }
+                else
+                {
                 if (tracked != null && !string.Equals(tracked.MapId,
                         lockedTargetMapId, StringComparison.Ordinal))
                 {
@@ -256,19 +419,28 @@ internal sealed class QuestTravelService
                     lockedTargetMapId = tracked.MapId;
                 }
                 return tracked;
+                }
             }
         }
 
-        QuestTargetSelection selection = resolver.Select(quests);
+        QuestTargetSelection selection = resolver.Select(
+            ExcludeAbnormalQuests(quests));
         if (selection == null) return null;
 
         lockedQuestId = selection.QuestId;
         lockedQuestKey = selection.LockKey;
         lockedQuestDisplayName = selection.QuestDisplayName;
+        lockedQuestInstanceId = selection.Quest?.GetInstanceID() ?? 0;
         lockedTargetMapId = selection.MapId;
+        lockedRequiredCharacterId = selection.RequiredCharacterId;
         lockedQuestIsDaily = IsDailyQuest(selection.Quest);
         lockedQuestSuppressesRage = selection.SuppressesAutomaticRage;
         lockedQuestNeedsCharacterSwitch = characters.RequiresSwitch(selection);
+        lockedQuestStartedAt = Time.unscaledTime;
+        lockedQuestProgressBaseline = Math.Max(0d,
+            selection.CurrentKills);
+        nextLockedQuestProgressCheckAt = Time.unscaledTime +
+                                         StalledProgressCheckSeconds;
         lastSoulFallbackMapId = string.Empty;
         return selection;
     }
@@ -286,16 +458,59 @@ internal sealed class QuestTravelService
         return null;
     }
 
-    private void RecordCompletedQuest()
+    private bool IsAbnormalQuest(Quest quest) =>
+        quest != null && abnormalQuestReasons.ContainsKey(
+            QuestTargetSelection.BuildLockKey(quest));
+
+    private List<Quest> ExcludeAbnormalQuests(List<Quest> quests)
     {
-        if (lockedQuestIsDaily)
+        if (abnormalQuestReasons.Count == 0) return quests;
+
+        var eligible = new List<Quest>(quests.Count);
+        foreach (Quest quest in quests)
+        {
+            if (quest != null && !IsAbnormalQuest(quest))
+                eligible.Add(quest);
+        }
+        return eligible;
+    }
+
+    private void QuarantineQuest(string lockKey, string displayName,
+        string questId, string reason)
+    {
+        if (string.IsNullOrEmpty(lockKey) ||
+            abnormalQuestReasons.ContainsKey(lockKey)) return;
+
+        string description =
+            $"quest={displayName} [{questId}]; reason={reason}";
+        abnormalQuestReasons.Add(lockKey, description);
+        AdventurerLog.QuestDebug(
+            $"Quest added to the P-session abnormal list: {description}; " +
+            $"excludedCount={abnormalQuestReasons.Count}. It will remain excluded until P is disabled.");
+    }
+
+    private void RecordCompletedQuest(int instanceId, bool isDaily,
+        string displayName, string questId)
+    {
+        if (instanceId != 0)
+        {
+            HashSet<int> counted = isDaily
+                ? countedDailyQuestInstances
+                : countedNormalQuestInstances;
+            if (!counted.Add(instanceId)) return;
+        }
+
+        if (isDaily)
             sessionDailyQuestsCompleted++;
         else
             sessionNormalQuestsCompleted++;
 
         int total = sessionDailyQuestsCompleted + sessionNormalQuestsCompleted;
+        string questLabel = string.IsNullOrWhiteSpace(displayName)
+            ? questId
+            : displayName;
         string message =
-            $"Quest completed! Session total: {total} " +
+            $"Quest completed: {questLabel} [{questId}]. Session total: {total} " +
             $"(Daily: {sessionDailyQuestsCompleted}, Normal: {sessionNormalQuestsCompleted}).";
         AdventurerLog.User(message);
         if (Plugin.Config.QuestCompletionNotifications.Value)
@@ -313,13 +528,20 @@ internal sealed class QuestTravelService
 
     internal void ObserveClaimedQuest(ClaimedQuestEvent claimed, bool enabled)
     {
-        if (!enabled || string.IsNullOrEmpty(lockedQuestKey) ||
+        if (!enabled || claimed.IsWeekly) return;
+
+        // Count every normal or Daily quest that is actually claimed while
+        // this P session is active. This also covers Claim calls made by
+        // another mod; the bridge suppresses duplicate Harmony callbacks.
+        RecordCompletedQuest(claimed.InstanceId, claimed.IsDaily,
+            claimed.QuestDisplayName, claimed.QuestId);
+
+        if (string.IsNullOrEmpty(lockedQuestKey) ||
             !string.Equals(lockedQuestKey, claimed.LockKey,
                 StringComparison.Ordinal)) return;
 
         AdventurerLog.QuestDebug(
             $"Quest lock released: quest={lockedQuestDisplayName} [{lockedQuestId}]; reason=claimed after completion; rageSuppression={lockedQuestSuppressesRage}.");
-        RecordCompletedQuest();
         ClearQuestLock();
         ClearPendingTravel();
         nextScanTime = 0f;
@@ -352,14 +574,37 @@ internal sealed class QuestTravelService
             return false;
         }
 
-        if (!IsMapStable() || interruptions.TryGetBlocker(out _))
+        if (!IsMapStable())
             return false;
         if (!characters.TryApply(selection)) return false;
 
         lockedQuestNeedsCharacterSwitch = false;
+        // Character correction starts a fresh, real observation window. Zero
+        // would make the next five-second quest scan look like a completed
+        // five-minute watchdog interval and quarantine the task immediately.
+        lockedQuestStartedAt = now;
+        lockedQuestProgressBaseline = Math.Max(0d,
+            selection.CurrentKills);
+        nextLockedQuestProgressCheckAt = now +
+                                         StalledProgressCheckSeconds;
         characterWaitLoggedForQuestKey = string.Empty;
         characterSwitchStableAt = now + CharacterSwitchStabilitySeconds;
         return false;
+    }
+
+    private void TryCorrectLockedCharacter(float now)
+    {
+        if (GameState.current != GameStates.RunnerMode || !IsMapStable() ||
+            string.IsNullOrEmpty(lockedQuestKey) ||
+            string.IsNullOrEmpty(lockedRequiredCharacterId)) return;
+
+        if (!characters.TryApply(lockedRequiredCharacterId,
+                lockedQuestId)) return;
+
+        lockedQuestNeedsCharacterSwitch = false;
+        characterWaitLoggedForQuestKey = string.Empty;
+        characterSwitchStableAt = now + CharacterSwitchStabilitySeconds;
+        nextScanTime = 0f;
     }
 
     private void BeginTravelIntent(QuestTargetSelection selection)
@@ -369,12 +614,15 @@ internal sealed class QuestTravelService
         requestedQuestKey = selection.LockKey;
         requestedMapId = selection.MapId;
         portalRequestedAt = 0f;
+        pendingTravelObservedRage = false;
+        pendingTravelPortalReadyAt = 0f;
         AdventurerLog.QuestDebug(
             $"Travel lock acquired: quest={selection.QuestDisplayName} [{requestedQuestId}]; targetMap={requestedMapId}; automaticRageSuppressed=true.");
     }
 
     private void TryRequestPortal(QuestTargetSelection selection, float now)
     {
+        if (now < postRagePortalBlockedUntil) return;
         PortalButton portal = PortalButton.instance;
         if (!CanClickPortalButton(portal)) return;
         if (interruptions.TryGetBlocker(out _)) return;
@@ -403,6 +651,7 @@ internal sealed class QuestTravelService
         if (rage != null &&
             rage.currentState == RageModeManager.RageModeStates.Execution)
         {
+            pendingTravelObservedRage = true;
             AdventurerLog.QuestDebug(
                 $"Soul fallback: waiting for Rage Mode to end naturally before travelling to {selection.MapId}.");
             return;
@@ -455,12 +704,15 @@ internal sealed class QuestTravelService
         requestedQuestKey = string.Empty;
         requestedMapId = selection.MapId;
         portalRequestedAt = 0f;
+        pendingTravelObservedRage = false;
+        pendingTravelPortalReadyAt = 0f;
         AdventurerLog.QuestDebug(
             $"Soul fallback travel lock acquired: targetMap={selection.MapId}; soulScore={selection.SoulScore:0.###}; automaticRageSuppressed=true.");
     }
 
     private void TryRequestSoulPortal(SoulFarmingSelection selection, float now)
     {
+        if (now < postRagePortalBlockedUntil) return;
         PortalButton portal = PortalButton.instance;
         if (!CanClickPortalButton(portal)) return;
         if (interruptions.TryGetBlocker(out _)) return;
@@ -487,7 +739,8 @@ internal sealed class QuestTravelService
     private bool CanPreparePortalTravel()
     {
         PortalButton portal = PortalButton.instance;
-        return portal != null && portal.currentCd <= 0d &&
+        return Time.unscaledTime >= postRagePortalBlockedUntil &&
+               portal != null && portal.currentCd <= 0d &&
                !HasMapActivityBlocker &&
                !interruptions.TryGetBlocker(out _);
     }
@@ -499,19 +752,23 @@ internal sealed class QuestTravelService
 
         bool wasActive = activeRandomEvent;
         string previousName = activeRandomEventName;
+        string previousKey = activeRandomEventKey;
         bool boxWasActive = activeRandomBox;
         string previousBox = activeRandomBoxDescription;
         activeRandomEvent =
             interruptions.TryGetActiveRandomEvent(out string eventName);
         activeRandomEventName = activeRandomEvent ? eventName : string.Empty;
+        activeRandomEventKey = activeRandomEvent
+            ? GetStableEventKey(eventName)
+            : string.Empty;
         activeRandomBox =
             interruptions.TryGetActiveRandomBox(out string boxDescription);
         activeRandomBoxDescription = activeRandomBox
             ? boxDescription
             : string.Empty;
 
-        if (activeRandomEvent && (!wasActive || !string.Equals(previousName,
-                activeRandomEventName, StringComparison.Ordinal)))
+        if (activeRandomEvent && (!wasActive || !string.Equals(previousKey,
+                activeRandomEventKey, StringComparison.Ordinal)))
         {
             AdventurerLog.QuestDebug(
                 $"Map event detected: event={activeRandomEventName}; dimension travel paused; automatic Rage suppression released.");
@@ -520,21 +777,25 @@ internal sealed class QuestTravelService
         {
             AdventurerLog.QuestDebug(
                 $"Map event ended: event={previousName}; quest and Portal conditions will be re-evaluated.");
+            lastSelection = string.Empty;
+            pendingQuestStatusReason = $"map event ended ({previousName})";
             nextScanTime = 0f;
         }
 
-        if (activeRandomBox && (!boxWasActive || !string.Equals(previousBox,
-                activeRandomBoxDescription, StringComparison.Ordinal)))
+        if (!activeRandomBox && boxWasActive && !activeRandomEvent)
         {
-            AdventurerLog.QuestDebug(
-                $"Random Box detected: box={activeRandomBoxDescription}; dimension travel paused while its result is determined; automatic Rage suppression released.");
-        }
-        else if (!activeRandomBox && boxWasActive && !activeRandomEvent)
-        {
-            AdventurerLog.QuestDebug(
-                $"Random Box cleared: box={previousBox}; no active map event detected; quest and Portal conditions will be re-evaluated.");
+            lastSelection = string.Empty;
             nextScanTime = 0f;
         }
+    }
+
+    private static string GetStableEventKey(string eventName)
+    {
+        // The diagnostic description contains a decreasing timeLeft value.
+        // It must not be part of event identity or every poll looks new.
+        int timerIndex = eventName.IndexOf(", timeLeft=",
+            StringComparison.Ordinal);
+        return timerIndex >= 0 ? eventName[..timerIndex] : eventName;
     }
 
     private static bool CanClickPortalButton(PortalButton portal)
@@ -552,13 +813,31 @@ internal sealed class QuestTravelService
     private void LogSelection(QuestTargetSelection selection)
     {
         string key = $"{selection.LockKey}|{selection.EnemyId}|{selection.MapId}";
-        if (string.Equals(key, lastSelection, StringComparison.Ordinal)) return;
+        bool changed = !string.Equals(key, lastSelection,
+            StringComparison.Ordinal);
+        bool resumed = !string.IsNullOrEmpty(pendingQuestStatusReason);
+        bool periodic = Time.unscaledTime >= nextQuestStatusLogTime;
+        if (!changed && !resumed && !periodic) return;
 
         lastSelection = key;
+        string currentMap = MapController.instance?.selectedMap?.name ??
+                            "UnknownMap";
+        string mapState = string.Equals(currentMap, selection.MapId,
+            StringComparison.Ordinal)
+            ? "on-target-map"
+            : "travel-required";
+        string heading = resumed
+            ? $"Quest resumed ({pendingQuestStatusReason})"
+            : changed
+                ? "Quest selected"
+                : "Quest progress";
+        pendingQuestStatusReason = string.Empty;
+        nextQuestStatusLogTime = Time.unscaledTime + 60f;
         AdventurerLog.QuestDebug(
-            $"Quest target locked: quest={selection.QuestDisplayName} [{selection.QuestId}]; " +
+            $"{heading}: quest={selection.QuestDisplayName} [{selection.QuestId}]; " +
             $"questType={selection.QuestTypeId}; objective={selection.ObjectiveId}; " +
-            $"matchedEnemy={selection.EnemyId}; targetMap={selection.MapId}; " +
+            $"matchedEnemy={selection.EnemyId}; currentMap={currentMap}; " +
+            $"targetMap={selection.MapId}; mapState={mapState}; " +
             $"progress={selection.CurrentKills:0.##}/{selection.RequiredKills:0.##}; " +
             $"remainingKills={selection.RemainingKills:0.##}; " +
             $"requiredCharacter={selection.RequiredCharacterId}; " +
@@ -589,6 +868,8 @@ internal sealed class QuestTravelService
         requestedQuestId = string.Empty;
         requestedQuestKey = string.Empty;
         portalRequestedAt = 0f;
+        pendingTravelObservedRage = false;
+        pendingTravelPortalReadyAt = 0f;
     }
 
     private void ClearQuestLock()
@@ -596,13 +877,18 @@ internal sealed class QuestTravelService
         lockedQuestId = string.Empty;
         lockedQuestKey = string.Empty;
         lockedQuestDisplayName = string.Empty;
+        lockedQuestInstanceId = 0;
         lockedTargetMapId = string.Empty;
+        lockedRequiredCharacterId = string.Empty;
         lockedQuestIsDaily = false;
         lockedQuestSuppressesRage = false;
         lockedQuestNeedsCharacterSwitch = false;
         characterSwitchStableAt = 0f;
+        nextCharacterSwitchCheckAt = 0f;
         characterWaitLoggedForQuestKey = string.Empty;
         lastSelection = string.Empty;
+        pendingQuestStatusReason = string.Empty;
+        nextQuestStatusLogTime = 0f;
     }
 
     internal void Reset()
@@ -614,8 +900,10 @@ internal sealed class QuestTravelService
         nextEventCheckTime = 0f;
         activeRandomEvent = false;
         activeRandomEventName = string.Empty;
+        activeRandomEventKey = string.Empty;
         activeRandomBox = false;
         activeRandomBoxDescription = string.Empty;
+        postRagePortalBlockedUntil = 0f;
         ClearQuestLock();
         ClearPendingTravel();
         discovery.Reset();
@@ -626,6 +914,9 @@ internal sealed class QuestTravelService
     {
         sessionDailyQuestsCompleted = 0;
         sessionNormalQuestsCompleted = 0;
+        countedDailyQuestInstances.Clear();
+        countedNormalQuestInstances.Clear();
+        abnormalQuestReasons.Clear();
         Reset();
         AdventurerLog.QuestDebug(
             "Quest completion session started; counters reset to zero.");
@@ -642,6 +933,16 @@ internal sealed class QuestTravelService
         if (Plugin.Config.QuestCompletionNotifications.Value)
             Plugin.ModHelperInstance?.ShowNotification(
                 $"Session quests completed: {total}", false);
+
+        if (abnormalQuestReasons.Count > 0)
+        {
+            AdventurerLog.QuestDebug(
+                $"P-session abnormal quest summary: count={abnormalQuestReasons.Count}.");
+            foreach (string description in abnormalQuestReasons.Values)
+                AdventurerLog.QuestDebug(
+                    $"P-session abnormal quest: {description}.");
+        }
+        abnormalQuestReasons.Clear();
     }
 
     internal void PauseForSceneTransition()

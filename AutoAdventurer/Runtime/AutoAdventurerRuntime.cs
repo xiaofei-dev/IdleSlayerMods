@@ -22,7 +22,6 @@ public sealed class AutoAdventurerRuntime : MonoBehaviour
     private readonly AutoBossService autoBoss = new();
     private readonly AutomaticBoostService autoBoost = new();
     private readonly QuestTravelService questTravel = new();
-    private readonly CompletedQuestClaimService questClaims = new();
     private bool automaticRageEnabled;
     private bool automaticBoostEnabled;
     private bool questAutomationEnabled;
@@ -66,6 +65,9 @@ public sealed class AutoAdventurerRuntime : MonoBehaviour
             bool questReady = questScreen.IsReady(QuestScreenStableSeconds);
             if (questReady)
             {
+                if (questAutomationEnabled &&
+                    rage.IsPostRageProtectionReady(Time.unscaledTime))
+                    questTravel.PrioritizePostRageScan();
                 if (questAutomationEnabled && !wasQuestReady &&
                     logNextQuestResume)
                     AdventurerLog.QuestDebug(
@@ -73,7 +75,6 @@ public sealed class AutoAdventurerRuntime : MonoBehaviour
                 if (!wasQuestReady)
                     logNextQuestResume = false;
                 questTravel.Tick(Time.unscaledTime, questAutomationEnabled);
-                questClaims.Tick(Time.unscaledTime);
             }
             else if (wasQuestReady)
             {
@@ -205,7 +206,6 @@ public sealed class AutoAdventurerRuntime : MonoBehaviour
         autoBoss.Reset();
         autoBoost.Reset();
         questTravel.Reset();
-        questClaims.Reset();
         wasRageReady = false;
         wasBoostReady = false;
         wasQuestReady = false;

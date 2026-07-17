@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Il2Cpp;
 using UnityEngine;
 
 namespace AutoClimber;
@@ -251,6 +252,53 @@ internal sealed class PlatformScanner
             currentPosition.y -
             playerPosition.y;
 
+        bool hasEnemy = false;
+        int enemyInstanceId = 0;
+        float enemyOffsetX = 0f;
+        float enemyOffsetY = 0f;
+        float enemyWidth = 0f;
+
+        try
+        {
+            AscendingHeightsPlatform platform =
+                gameObject.GetComponent<AscendingHeightsPlatform>() ??
+                gameObject.GetComponentInParent<AscendingHeightsPlatform>();
+
+            EnemyGameObject enemyComponent = platform?.enemyObject;
+            GameObject enemyObject = enemyComponent?.gameObject;
+            Collider2D enemyCollider = platform?.enemyBoxCollider;
+
+            if (enemyObject == null && enemyCollider != null)
+            {
+                enemyObject = enemyCollider.gameObject;
+            }
+
+            if (enemyObject != null &&
+                enemyObject.activeInHierarchy &&
+                (enemyCollider == null || enemyCollider.enabled))
+            {
+                Vector3 enemyCenter = enemyObject.transform.position;
+
+                if (enemyCollider != null)
+                {
+                    enemyCenter = enemyCollider.bounds.center;
+                    enemyWidth = enemyCollider.bounds.size.x;
+                }
+
+                hasEnemy = true;
+                enemyInstanceId = enemyComponent != null
+                    ? enemyComponent.GetInstanceID()
+                    : enemyObject.GetInstanceID();
+                enemyOffsetX = enemyCenter.x - currentPosition.x;
+                enemyOffsetY = enemyCenter.y - currentPosition.y;
+            }
+        }
+        catch
+        {
+            // Enemy targeting is optional; platform sensing must remain
+            // usable if an enemy object is being recycled during this scan.
+        }
+
         PlatformCandidate candidate =
             new PlatformCandidate
             {
@@ -300,6 +348,12 @@ internal sealed class PlatformScanner
                         track.GenerationChangedAt < 0.45f,
 
                 LifecycleHazardPenalty = 0f,
+
+                HasEnemy = hasEnemy,
+                EnemyInstanceId = enemyInstanceId,
+                EnemyOffsetX = enemyOffsetX,
+                EnemyOffsetY = enemyOffsetY,
+                EnemyWidth = enemyWidth,
 
                 DeltaY = deltaY,
 

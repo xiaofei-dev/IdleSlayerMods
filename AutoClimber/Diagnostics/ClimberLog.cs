@@ -2,8 +2,16 @@ namespace AutoClimber.Diagnostics;
 
 internal static class ClimberLog
 {
+    internal static bool IsQuickSkipModeEnabled =>
+        AutoClimberPlugin.Config?.SkipMinigame?.Value == true;
+
     internal static bool IsDeveloperMode =>
+        !IsQuickSkipModeEnabled &&
         AutoClimberPlugin.Config?.DebugMode?.Value == true;
+
+    internal static bool IsEnemyTargetingEnabled =>
+        !IsQuickSkipModeEnabled &&
+        AutoClimberPlugin.Config?.TargetEnemies?.Value == true;
 
     internal static void User(string message)
     {

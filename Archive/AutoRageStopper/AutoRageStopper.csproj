@@ -6,7 +6,7 @@
         <Nullable>disable</Nullable>
         <LangVersion>latest</LangVersion>
         <Version>1.0.0</Version>
-        <AssemblyName>AutoClimber</AssemblyName>
+        <AssemblyName>AutoRageStopper</AssemblyName>
         <IdleSlayerModManagerDir Condition="'$(IdleSlayerModManagerDir)' == ''">$(LocalAppData)\IdleSlayerModManager</IdleSlayerModManagerDir>
         <IdleSlayerModLoaderDir Condition="'$(IdleSlayerModLoaderDir)' == ''">$(IdleSlayerModManagerDir)\ModLoader</IdleSlayerModLoaderDir>
         <Il2CppAssembliesDir Condition="'$(Il2CppAssembliesDir)' == ''">$(IdleSlayerModLoaderDir)\MelonLoader\Il2CppAssemblies</Il2CppAssembliesDir>
@@ -17,10 +17,6 @@
     <ItemGroup>
       <PackageReference Include="IdleSlayerMods.Common" Version="1.2.5-ML" />
       <PackageReference Include="LavaGang.MelonLoader" Version="0.7.1" />
-    </ItemGroup>
-
-    <ItemGroup>
-      <Compile Remove=".inspector\**\*.cs" />
     </ItemGroup>
 
     <ItemGroup>
@@ -36,26 +32,8 @@
       <Reference Include="UnityEngine.CoreModule">
         <HintPath>$(Il2CppAssembliesDir)\UnityEngine.CoreModule.dll</HintPath>
       </Reference>
-      <Reference Include="UnityEngine.Physics2DModule">
-        <HintPath>$(Il2CppAssembliesDir)\UnityEngine.Physics2DModule.dll</HintPath>
-      </Reference>
       <Reference Include="UnityEngine.InputLegacyModule">
         <HintPath>$(Il2CppAssembliesDir)\UnityEngine.InputLegacyModule.dll</HintPath>
-      </Reference>
-      <Reference Include="UnityEngine.UI">
-        <HintPath>$(Il2CppAssembliesDir)\UnityEngine.UI.dll</HintPath>
-      </Reference>
-      <Reference Include="UnityEngine.UIModule">
-        <HintPath>$(Il2CppAssembliesDir)\UnityEngine.UIModule.dll</HintPath>
-      </Reference>
-      <Reference Include="Unity.TextMeshPro">
-        <HintPath>$(Il2CppAssembliesDir)\Unity.TextMeshPro.dll</HintPath>
-      </Reference>
-      <Reference Include="MelonLoader">
-        <HintPath>$(MelonLoaderNet6Dir)\MelonLoader.dll</HintPath>
-      </Reference>
-      <Reference Include="0Harmony">
-        <HintPath>$(MelonLoaderNet6Dir)\0Harmony.dll</HintPath>
       </Reference>
     </ItemGroup>
 

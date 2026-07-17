@@ -1017,6 +1017,7 @@ public sealed partial class AutoClimberRuntime
             $"PlatformCenterX={decision.LandingX:F2}, " +
             $"ControlHalfWidth={decision.ControlHalfWidth:F2}, " +
             $"InwardLanding={decision.InwardLandingPlanned}, " +
+            $"EnemyPlatform={candidate.HasEnemy}, " +
             $"Y={currentTargetY:F2}, LandingTime={decision.LandingTime:F2}, " +
             $"ImpactSpeed={decision.DescendingSpeed:F2}, " +
             $"ReachRatio={decision.ReachRatio:F2}, " +
@@ -4302,6 +4303,30 @@ public sealed partial class AutoClimberRuntime
             currentTargetPredictedX +
             currentTargetSafeHalfWidth;
 
+        float enemyInterceptDirection;
+
+        if (TryGetEnemyInterceptDirection(
+                playerMovement,
+                playerRigidbody,
+                playerPosition,
+                projectedPlayerX,
+                leftBoundary,
+                rightBoundary,
+                remainingLandingTime,
+                out enemyInterceptDirection))
+        {
+            desiredHorizontalDirection =
+                enemyInterceptDirection;
+
+            ApplyHorizontalControl(
+                playerMovement,
+                playerRigidbody,
+                desiredHorizontalDirection
+            );
+
+            return;
+        }
+
         float direction =
             CalculateIntervalSteeringDirection(
                 projectedPlayerX,
@@ -4319,6 +4344,98 @@ public sealed partial class AutoClimberRuntime
             playerRigidbody,
             desiredHorizontalDirection
         );
+    }
+
+    private bool TryGetEnemyInterceptDirection(
+        PlayerMovement playerMovement,
+        Rigidbody2D playerRigidbody,
+        Vector3 playerPosition,
+        float projectedPlayerX,
+        float landingLeft,
+        float landingRight,
+        float remainingLandingTime,
+        out float direction)
+    {
+        direction = 0f;
+
+        PlatformCandidate candidate = currentTargetCandidate;
+
+        if (!ClimberLog.IsEnemyTargetingEnabled ||
+            candidate == null ||
+            !candidate.HasEnemy ||
+            playerMovement.IsGrounded() ||
+            remainingLandingTime <= 0.45f ||
+            EnemyDiagnosticsBridge.WasHit(candidate.EnemyInstanceId))
+        {
+            return false;
+        }
+
+        float enemyX =
+            candidate.CurrentPosition.x +
+            candidate.EnemyOffsetX;
+
+        float enemyY =
+            candidate.CurrentPosition.y +
+            candidate.EnemyOffsetY;
+
+        float verticalOffset =
+            enemyY - playerPosition.y;
+
+        // Begin the sidestep only near the enemy. This avoids spending the
+        // early jump committed to an optional waypoint.
+        if (verticalOffset < -3.0f ||
+            verticalOffset > 10.0f)
+        {
+            return false;
+        }
+
+        float returnDistance =
+            enemyX < landingLeft
+                ? landingLeft - enemyX
+                : enemyX > landingRight
+                    ? enemyX - landingRight
+                    : 0f;
+
+        float returnReserve =
+            returnDistance / 10f + 0.30f;
+
+        float interceptDistance =
+            Mathf.Abs(enemyX - projectedPlayerX);
+
+        if (interceptDistance / 10f + returnReserve >=
+            remainingLandingTime)
+        {
+            return false;
+        }
+
+        float hitHalfWidth =
+            Mathf.Clamp(
+                candidate.EnemyWidth * 0.50f + 0.15f,
+                0.22f,
+                0.50f
+            );
+
+        direction = CalculateIntervalSteeringDirection(
+            projectedPlayerX,
+            enemyX - hitHalfWidth,
+            enemyX + hitHalfWidth,
+            playerRigidbody.velocity.y,
+            remainingLandingTime
+        );
+
+        if (attemptedEnemyInterceptIds.Add(
+                candidate.EnemyInstanceId))
+        {
+            LogVerbose(
+                $"Enemy intercept started: EnemyId={candidate.EnemyInstanceId}, " +
+                $"PlatformId={candidate.InstanceId}, " +
+                $"EnemyX={enemyX:F2}, EnemyY={enemyY:F2}, " +
+                $"Landing=[{landingLeft:F2},{landingRight:F2}], " +
+                $"Remaining={remainingLandingTime:F2}."
+            );
+        }
+
+        return true;
     }
 
     private void UpdateTargetlessAirborneTracking(

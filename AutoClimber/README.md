@@ -35,6 +35,9 @@ Available settings include:
 - `Toggle Key`: keyboard key used to toggle automation.
 - `Auto Retry Enabled`: continue after a failed run when enabled; automatically
   choose No and exit the challenge when disabled.
+- `Skip Minigame`: an independent quick-skip mode that temporarily sets the
+  finish distance to `100`. It keeps the game's normal finish/exit flow, but
+  suppresses route debug output and does not affect V5 run statistics.
 
 ## Building
 

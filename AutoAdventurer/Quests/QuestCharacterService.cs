@@ -1,6 +1,7 @@
 using System;
 using AutoAdventurer.Diagnostics;
 using Il2Cpp;
+using UnityEngine;
 
 namespace AutoAdventurer.Quests;
 
@@ -32,6 +33,7 @@ internal sealed class QuestCharacterService
         try
         {
             manager.ApplySkin(required);
+            manager.RefreshSkin();
             if (!SameBaseCharacter(manager.skin, required)) return false;
 
             AdventurerLog.User(
@@ -44,6 +46,40 @@ internal sealed class QuestCharacterService
                 $"Quest character switch failed safely: {exception}");
             return false;
         }
+    }
+
+    internal bool TryApply(string requiredCharacterId, string questId)
+    {
+        if (string.IsNullOrEmpty(requiredCharacterId)) return true;
+
+        foreach (CharacterSkin candidate in
+                 Resources.FindObjectsOfTypeAll<CharacterSkin>())
+        {
+            if (candidate == null || !string.Equals(candidate.name,
+                    requiredCharacterId, StringComparison.Ordinal)) continue;
+
+            PlayerSkinManager manager = PlayerSkinManager.instance;
+            if (manager == null || !candidate.unlocked) return false;
+            if (SameBaseCharacter(manager.skin, candidate)) return true;
+
+            try
+            {
+                manager.ApplySkin(candidate);
+                manager.RefreshSkin();
+                if (!SameBaseCharacter(manager.skin, candidate)) return false;
+                AdventurerLog.User(
+                    $"Quest Automation switched character to {GetSkinLabel(candidate)} for {questId}.");
+                return true;
+            }
+            catch (Exception exception)
+            {
+                AdventurerLog.Error(
+                    $"Quest character switch failed safely: {exception}");
+                return false;
+            }
+        }
+
+        return false;
     }
 
     private static bool SameBaseCharacter(

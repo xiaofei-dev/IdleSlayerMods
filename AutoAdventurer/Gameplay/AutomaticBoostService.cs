@@ -99,7 +99,7 @@ internal sealed class AutomaticBoostService
                 return;
             }
 
-            float activationDelay = Math.Max(0f,
+            double activationDelay = Math.Max(0d,
                 Plugin.Config.AutoBoostActivationDelaySeconds.Value);
             if (!immediate && now - cooldownReadySince < activationDelay) return;
 

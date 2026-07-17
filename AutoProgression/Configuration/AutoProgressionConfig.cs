@@ -6,7 +6,7 @@ namespace AutoProgression.Configuration;
 
 internal sealed class AutoProgressionConfig(string configName) : BaseConfig(configName)
 {
-    internal const int CurrentConfigurationVersion = 6;
+    internal const int CurrentConfigurationVersion = 7;
     private const string LegacySection = "AutoProgression";
 
     internal MelonPreferences_Entry<int> ConfigurationVersion;
@@ -28,6 +28,8 @@ internal sealed class AutoProgressionConfig(string configName) : BaseConfig(conf
     internal MelonPreferences_Entry<bool> EnableWhetstone;
     internal MelonPreferences_Entry<bool> EnableAlternateDimensionStaff;
     internal MelonPreferences_Entry<bool> EnableBidimensionalStaff;
+    internal MelonPreferences_Entry<bool> EnableDeathwaveScepter;
+    internal MelonPreferences_Entry<int> DeathwaveScepterFeatherReserveAmount;
     internal MelonPreferences_Entry<bool> EnableShardsNecklaceScrapOverflow;
     internal MelonPreferences_Entry<float> ShardsNecklaceScrapThresholdPercent;
     internal MelonPreferences_Entry<float> TimedCraftablesRefillAtMinutes;
@@ -109,6 +111,12 @@ internal sealed class AutoProgressionConfig(string configName) : BaseConfig(conf
         EnableBidimensionalStaff = BindMigrated(
             "Craftables", "Bidimensional Staff Enabled", "Craftables - Bidimensional Staff Enabled", true,
             "Keep the Bidimensional Staff temporary effect active. WARNING: This can spend Jewels of Soul on missing materials when the global material-purchase option is enabled.", migrateLegacyValues);
+        EnableDeathwaveScepter = BindMigrated(
+            "Craftables", "Deathwave Scepter Enabled", "Craftables - Deathwave Scepter Enabled", true,
+            "Keep the Deathwave Scepter temporary effect active while the Simurgh Feather reserve condition is met. WARNING: This can spend Jewels of Soul on other missing materials when the global material-purchase option is enabled.", migrateLegacyValues);
+        DeathwaveScepterFeatherReserveAmount = BindMigrated(
+            "Craftables", "Deathwave Scepter Feather Reserve Amount", "Craftables - Deathwave Scepter Feather Reserve Amount", 300,
+            "Craft Deathwave Scepters only while the Simurgh Feather amount is greater than this reserve value.", migrateLegacyValues);
         EnableShardsNecklaceScrapOverflow = BindMigrated(
             "Craftables", "Shards Necklace Scrap Overflow Enabled", "Craftables - Shards Necklace Scrap Overflow Enabled", true,
             "Craft Shards Necklaces when Scrap reaches the configured capacity percentage. WARNING: This can spend Jewels of Soul on missing materials when the global material-purchase option is enabled.", migrateLegacyValues);
@@ -208,6 +216,8 @@ internal sealed class AutoProgressionConfig(string configName) : BaseConfig(conf
         "Craftables - Whetstone Enabled",
         "Craftables - Alternate Dimension Staff Enabled",
         "Craftables - Bidimensional Staff Enabled",
+        "Craftables - Deathwave Scepter Enabled",
+        "Craftables - Deathwave Scepter Feather Reserve Amount",
         "Craftables - Shards Necklace Scrap Overflow Enabled",
         "Craftables - Shards Necklace Scrap Threshold Percent",
         "Craftables - Timed Items Refill At Minutes",

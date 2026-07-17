@@ -150,6 +150,12 @@ internal sealed class QuestTargetResolver
         Func<Enemy, bool> predicate, string preferredMapId)
     {
         Enemy currentEnemy = FindMatchingCurrentEnemy(currentMap, predicate);
+        if (currentEnemy == null &&
+            quest.questType == QuestType.KillGiants &&
+            !string.IsNullOrEmpty(preferredMapId) &&
+            string.Equals(currentMap.name, preferredMapId,
+                StringComparison.Ordinal))
+            currentEnemy = FindUnlockedGiantInEvolutionChains(currentMap);
 
         // A dimension the player is already running in is usable even when
         // the Portal availability list temporarily omits or rejects it.
@@ -176,6 +182,9 @@ internal sealed class QuestTargetResolver
                         preferredMapId, StringComparison.Ordinal) ||
                     !preferred.IsAvailable()) continue;
                 Enemy matched = FindMatchingCurrentEnemy(preferred, predicate);
+                if (matched == null &&
+                    quest.questType == QuestType.KillGiants)
+                    matched = FindUnlockedGiantInEvolutionChains(preferred);
                 if (matched != null)
                     return CreateSelection(quest, matched, preferred);
             }
@@ -194,6 +203,28 @@ internal sealed class QuestTargetResolver
             if (matched == null) continue;
 
             return CreateSelection(quest, matched, map);
+        }
+
+        return null;
+    }
+
+    private static Enemy FindUnlockedGiantInEvolutionChains(BaseMap map)
+    {
+        var enemies = map?.enemies;
+        if (enemies == null) return null;
+
+        for (int index = 0; index < enemies.Count; index++)
+        {
+            Enemy stage = GetEnemyFirstStage(enemies[index]);
+            HashSet<string> visited = new(StringComparer.Ordinal);
+            for (int depth = 0; stage != null && depth < 32; depth++)
+            {
+                string identity = stage.name ?? $"stage_{index}_{depth}";
+                if (!visited.Add(identity)) break;
+                if (stage.isGiant && IsEnemyEvolutionUnlocked(stage))
+                    return stage;
+                stage = stage.evolutionForward;
+            }
         }
 
         return null;

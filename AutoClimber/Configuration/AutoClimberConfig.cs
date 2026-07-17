@@ -5,7 +5,7 @@ namespace AutoClimber.Configuration;
 
 internal sealed class AutoClimberConfig(string configName) : BaseConfig(configName)
 {
-    private const int CurrentConfigurationVersion = 4;
+    private const int CurrentConfigurationVersion = 6;
     private const string MainSection = "AutoClimber";
     private const string AutomationSection = "Automation";
 
@@ -14,13 +14,15 @@ internal sealed class AutoClimberConfig(string configName) : BaseConfig(configNa
     internal MelonPreferences_Entry<bool> EnabledOnStartup;
     internal MelonPreferences_Entry<string> ToggleKey;
     internal MelonPreferences_Entry<bool> EnableAutoRetry;
+    internal MelonPreferences_Entry<bool> SkipMinigame;
+    internal MelonPreferences_Entry<bool> TargetEnemies;
 
     protected override void SetBindings()
     {
         ConfigurationVersion = Bind(MainSection, "Configuration Version", 0,
             "Internal preference migration version. Do not edit manually.");
         DebugMode = Bind(MainSection, "Debug Mode", true,
-            "Show detailed diagnostic logs. Run count summaries are always shown.");
+            "Show detailed diagnostic logs. Disabled automatically while Skip Minigame is enabled.");
 
         bool migrateLegacyValues =
             ConfigurationVersion.Value <
@@ -43,6 +45,18 @@ internal sealed class AutoClimberConfig(string configName) : BaseConfig(configNa
             "Auto Retry Enabled",
             autoRetryEnabled,
             "Continue after a failed run when enabled; automatically choose No and exit when disabled."
+        );
+        SkipMinigame = Bind(
+            AutomationSection,
+            "Skip Minigame",
+            false,
+            "Use the independent quick-skip mode. It temporarily sets the Ascending Heights finish distance to 100 and does not record route diagnostics or run statistics."
+        );
+        TargetEnemies = Bind(
+            AutomationSection,
+            "Target Enemies",
+            true,
+            "Prefer touching enemies only when the detour remains safe; completion and boost platforms keep priority."
         );
         EnabledOnStartup = Bind(
             AutomationSection,

@@ -52,14 +52,38 @@ internal sealed class WorldInterruptionService
         foreach (RandomEvent randomEvent in
                  UnityEngine.Object.FindObjectsOfType<RandomEvent>())
         {
-            if (randomEvent == null || randomEvent.gameObject == null ||
+            if (randomEvent == null ||
+                randomEvent.gameObject == null ||
                 !randomEvent.gameObject.activeInHierarchy ||
-                randomEvent.timeLeft <= 0d ||
                 !IsMapBoundRandomEvent(randomEvent))
                 continue;
 
-            eventName = randomEvent.GetIl2CppType()?.Name ??
-                        randomEvent.gameObject.name ?? "RandomEvent";
+            bool nativeActive = false;
+            try
+            {
+                // Use the game's own activation rule. Some events can be
+                // logically active without satisfying a raw GameObject/time
+                // check because ExtraActiveCondition participates in it.
+                // Conversely, a few events visibly run with a positive timer
+                // while IsActive briefly reports false, so either signal is
+                // sufficient for the travel guard.
+                nativeActive = randomEvent.IsActive();
+            }
+            catch
+            {
+                // The timer remains a safe fallback for an unreadable native
+                // activation state.
+            }
+            bool isActive = nativeActive || randomEvent.timeLeft > 0d;
+            if (!isActive) continue;
+
+            string eventType = randomEvent.GetIl2CppType()?.Name ??
+                               "RandomEvent";
+            string internalName = string.IsNullOrWhiteSpace(randomEvent.name)
+                ? eventType
+                : randomEvent.name;
+            eventName =
+                $"{eventType} (name={internalName}, timeLeft={randomEvent.timeLeft:0.##}s)";
             return true;
         }
 

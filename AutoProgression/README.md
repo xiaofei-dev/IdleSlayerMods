@@ -37,6 +37,8 @@ Settings are grouped into these sections:
 - `Egg Opening`: Dragon Egg and Simurgh Egg reserve amounts.
 - `Quests`: claiming, regeneration, rerolls, and Portal cooldown.
 - `Craftables`: supported craftables, durations, Rage Pill interval, and Scrap threshold.
+- Deathwave Scepter uses the shared timed-item refill and target durations, but
+  only crafts while Simurgh Feathers remain above its configured reserve.
 - `Materials`: Jewel material purchases and refill percentage.
 - `Purchases`: purchase priority and skill/equipment switches.
 - `Skills`: blocked skill options.

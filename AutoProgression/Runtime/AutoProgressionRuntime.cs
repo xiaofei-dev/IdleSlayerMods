@@ -63,7 +63,7 @@ public sealed class AutoProgressionRuntime : MonoBehaviour
             if (wasReady)
             {
                 ascension.Reset();
-                ResetOperationalServices();
+                ResetOperationalServices(discardWeeklyQuestWork: false);
             }
             wasReady = false;
             readyLogged = false;
@@ -99,6 +99,7 @@ public sealed class AutoProgressionRuntime : MonoBehaviour
         blockedSkills.Tick();
         paidBonuses.Tick(now);
         TickItemActions(now);
+
         // Do not let normal quest maintenance refresh the same native list
         // while a generated Weekly Quest is being rerolled.
         if (!weeklyRageQuests.IsProcessing)
@@ -141,12 +142,12 @@ public sealed class AutoProgressionRuntime : MonoBehaviour
     {
         ascensionLockUntil = now + PostAscensionLockSeconds;
         ascension.Reset();
-        ResetOperationalServices();
+        ResetOperationalServices(discardWeeklyQuestWork: true);
         ProgressionLog.Info(
             $"{reason}; other automation paused for {PostAscensionLockSeconds:0.#} seconds and cached objects were cleared.");
     }
 
-    private void ResetOperationalServices()
+    private void ResetOperationalServices(bool discardWeeklyQuestWork)
     {
         paidBonuses.Reset();
         ragePill.Reset();
@@ -154,7 +155,8 @@ public sealed class AutoProgressionRuntime : MonoBehaviour
         shardsNecklace.Reset();
         eggOpening.Reset();
         quests.Reset();
-        weeklyRageQuests.Reset();
+        if (discardWeeklyQuestWork)
+            weeklyRageQuests.Reset();
         skillPurchases.Reset();
         equipmentPurchases.Reset();
         blockedSkills.Reset();
@@ -199,7 +201,7 @@ public sealed class AutoProgressionRuntime : MonoBehaviour
         mainScreen.Reset();
         ascension.Reset();
         automaticAscension.Reset();
-        ResetOperationalServices();
+        ResetOperationalServices(discardWeeklyQuestWork: true);
         wasReady = false;
         readyLogged = false;
         pendingAscensionReset = false;

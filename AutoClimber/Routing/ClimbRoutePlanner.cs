@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using AutoClimber.Diagnostics;
 using UnityEngine;
 
 namespace AutoClimber;
@@ -1296,6 +1297,7 @@ internal sealed class ClimbRoutePlanner
         }
 
         V5RouteDecision best = null;
+        V5RouteDecision safeEnemyAlternative = null;
 
         foreach (V5RouteDecision decision in decisions)
         {
@@ -1306,7 +1308,70 @@ internal sealed class ClimbRoutePlanner
             }
         }
 
+        if (best == null ||
+            best.Candidate.HasEnemy)
+        {
+            return best;
+        }
+
+        foreach (V5RouteDecision decision in decisions)
+        {
+            if (!IsSafeEnemyAlternative(
+                    decision,
+                    best))
+            {
+                continue;
+            }
+
+            if (safeEnemyAlternative == null ||
+                decision.Score >
+                    safeEnemyAlternative.Score)
+            {
+                safeEnemyAlternative = decision;
+            }
+        }
+
+        if (safeEnemyAlternative != null)
+        {
+            return safeEnemyAlternative;
+        }
+
         return best;
+    }
+
+    private bool IsSafeEnemyAlternative(
+        V5RouteDecision decision,
+        V5RouteDecision best)
+    {
+        if (!ClimberLog.IsEnemyTargetingEnabled ||
+            decision == null ||
+            decision.Candidate == null ||
+            !decision.Candidate.HasEnemy ||
+            decision.Candidate.Type == PlatformType.Breakable ||
+            decision.IsEmergency ||
+            !decision.GenerationStable ||
+            !decision.RetentionSafe ||
+            !decision.EdgeSafe ||
+            decision.SuccessorCount <= 0 ||
+            decision.ReachRatio > 0.72f ||
+            decision.LandingMargin < 2.50f ||
+            decision.LandingTime > PreferredLifecycleLandingTime ||
+            decision.ApexOvershoot > PreferredApexOvershoot ||
+            decision.LifecycleRisk > 400f)
+        {
+            return false;
+        }
+
+        // Never trade meaningful progress, route continuity or landing
+        // reserve merely to collect an enemy. This makes enemy selection a
+        // tie-break between already-safe routes, not a new routing objective.
+        return decision.Candidate.CurrentPosition.y >=
+                   best.Candidate.CurrentPosition.y - 0.25f &&
+               decision.Score >= best.Score - 60f &&
+               decision.LandingMargin >=
+                   best.LandingMargin - 0.35f &&
+               decision.SuccessorCount >=
+                   best.SuccessorCount;
     }
 
     private int GetBoostRank(

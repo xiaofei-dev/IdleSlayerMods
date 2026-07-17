@@ -9,6 +9,7 @@ namespace AutoProgression.Quests;
 internal sealed class QuestAutomationService
 {
     private const float CheckIntervalSeconds = 2f;
+    private const float ClaimSettleSeconds = 5f;
     private const float RegenerationSettleSeconds = 5f;
 
     private QuestsList questsList;
@@ -20,6 +21,7 @@ internal sealed class QuestAutomationService
     private float nextCheckTime;
     private bool missingLogged;
     private bool refreshRequired = true;
+    private int pendingClaimInstanceId;
 
     internal void Tick(float now)
     {
@@ -87,12 +89,23 @@ internal sealed class QuestAutomationService
 
         if (Plugin.Config.AutoClaimCompletedQuests.Value)
         {
-            int claimed = ClaimCompleted(snapshot);
-            if (claimed > 0)
+            List<Quest> claimCandidates = BuildClaimCandidates(snapshot);
+            ClaimResult claimResult = TryClaimOneCompleted(claimCandidates);
+            if (claimResult != ClaimResult.None)
             {
-                ProgressionLog.Debug($"Automatically claimed {claimed} completed quest(s).");
+                if (claimResult == ClaimResult.Claimed)
+                {
+                    ProgressionLog.Debug("Automatically claimed 1 completed quest.");
+                }
+
+                // Quest.Claim() can rebuild the native quest collection, and it may
+                // throw after partially completing that rebuild. Never inspect any
+                // other object from this snapshot after a claim attempt.
                 refreshRequired = true;
-                nextCheckTime = now + RegenerationSettleSeconds;
+                nextCheckTime = now +
+                    (claimResult == ClaimResult.Pending
+                        ? ClaimSettleSeconds
+                        : RegenerationSettleSeconds);
                 return;
             }
         }
@@ -100,24 +113,128 @@ internal sealed class QuestAutomationService
         RegenerateMissingQuestTypes(snapshot, now);
     }
 
-    private static int ClaimCompleted(List<Quest> quests)
+    private static List<Quest> BuildClaimCandidates(List<Quest> uiSnapshot)
     {
-        int claimed = 0;
+        List<Quest> result = new();
+        HashSet<int> seen = new();
+
+        // The UI cache can retain inactive Daily and Weekly entries after
+        // regeneration or rerolling. Only ordinary quests are trusted here.
+        foreach (Quest quest in uiSnapshot)
+        {
+            if (quest == null || quest.isClaimed ||
+                quest is DailyQuest || quest is WeeklyQuest)
+                continue;
+
+            if (seen.Add(quest.GetInstanceID()))
+                result.Add(quest);
+        }
+
+        // Daily and Weekly candidates come from their authoritative live
+        // ScriptableObjects instead of QuestsList.lastScrollListData.
+        foreach (DailyQuest daily in Resources.FindObjectsOfTypeAll<DailyQuest>())
+        {
+            if (daily == null || !daily.active || daily.isClaimed)
+                continue;
+
+            try
+            {
+                if (daily.CheckIfIsValid() && seen.Add(daily.GetInstanceID()))
+                    result.Add(daily);
+            }
+            catch
+            {
+                // An object being rebuilt is not a safe claim candidate yet.
+            }
+        }
+
+        foreach (WeeklyQuest weekly in Resources.FindObjectsOfTypeAll<WeeklyQuest>())
+        {
+            if (weekly == null || !weekly.active || weekly.isClaimed)
+                continue;
+
+            if (seen.Add(weekly.GetInstanceID()))
+                result.Add(weekly);
+        }
+
+        return result;
+    }
+
+    private ClaimResult TryClaimOneCompleted(List<Quest> quests)
+    {
         foreach (Quest quest in quests)
         {
             try
             {
                 if (!quest.CanBeClaimed()) continue;
+
+                int instanceId = quest.GetInstanceID();
+                if (pendingClaimInstanceId != instanceId)
+                {
+                    pendingClaimInstanceId = instanceId;
+                    return ClaimResult.Pending;
+                }
+
                 quest.Claim();
-                claimed++;
+                pendingClaimInstanceId = 0;
+                return ClaimResult.Claimed;
             }
             catch (Exception exception)
             {
-                Plugin.Logger.Error($"Failed to claim a quest safely: {exception}");
+                pendingClaimInstanceId = 0;
+
+                try
+                {
+                    // Weekly Quest claiming can finish its data update before
+                    // an unavailable UI element throws. Treat the operation as
+                    // successful when the authoritative claimed flag changed.
+                    if (quest != null && quest.isClaimed)
+                    {
+                        ProgressionLog.Debug(
+                            $"Quest claim completed before a non-fatal native UI exception: " +
+                            $"{DescribeQuest(quest)}.");
+                        return ClaimResult.Claimed;
+                    }
+                }
+                catch
+                {
+                    // Fall through to the original error when the quest state
+                    // itself can no longer be read safely.
+                }
+
+                Plugin.Logger.Error(
+                    $"Failed to claim a quest safely: {DescribeQuest(quest)}; {exception}");
+                return ClaimResult.Failed;
             }
         }
 
-        return claimed;
+        pendingClaimInstanceId = 0;
+        return ClaimResult.None;
+    }
+
+    private static string DescribeQuest(Quest quest)
+    {
+        if (quest == null) return "Quest=null";
+
+        try
+        {
+            return $"Type={quest.GetIl2CppType()?.FullName ?? "Unknown"}, " +
+                   $"Id={quest.GetInstanceID()}, Name={quest.name ?? "Unknown"}, " +
+                   $"LocalizedName={quest.localizedName ?? "Unknown"}, " +
+                   $"IsClaimed={quest.isClaimed}";
+        }
+        catch
+        {
+            return "Quest metadata unavailable";
+        }
+    }
+
+    private enum ClaimResult
+    {
+        None,
+        Pending,
+        Claimed,
+        Failed
     }
 
     private void RegenerateMissingQuestTypes(List<Quest> quests, float now)
@@ -231,5 +348,6 @@ internal sealed class QuestAutomationService
         nextCheckTime = 0f;
         missingLogged = false;
         refreshRequired = true;
+        pendingClaimInstanceId = 0;
     }
 }
