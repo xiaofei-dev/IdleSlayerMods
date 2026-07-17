@@ -6,15 +6,7 @@ A collection of modular quality-of-life and automation mods for Idle Slayer.
 
 - **AutoProgression** - Automates selected temporary craftables, paid bonuses, skill purchases, and normal equipment progression.
 - **AutoClimber** - Automates Ascending Heights traversal and retry handling.
-
-## Archived mods
-
-The `Archive` directory contains older standalone experiments that are no longer actively maintained:
-
-- AutoBuy500x
-- AutoRageStopper
-
-Their functionality has been reorganized into newer independent mods where appropriate.
+- **AutoAdventurer** - Automates selected character actions, beginning with configurable Rage Mode activation and stopping.
 
 ## Building
 
@@ -53,4 +45,6 @@ Idle Slayer and all related game assets and trademarks belong to their respectiv
 
 ## License
 
-Source code in this repository is available under the MIT License. See `LICENSE`.
+The source code is available for personal, non-commercial use and modification.
+Redistribution, re-uploading, mirroring, bundling, and publication of original or
+modified versions are prohibited without prior written permission. See `LICENSE`.
