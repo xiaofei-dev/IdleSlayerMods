@@ -97,9 +97,34 @@ internal static class WeeklyQuestManualRerollPatch
 {
     private static void Prefix() => WeeklyQuestGenerationBridge.BeginManualReroll();
 
-    private static Exception Finalizer(Exception __exception)
+    private static Exception Finalizer(
+        WeeklyQuestReroll __instance,
+        Exception __exception)
     {
         WeeklyQuestGenerationBridge.EndManualReroll();
+
+        if (__exception == null)
+            return null;
+
+        try
+        {
+            // RewardForShowing first replaces the quest data and then updates
+            // optional quest UI. Background rerolls can reach that final UI
+            // step while its objects are unavailable. Once the bound target
+            // is inactive, the authoritative replacement has succeeded and
+            // the trailing UI exception is non-fatal. Suppress it at the
+            // Harmony boundary so IL2CPP does not report a false trampoline
+            // error. Real failures leave the target active and still surface.
+            WeeklyQuest target = __instance?.weeklyQuestToReroll;
+            if (target != null && !target.active)
+                return null;
+        }
+        catch
+        {
+            // If the native objects cannot be inspected, retain the original
+            // exception instead of assuming the reroll succeeded.
+        }
+
         return __exception;
     }
 }

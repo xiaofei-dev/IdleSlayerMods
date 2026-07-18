@@ -1,6 +1,13 @@
 # AutoProgression
 
-AutoProgression is an automation and quality-of-life mod for Idle Slayer. It combines repeatable progression tasks behind one global runtime toggle while keeping individual feature groups configurable.
+AutoProgression automates long-term progression and repeatable account
+maintenance in Idle Slayer. It combines purchases, normal Ascension,
+craftables, materials, quests, eggs, and paid bonuses behind one global runtime
+toggle while keeping individual feature groups configurable.
+
+AutoProgression is part of **Tashi's Full Automation Suite**. It focuses on
+account growth and menu-driven maintenance; AutoAdventurer handles active
+gameplay and quest objectives, while AutoClimber handles Ascending Heights.
 
 ## Features
 
@@ -12,6 +19,7 @@ AutoProgression is an automation and quality-of-life mod for Idle Slayer. It com
 - Purchases available skills and unlocked normal equipment.
 - Performs normal Ascension at a configurable soul-bonus threshold and can buy skills afterward.
 - Claims completed Daily and Weekly Quests, regenerates exhausted quest sets, keeps rerolls available, and resets the normal Portal cooldown. Unlimited Daily/Weekly rerolls and blocked vertical-magnet skills remain enforced whenever their settings are enabled, independently from the `T` automation toggle.
+- Successful background Weekly Quest rerolls suppress only the trailing native UI exception; genuine reroll failures continue to surface normally.
 
 Ultra Ascension is never performed by this mod.
 
@@ -54,7 +62,9 @@ Automation runs only after the normal gameplay screen has remained stable long e
 
 Quest automation claims and refreshes quests; it does not travel to dimensions or perform quest objectives.
 
-Character control, quest target selection, Rage termination, and quest-guided Portal travel belong to a separate companion mod. Its implementation plan is documented in [`../CHARACTER_MOD_HANDOFF.md`](../CHARACTER_MOD_HANDOFF.md).
+Character control, quest target selection, Rage coordination, and quest-guided
+Portal travel belong to the companion AutoAdventurer mod. Ascending Heights
+movement, rewards, and compatible quest enemies belong to AutoClimber.
 
 ## Building
 
@@ -70,6 +80,23 @@ dotnet build
 ```
 
 The build creates the DLL and `Publish/Debug/AutoProgression.zip`. It does not deploy automatically unless local deployment is explicitly enabled through the project build property.
+
+## Full Automation Suite
+
+- **AutoAdventurer** handles active gameplay, quest objectives, dimension
+  travel, Rage, movement abilities, Bonus assistance, and boss fights.
+- **AutoProgression** handles purchases, normal Ascension, craftables,
+  materials, quests, eggs, and repeatable account maintenance.
+- **AutoClimber** automates Ascending Heights route planning, recovery,
+  rewards, and compatible quest enemies.
+
+Each mod can be used independently. Together, they cover complementary parts
+of a fully automated Idle Slayer setup.
+
+## Support Development
+
+If these mods save you time, you can support continued development through
+[PayPal](https://www.paypal.com/donate/?business=HK85PL8AREEXY&no_recurring=0&currency_code=USD).
 
 ## Versioning
 

@@ -33,9 +33,11 @@ internal sealed class MainScreenGuard
     internal bool IsReady(float stableSeconds)
     {
         GameStates state = GameState.current;
+        bool visibleMinigameAbility = allowBonusMode &&
+                                      IsMainAbilityIconVisible();
         bool supported = state == GameStates.RunnerMode ||
                          state == GameStates.RageMode ||
-                         (allowBonusMode && state == GameStates.BonusMode);
+                         visibleMinigameAbility;
 
         if (blockMainScreenMenus && Time.unscaledTime >= nextMenuCheckTime)
         {
@@ -67,7 +69,7 @@ internal sealed class MainScreenGuard
         // Bonus stages own a separate map lifecycle and do not use the normal
         // Runner MapController stability contract. GameState plus the shared
         // stabilization timer is the safe readiness signal there.
-        if (state != GameStates.BonusMode && !IsRunnerMapStable())
+        if (!visibleMinigameAbility && !IsRunnerMapStable())
         {
             validSince = -1f;
             MapController maps = MapController.instance;
@@ -129,5 +131,14 @@ internal sealed class MainScreenGuard
     {
         MapController maps = MapController.instance;
         return maps != null && maps.initialized && !maps.changingMap;
+    }
+
+    internal static bool IsMainAbilityIconVisible()
+    {
+        MainAbilityButton button =
+            UnityEngine.Object.FindObjectOfType<MainAbilityButton>();
+        return button != null && button.isActiveAndEnabled &&
+               button.gameObject != null &&
+               button.gameObject.activeInHierarchy;
     }
 }

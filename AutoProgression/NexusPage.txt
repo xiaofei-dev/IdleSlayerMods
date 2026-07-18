@@ -1,0 +1,113 @@
+[center][size=6][b]AutoProgression[/b][/size]
+[i]Automatic long-term progression and repeatable account maintenance for Idle Slayer.[/i]
+
+[b]Part of Tashi's Full Automation Suite[/b] — a collection of companion mods designed to keep Idle Slayer progressing with minimal manual input.[/center]
+
+[size=5][b]Overview[/b][/size]
+
+AutoProgression automates repeatable progression tasks that normally require frequent menu checks. It can buy skills and equipment, perform normal Ascensions, maintain temporary craftables, manage materials, open eggs, purchase configured bonuses, and maintain quest systems.
+
+Features are independently configurable and grouped behind one global runtime toggle. Permanent maintenance options can remain active when configured even while the main automation loop is disabled.
+
+[size=5][b]Progression Features[/b][/size]
+
+[list]
+[*]Purchases available skills and unlocked normal equipment.
+[*]Uses separate affordability thresholds for the latest unlocked equipment and older equipment.
+[*]Detects extended no-purchase periods and temporarily sleeps equipment scanning to reduce unnecessary work.
+[*]Performs normal Ascension at a configurable Soul Bonus threshold.
+[*]Can purchase available skills after Ascension.
+[*]Never performs Ultra Ascension.
+[/list]
+
+[size=5][b]Craftables and Materials[/b][/size]
+
+[list]
+[*]Crafts and maintains supported temporary craftables, including Rage Pills, Whetstones, and temporary staffs.
+[*]Supports configurable target durations and refill behavior.
+[*]Can buy missing enabled recipe materials with Jewels of Soul when explicitly allowed.
+[*]Crafts Shards Necklaces when Scrap reaches a configurable percentage of its current capacity.
+[*]Respects the configured Simurgh Feather reserve for Deathwave Scepter crafting.
+[/list]
+
+[size=5][b]Eggs and Paid Bonuses[/b][/size]
+
+[list]
+[*]Opens Dragon Eggs and Simurgh Eggs in the background while preserving configurable reserves.
+[*]Can purchase and refresh the two 500x Jewels of Soul bonuses from their real cooldown and remaining-duration state.
+[*]All Jewel-spending features are independently configurable.
+[/list]
+
+[size=5][b]Quest and Portal Maintenance[/b][/size]
+
+[list]
+[*]Claims completed Daily and Weekly Quests when enabled.
+[*]Regenerates exhausted quest sets and maintains configured reroll behavior.
+[*]Can keep Daily and Weekly rerolls available as a persistent setting.
+[*]Can reset the normal Portal cooldown when configured.
+[*]Quest maintenance does not select objectives, fight enemies, or travel between dimensions; those actions belong to AutoAdventurer.
+[/list]
+
+[size=5][b]Controls[/b][/size]
+
+[b]T[/b] enables or disables the main AutoProgression runtime by default.
+
+Individual features remain controlled by the configuration file. The global toggle does not overwrite saved preferences.
+
+[size=5][b]Configuration[/b][/size]
+
+Launch the game once to generate:
+
+[code]%LOCALAPPDATA%\IdleSlayerModManager\ModLoader\UserData\AutoProgression.cfg[/code]
+
+Settings are organized into sections for Ascension, purchases, equipment, skills, quests, craftables, materials, egg opening, paid bonuses, and diagnostics.
+
+[b]Currency warning:[/b] Paid 500x bonuses and configured missing-material purchases can directly spend Jewels of Soul. Review those settings before enabling them on an important save.
+
+[size=5][b]Installation[/b][/size]
+
+[b]Idle Slayer Mod Manager (recommended)[/b]
+
+[list=1]
+[*]Install and initialize [url=https://www.nexusmods.com/idleslayer/mods/33]Idle Slayer Mod Manager[/url].
+[*]Make sure [url=https://www.nexusmods.com/idleslayer/mods/3]Idle Slayer Mods Core[/url] is installed.
+[*]Import the downloaded AutoProgression ZIP without extracting it.
+[*]Enable AutoProgression and start the game.
+[/list]
+
+[b]Manual installation[/b]
+
+Place [b]AutoProgression.dll[/b] in:
+
+[code]%LOCALAPPDATA%\IdleSlayerModManager\ModLoader\Mods\[/code]
+
+[size=5][b]Full Automation Suite[/b][/size]
+
+[list]
+[*][b]AutoAdventurer[/b] handles active gameplay, quest objectives, dimension travel, Rage, movement skills, Bonus assistance, and boss fights.
+[*][b]AutoProgression[/b] handles purchases, normal Ascension, craftables, materials, quests, eggs, and long-term account maintenance.
+[*][b]AutoClimber[/b] fully automates Ascending Heights, including route planning, rewards, and compatible quest enemies.
+[/list]
+
+Each mod can be used independently. Together, they cover complementary parts of a fully automated Idle Slayer setup.
+
+[size=5][b]Requirements and Notes[/b][/size]
+
+[list]
+[*]Requires Idle Slayer, MelonLoader 0.7.1 or newer, and Idle Slayer Mods Core.
+[*]Automation waits for supported gameplay states and handles temporarily missing game objects safely.
+[*]AutoProgression does not control the character or automatically travel for quest objectives.
+[*]For reproducible problems, enable Debug Mode and include the relevant MelonLoader log.
+[/list]
+
+[size=5][b]Support Development[/b][/size]
+
+If this mod saves you time and you would like to support continued development:
+
+[center][url=https://www.paypal.com/donate/?business=HK85PL8AREEXY&no_recurring=0&currency_code=USD][b]Donate with PayPal[/b][/url][/center]
+
+[size=5][b]Credits[/b][/size]
+
+Created by Tashi. Thanks to the Idle Slayer modding community and the maintainers of Idle Slayer Mods Core.
+
+This is an unofficial community mod. Idle Slayer and its assets belong to their respective owners.

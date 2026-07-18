@@ -1,7 +1,28 @@
 # AutoAdventurer
 
-AutoAdventurer automates selected character actions in Idle Slayer. The first
-development feature is Automatic Rage.
+AutoAdventurer automates active gameplay and quest completion in Idle Slayer.
+It combines quest-guided dimension travel, character requirements, Automatic
+Rage, smart Boost/Wind Dash, Bonus Stage assistance, event-aware safety, and
+automatic boss fights.
+
+AutoAdventurer is part of **Tashi's Full Automation Suite**. It focuses on
+character control and quest objectives; AutoProgression handles long-term
+account growth, while AutoClimber handles Ascending Heights.
+
+## Highlights
+
+- Selects supported kill quests using internal game IDs rather than localized
+  quest text.
+- Travels only through unlocked destinations currently offered by the normal
+  Portal.
+- Pauses travel for map events, random boxes, portals, minigames, villages,
+  boss scenes, and unsafe transitions.
+- Coordinates Automatic Rage with task travel without force-ending Rage except
+  through the manual stop key.
+- Follows the player's selected Boost or Wind Dash ability and safely
+  re-resolves game objects after Ascension and scene changes.
+- Supports Bonus Stage Wind Dash, slider assistance, completion statistics,
+  character-specific quests, and optional automatic boss fights.
 
 ## Automatic Rage
 
@@ -57,9 +78,10 @@ is enabled by default and can be disabled independently from Automatic Rage.
   cooldown until the player returns to ground level, then activates
   immediately. This prevents airborne dashes from passing over portals or
   elite enemies. Regular Boost activation is unchanged.
-- Bonus stages support automatic Wind Dash after the existing 0.5-second scene
-  stabilization delay. Normal Boost remains disabled there, and Wind Dash
-  continues to obey the configured grounded requirement and activation delay.
+- Minigames and reward sections support automatic Wind Dash only while the
+  game's main ability icon is actually visible. Normal Boost remains disabled
+  there, and Wind Dash continues to obey the configured grounded requirement
+  and activation delay.
 - Auto Boost supports both Runner Mode and Rage Mode whenever the selected
   movement ability is available. After returning from another scene, it uses
   the shared half-second central-screen stabilization delay without adding a
@@ -231,6 +253,23 @@ dotnet build --no-restore
 
 The build creates the DLL and packaged ZIP without deploying by default. Local
 deployment is opt-in with `/p:EnableLocalDeploy=true`.
+
+## Full Automation Suite
+
+- **AutoAdventurer** handles active gameplay, quest objectives, dimension
+  travel, Rage, movement abilities, Bonus assistance, and boss fights.
+- **AutoProgression** handles purchases, normal Ascension, craftables,
+  materials, quests, eggs, and repeatable account maintenance.
+- **AutoClimber** automates Ascending Heights route planning, recovery,
+  rewards, and compatible quest enemies.
+
+Each mod can be used independently. Together, they cover complementary parts
+of a fully automated Idle Slayer setup.
+
+## Support Development
+
+If these mods save you time, you can support continued development through
+[PayPal](https://www.paypal.com/donate/?business=HK85PL8AREEXY&no_recurring=0&currency_code=USD).
 
 ## Versioning
 
