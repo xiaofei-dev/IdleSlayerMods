@@ -3,6 +3,10 @@
 
 [b]Part of Tashi's Full Automation Suite[/b] — a collection of companion mods designed to keep Idle Slayer progressing with minimal manual input.[/center]
 
+[center][size=5][b][color=#ffb000]IMPORTANT — PLEASE READ THE USER GUIDE[/color][/b][/size]
+[b]AutoAdventurer contains many interconnected automation, safety, travel, quest, Rage, Boost, Bonus, and boss features.[/b]
+Please read the User Guide before first use. For every setting, rule, and troubleshooting detail, consult the Complete Manual.[/center]
+
 [size=5][b]Overview[/b][/size]
 
 AutoAdventurer automates the active-play side of Idle Slayer. It selects executable kill quests, travels to suitable unlocked dimensions, manages compatible character requirements, and coordinates Rage, Boost, Wind Dash, Bonus Stage helpers, and boss fights.
@@ -13,7 +17,7 @@ The automation uses internal game IDs and live game objects rather than localize
 
 [list]
 [*]Scans all active incomplete quests and considers supported kill objectives.
-[*]Selects the executable quest with the smallest kill requirement instead of forcing Daily priority.
+[*]Applies reward priority only after a quest is proven executable: additional quest levels are Top priority; equipment, characters, minions, giants, NPCs, loadouts, and other content unlocks are High priority; numeric upgrades and quests without unlocks remain Normal priority.
 [*]Supports exact enemies, evolution stages, elemental targets, flying enemies, giants, arrow kills, and compatible character-specific kills.
 [*]Ignores collection, box, generic AnyEnemy, unsupported character, and other non-executable objectives.
 [*]Locks a selected quest until completion, replacement, timeout, or validation failure.

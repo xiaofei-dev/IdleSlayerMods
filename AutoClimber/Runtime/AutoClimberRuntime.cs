@@ -46,7 +46,7 @@ public sealed partial class AutoClimberRuntime : MonoBehaviour
     // Platforms are landing intervals, not single points. These conservative
     // half-widths keep the player away from platform edges.
     private const float NormalLandingSafeHalfWidth = 0.72f;
-    private const float StrongLandingSafeHalfWidth = 0.76f;
+    private const float StrongLandingSafeHalfWidth = 0.64f;
     private const float BreakableLandingSafeHalfWidth = 0.55f;
 
     // Moving platforms reverse at the horizontal play-area boundaries.
@@ -398,7 +398,7 @@ public sealed partial class AutoClimberRuntime : MonoBehaviour
         InitializeAutomationSettings();
 
         ClimberLog.User(
-            "AutoClimber route planner V6.0.0 initialized. " +
+            "AutoClimber route planner V6.0.1 initialized. " +
             "Generation-aware pooling, apex-retention tiers and center-return routing are active; " +
             "the runtime remains dormant outside Ascending Heights; " +
             "safe enemy-touch targeting is available. " +
@@ -420,7 +420,7 @@ public sealed partial class AutoClimberRuntime : MonoBehaviour
     private static void LogVerbose(
         string message)
     {
-        ClimberLog.Developer(message);
+        ClimberLog.Debug(message);
     }
 
     public void Update()
@@ -725,7 +725,7 @@ public sealed partial class AutoClimberRuntime : MonoBehaviour
             playerPosition
         );
 
-        if (ClimberLog.IsDeveloperMode &&
+        if (ClimberLog.IsDebugMode &&
             Time.time >=
             nextCandidateLogTime)
         {
@@ -1237,7 +1237,7 @@ public sealed partial class AutoClimberRuntime : MonoBehaviour
 
             runEnemiesDetected++;
 
-            ClimberLog.Developer(
+            ClimberLog.Debug(
                 $"Enemy detected: Id={enemyId}, " +
                 $"Name={enemyObject.name}, " +
                 $"X={enemyPosition.x:F2}, " +
@@ -1278,7 +1278,7 @@ public sealed partial class AutoClimberRuntime : MonoBehaviour
                     ? candidate.GameObject.name
                     : "unknown";
 
-            ClimberLog.Developer(
+            ClimberLog.Debug(
                 $"Unknown platform detected: " +
                 $"Sprite={spriteName}, " +
                 $"Object={objectName}, " +

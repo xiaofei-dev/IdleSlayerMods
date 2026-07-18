@@ -53,7 +53,7 @@ internal sealed class WeeklyRageQuestService
             reroll.rerollEnabled = true;
             if (!reroll.rerollEnabled)
             {
-                Plugin.Logger.Warning(
+                ProgressionLog.Warning(
                     "Automatic Weekly Quest reroll could not restore the native reroll permission.");
                 return Finish();
             }
@@ -68,7 +68,7 @@ internal sealed class WeeklyRageQuestService
             int boundAfter = reroll.weeklyQuestToReroll?.GetInstanceID() ?? 0;
             if (boundAfter != targetId)
             {
-                Plugin.Logger.Warning(
+                ProgressionLog.Warning(
                     $"Automatic Weekly Quest reroll did not bind its selected target. " +
                     $"TargetId={targetId}, BoundAfter={boundAfter}.");
                 return Finish();
@@ -93,9 +93,9 @@ internal sealed class WeeklyRageQuestService
         if (target.active)
         {
             if (invocationException != null)
-                Plugin.Logger.Error($"Automatic Weekly Quest reroll failed safely: {invocationException}");
+                ProgressionLog.Error($"Automatic Weekly Quest reroll failed safely: {invocationException}");
             else
-                Plugin.Logger.Warning("Automatic Weekly Quest reroll did not replace its selected quest.");
+                ProgressionLog.Warning("Automatic Weekly Quest reroll did not replace its selected quest.");
 
             return Finish();
         }
@@ -111,7 +111,7 @@ internal sealed class WeeklyRageQuestService
 
         if (attempts >= MaximumRerollsPerGeneration)
         {
-            Plugin.Logger.Warning(
+            ProgressionLog.Warning(
                 $"Automatic Weekly Quest reroll stopped after {MaximumRerollsPerGeneration} attempts without finding the 180,000 Rage Mode kill quest.");
             return Finish();
         }
@@ -119,7 +119,7 @@ internal sealed class WeeklyRageQuestService
         target = FindUnprotectedQuest(active, protectedQuestIds);
         if (target == null)
         {
-            Plugin.Logger.Warning(
+            ProgressionLog.Warning(
                 "Automatic Weekly Quest reroll stopped because the generated replacement could not be identified.");
             return Finish();
         }
@@ -168,7 +168,7 @@ internal sealed class WeeklyRageQuestService
 
     private bool FinishSuccessfully()
     {
-        ProgressionLog.Info(
+        ProgressionLog.User(
             $"Weekly Quest selected: 180,000 Rage Mode kills after {attempts} reroll(s).");
         return Finish();
     }

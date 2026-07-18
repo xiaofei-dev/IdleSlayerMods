@@ -20,7 +20,10 @@ internal sealed class QuestTargetResolver
             QuestTargetSelection candidate = ResolveMap(quest);
             if (candidate == null) continue;
 
-            if (best == null || candidate.RequiredKills < best.RequiredKills)
+            if (best == null ||
+                candidate.RewardPriority > best.RewardPriority ||
+                (candidate.RewardPriority == best.RewardPriority &&
+                 candidate.RequiredKills < best.RequiredKills))
                 best = candidate;
         }
 

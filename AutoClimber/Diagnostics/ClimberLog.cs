@@ -5,7 +5,7 @@ internal static class ClimberLog
     internal static bool IsQuickSkipModeEnabled =>
         AutoClimberQuestMode.IsQuickSkipActive;
 
-    internal static bool IsDeveloperMode =>
+    internal static bool IsDebugMode =>
         !IsQuickSkipModeEnabled &&
         AutoClimberPlugin.Config?.DebugMode?.Value == true;
 
@@ -18,11 +18,14 @@ internal static class ClimberLog
         AutoClimberPlugin.Logger.Msg(message);
     }
 
-    internal static void Developer(string message)
+    internal static void Debug(string message, string category = null)
     {
-        if (IsDeveloperMode)
+        if (IsDebugMode)
         {
-            AutoClimberPlugin.Logger.Msg("[Debug] " + message);
+            string prefix = string.IsNullOrWhiteSpace(category)
+                ? "[Debug]"
+                : $"[Debug][{category}]";
+            AutoClimberPlugin.Logger.Msg($"{prefix} {message}");
         }
     }
 

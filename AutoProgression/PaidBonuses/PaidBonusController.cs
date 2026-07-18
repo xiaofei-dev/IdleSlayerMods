@@ -43,7 +43,7 @@ internal sealed class PaidBonusController
                 return;
             }
 
-            ProgressionLog.Spending(
+            ProgressionLog.User(
                 $"{displayName} purchased with Jewels of Soul; remaining duration={actualRemaining:0.##}s.");
             ScheduleFromActual(now, actualRemaining, retrySeconds);
             return;

@@ -19,8 +19,11 @@ internal sealed class ClimbRoutePlanner
     private const float GoldenBounceVelocity = 90.00f;
 
     private const float NormalSafeHalfWidth = 0.72f;
-    private const float StrongSafeHalfWidth = 0.76f;
-    private const float GoldenSafeHalfWidth = 0.78f;
+    // Boost platforms have higher bounce speed and punish edge contacts more
+    // severely. Keep steering until the player is observably closer to their
+    // center; the old 0.76/0.78 limits accepted a logged miss at X error 0.66.
+    private const float StrongSafeHalfWidth = 0.64f;
+    private const float GoldenSafeHalfWidth = 0.66f;
     private const float BreakableSafeHalfWidth = 0.55f;
 
     private const float LowAltitudeMinimumProgress = 0.35f;

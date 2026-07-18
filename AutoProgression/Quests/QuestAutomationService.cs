@@ -54,7 +54,7 @@ internal sealed class QuestAutomationService
         }
         catch (Exception exception)
         {
-            Plugin.Logger.Error($"Quest automation setup failed safely: {exception}");
+            ProgressionLog.Error($"Quest automation setup failed safely: {exception}");
             return;
         }
 
@@ -73,7 +73,7 @@ internal sealed class QuestAutomationService
             }
             catch (Exception exception)
             {
-                Plugin.Logger.Error($"Failed to refresh the quest list safely: {exception}");
+                ProgressionLog.Error($"Failed to refresh the quest list safely: {exception}");
                 return;
             }
         }
@@ -195,7 +195,7 @@ internal sealed class QuestAutomationService
                     // itself can no longer be read safely.
                 }
 
-                Plugin.Logger.Error(
+                ProgressionLog.Error(
                     $"Failed to claim a quest safely: {DescribeQuest(quest)}; {exception}");
                 return ClaimResult.Failed;
             }
@@ -250,12 +250,12 @@ internal sealed class QuestAutomationService
             try
             {
                 dailyManager.RegenerateDailys();
-                ProgressionLog.Info("Generated a new set of Daily Quests.");
+                ProgressionLog.User("Generated a new set of Daily Quests.");
                 regenerated = true;
             }
             catch (Exception exception)
             {
-                Plugin.Logger.Error($"Failed to regenerate Daily Quests safely: {exception}");
+                ProgressionLog.Error($"Failed to regenerate Daily Quests safely: {exception}");
             }
         }
 
@@ -267,12 +267,12 @@ internal sealed class QuestAutomationService
             try
             {
                 weeklyManager.RegenerateWeeklies();
-                ProgressionLog.Info("Generated a new set of Weekly Quests.");
+                ProgressionLog.User("Generated a new set of Weekly Quests.");
                 regenerated = true;
             }
             catch (Exception exception)
             {
-                Plugin.Logger.Error($"Failed to regenerate Weekly Quests safely: {exception}");
+                ProgressionLog.Error($"Failed to regenerate Weekly Quests safely: {exception}");
             }
         }
 

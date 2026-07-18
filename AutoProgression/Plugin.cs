@@ -1,6 +1,7 @@
 using IdleSlayerMods.Common;
 using MelonLoader;
 using AutoProgression.Configuration;
+using AutoProgression.Diagnostics;
 using AutoProgression.Runtime;
 using Plugin = AutoProgression.Plugin;
 
@@ -20,9 +21,9 @@ public class Plugin : MelonMod
         ModHelper.ModHelperMounted += SetModHelperInstance;
         Config = new(AutoProgressionInfo.PluginGuid);
         HarmonyInstance.PatchAll();
-        Logger.Msg(
+        ProgressionLog.User(
             $"Plugin {AutoProgressionInfo.PluginGuid} v{AutoProgressionInfo.PluginVersion} " +
-            $"(internal {AutoProgressionInfo.InternalVersion}) is loaded; " +
+            $"(internal {AutoProgressionInfo.InternalVersion}) loaded; " +
             $"configuration schema v{AutoProgressionConfig.CurrentConfigurationVersion}.");
     }
 

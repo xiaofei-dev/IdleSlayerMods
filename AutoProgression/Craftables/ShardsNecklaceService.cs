@@ -48,6 +48,9 @@ internal sealed class ShardsNecklaceService
             Plugin.Config.ShardsNecklaceScrapThresholdPercent.Value,
             0f,
             100f) / 100d;
+        double targetSeconds = Math.Max(
+            0f,
+            Plugin.Config.TimedCraftablesTargetMinutes.Value) * 60d;
 
         if (now >= nextDiagnosticTime)
         {
@@ -56,14 +59,18 @@ internal sealed class ShardsNecklaceService
                 $"Shards Necklace status: Scrap={scrap.amount:0.##}, Max={maximum:0.##}, " +
                 $"Ratio={scrap.amount / maximum:P2}, Threshold={threshold:P2}, " +
                 $"TabVisible={tabVisible}, ExtraCondition={extraCondition}, " +
+                $"Remaining={item.currentTime:0.0}s, Target={targetSeconds:0.0}s, " +
                 $"CanCraft={item.HowManyCanCraft()}.");
         }
 
         if (!tabVisible || !extraCondition) return false;
         if (scrap.amount / maximum < threshold) return false;
+        if (item.currentTime >= targetSeconds) return false;
 
         int crafted = 0;
-        while (crafted < MaxCraftsPerTick && scrap.amount / maximum >= threshold)
+        while (crafted < MaxCraftsPerTick &&
+               scrap.amount / maximum >= threshold &&
+               item.currentTime < targetSeconds)
         {
             if (item.HowManyCanCraft() <= 0 && Plugin.Config.BuyMissingMaterialsWithJewels.Value)
                 BuyMissingRequirements();
@@ -78,7 +85,7 @@ internal sealed class ShardsNecklaceService
 
         if (crafted > 0)
         {
-            ProgressionLog.Info(
+            ProgressionLog.User(
                 $"Shards Necklace Scrap overflow: crafted {crafted}, Scrap={scrap.amount:0.##}/{maximum:0.##} ({scrap.amount / maximum:P1}).");
             return true;
         }

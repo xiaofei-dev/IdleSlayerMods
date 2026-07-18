@@ -1,10 +1,31 @@
 using Il2Cpp;
+using System;
+using System.Collections.Generic;
 using System.Globalization;
 
 namespace AutoAdventurer.Quests;
 
 internal sealed class QuestTargetSelection
 {
+    private static readonly HashSet<string> PriorityUnlockBenefits =
+        new(StringComparer.Ordinal)
+        {
+            "IncreaseQuestsLevel",
+            "UnlockMinion",
+            "UnlockGiant",
+            "UnlockCharacter",
+            "SupplyBox",
+            "UnlockStoneOfTime",
+            "UnlockInJewelOfSoulTab",
+            "UnlockEquipment",
+            "UnlockNPCInVillage",
+            "UnlockNewAscensionUpgrades",
+            "BossFightFromSpecialRandomBox",
+            "ElementalLock",
+            "UnlockNewColorVariant",
+            "UnlockLoadout"
+        };
+
     internal Quest Quest { get; init; }
     internal Enemy Enemy { get; init; }
     internal BaseMap Map { get; init; }
@@ -28,6 +49,30 @@ internal sealed class QuestTargetSelection
     internal CharacterSkin RequiredCharacter => Quest?.characterRequired;
     internal string RequiredCharacterId =>
         RequiredCharacter?.name ?? string.Empty;
+    internal Upgrade UnlockReward => Quest?.unlocksUpgrade;
+    internal bool HasUnlockReward => UnlockReward != null;
+    internal string UnlockRewardId => UnlockReward?.name ?? string.Empty;
+    internal string UnlockRewardDisplayName =>
+        string.IsNullOrWhiteSpace(UnlockReward?.localizedName)
+            ? UnlockRewardId
+            : UnlockReward.localizedName;
+    internal string UnlockRewardBenefitId =>
+        UnlockReward?.newBenefit?.benefit?.name ?? string.Empty;
+    internal int RewardPriority =>
+        string.Equals(UnlockRewardBenefitId, "IncreaseQuestsLevel",
+            StringComparison.Ordinal)
+            ? 2
+            : PriorityUnlockBenefits.Contains(UnlockRewardBenefitId)
+                ? 1
+                : 0;
+    internal string RewardPriorityLabel => RewardPriority switch
+    {
+        2 => "Top",
+        1 => "High",
+        _ => "Normal"
+    };
+    internal bool HasPriorityUnlockReward =>
+        RewardPriority > 0;
     internal double RemainingKills =>
         System.Math.Max(0d, RequiredKills - CurrentKills);
     internal string LockKey => BuildLockKey(Quest);

@@ -26,7 +26,6 @@ internal sealed class AutoAdventurerConfig(string configName) : BaseConfig(confi
     internal MelonPreferences_Entry<double> AutoBoostActivationDelaySeconds;
     internal MelonPreferences_Entry<bool> WindDashRequireGrounded;
     internal MelonPreferences_Entry<string> QuestAutomationToggleKey;
-    internal MelonPreferences_Entry<bool> QuestAutomationDebugMode;
     internal MelonPreferences_Entry<bool> QuestCompletionNotifications;
     internal MelonPreferences_Entry<float> MinimumDimensionStayMinutes;
     internal MelonPreferences_Entry<float> MaximumQuestTimeMinutes;
@@ -36,7 +35,7 @@ internal sealed class AutoAdventurerConfig(string configName) : BaseConfig(confi
         ConfigurationVersion = Bind(MainSection, "Configuration Version", 0,
             "Internal preference migration version. Do not edit manually.");
         DebugMode = Bind(MainSection, "Debug Mode", false,
-            "Show detailed AutoAdventurer diagnostic logs.");
+            "Show detailed AutoAdventurer diagnostic logs. User actions, warnings, and errors are always logged.");
 
         ToggleKey = Bind(RageSection, "Toggle Key", "K",
             "Keyboard key used to enable or disable Automatic Rage.");
@@ -46,7 +45,7 @@ internal sealed class AutoAdventurerConfig(string configName) : BaseConfig(confi
             "Activation Check Interval Seconds", 12f,
             "How often Automatic Rage checks whether Rage Mode is ready to activate.");
         MaximumRageDurationSeconds = Bind(RageSection,
-            "Maximum Rage Duration Seconds", 120f,
+            "Maximum Rage Duration Seconds", 20f,
             "End an automatically started Rage Mode after this many seconds. Set to 0 to disable the time limit.");
         bool migratePostRageProtection = ConfigurationVersion.Value < 18 &&
             MelonPreferences.HasEntry(RageSection,
@@ -54,7 +53,7 @@ internal sealed class AutoAdventurerConfig(string configName) : BaseConfig(confi
         float postRageProtectionSeconds = migratePostRageProtection
             ? MelonPreferences.GetEntryValue<float>(RageSection,
                 "Post Rage Observation Seconds")
-            : 5f;
+            : 8f;
         PostRageObservationSeconds = Bind(RageSection,
             "Post Rage Protection Seconds", postRageProtectionSeconds,
             "After Rage ends, protect the map for this long while checking quests, boxes, events, minigame triggers, and portals before allowing travel or another Rage activation.");
@@ -73,7 +72,7 @@ internal sealed class AutoAdventurerConfig(string configName) : BaseConfig(confi
         double boostActivationDelay = migrateBoostActivationDelay
             ? Math.Round(MelonPreferences.GetEntryValue<float>(
                 AutoBoostSection, "Activation Delay Seconds"), 3)
-            : 0.3d;
+            : 0.1d;
         if (migrateBoostActivationDelay)
             MelonPreferences.GetCategory(AutoBoostSection)?
                 .DeleteEntry("Activation Delay Seconds");
@@ -86,8 +85,13 @@ internal sealed class AutoAdventurerConfig(string configName) : BaseConfig(confi
 
         QuestAutomationToggleKey = Bind(QuestAutomationSection, "Toggle Key", "P",
             "Keyboard key used to enable or disable quest-guided dimension travel.");
-        QuestAutomationDebugMode = Bind(QuestAutomationSection, "Debug Mode", false,
-            "Show detailed Quest Automation diagnostic logs independently from other AutoAdventurer features.");
+        // Quest diagnostics now share the main Debug Mode. Remove the former
+        // section-level switch even from configurations already migrated to v20.
+        bool removeLegacyQuestDebug =
+            MelonPreferences.HasEntry(QuestAutomationSection, "Debug Mode");
+        if (removeLegacyQuestDebug)
+            MelonPreferences.GetCategory(QuestAutomationSection)?
+                .DeleteEntry("Debug Mode");
         QuestCompletionNotifications = Bind(QuestAutomationSection,
             "Show Completion Notifications", true,
             "Show an in-game notification with session quest statistics whenever Quest Automation completes a task.");
@@ -95,7 +99,7 @@ internal sealed class AutoAdventurerConfig(string configName) : BaseConfig(confi
             MelonPreferences.HasEntry(QuestAutomationSection,
                 "Auto Claim Completed Quests");
         MinimumDimensionStayMinutes = Bind(QuestAutomationSection,
-            "Minimum Dimension Stay Minutes", 1f,
+            "Minimum Dimension Stay Minutes", 0f,
             "Stay in a dimension for at least this long after automatic travel before changing dimension again.");
         bool migrateQuestTime = ConfigurationVersion.Value < 17 &&
             MelonPreferences.HasEntry(QuestAutomationSection,
@@ -103,11 +107,12 @@ internal sealed class AutoAdventurerConfig(string configName) : BaseConfig(confi
         float maximumQuestTime = migrateQuestTime
             ? MelonPreferences.GetEntryValue<float>(QuestAutomationSection,
                 "Quest Lock Rescan Minutes")
-            : 5f;
+            : 10f;
         MaximumQuestTimeMinutes = Bind(QuestAutomationSection,
             "Maximum Quest Time Minutes", maximumQuestTime,
             "Allow one selected quest to run for at most this many minutes before releasing it and fully rescanning. Set to 0 to disable the maximum time limit.");
-        if (ConfigurationVersion.Value < CurrentConfigurationVersion)
+        if (ConfigurationVersion.Value < CurrentConfigurationVersion ||
+            removeLegacyQuestDebug)
         {
             if (migratePostRageProtection)
                 MelonPreferences.GetCategory(RageSection)?

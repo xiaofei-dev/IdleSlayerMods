@@ -1,6 +1,7 @@
 using IdleSlayerMods.Common;
 using MelonLoader;
 using AutoAdventurer.Configuration;
+using AutoAdventurer.Diagnostics;
 using AutoAdventurer.Runtime;
 
 [assembly: MelonInfo(typeof(AutoAdventurer.Plugin), AutoAdventurer.AutoAdventurerInfo.PluginName, AutoAdventurer.AutoAdventurerInfo.PluginVersion, AutoAdventurer.AutoAdventurerInfo.PluginAuthor)]
@@ -19,7 +20,7 @@ public class Plugin : MelonMod
         ModHelper.ModHelperMounted += instance => ModHelperInstance = instance;
         HarmonyInstance.PatchAll();
         Config = new(AutoAdventurerInfo.PluginGuid);
-        Logger.Msg(
+        AdventurerLog.User(
             $"Plugin {AutoAdventurerInfo.PluginGuid} v{AutoAdventurerInfo.PluginVersion} " +
             $"(internal {AutoAdventurerInfo.InternalVersion}) loaded; " +
             $"configuration schema v{AutoAdventurerConfig.CurrentConfigurationVersion}.");

@@ -882,6 +882,9 @@ internal sealed class QuestTravelService
             $"targetMap={selection.MapId}; mapState={mapState}; " +
             $"progress={selection.CurrentKills:0.##}/{selection.RequiredKills:0.##}; " +
             $"remainingKills={selection.RemainingKills:0.##}; " +
+            $"unlockReward={(selection.HasUnlockReward ? $"{selection.UnlockRewardDisplayName} [{selection.UnlockRewardId}]" : "None")}; " +
+            $"rewardBenefit={(!string.IsNullOrEmpty(selection.UnlockRewardBenefitId) ? selection.UnlockRewardBenefitId : "None")}; " +
+            $"rewardPriority={selection.RewardPriorityLabel}; " +
             $"requiredCharacter={selection.RequiredCharacterId}; " +
             $"automaticRageSuppressed={lockedQuestSuppressesRage || lockedQuestNeedsCharacterSwitch}.");
     }

@@ -13,6 +13,7 @@ public sealed class AutoClimberPlugin : MelonMod
 {
     internal static AutoClimberConfig Config;
     internal static ModHelper ModHelperInstance;
+    private static bool harmonyPatchesApplied;
     internal static readonly MelonLogger.Instance Logger =
         Melon<AutoClimberPlugin>.Logger;
     
@@ -22,7 +23,6 @@ public sealed class AutoClimberPlugin : MelonMod
         ModHelper.ModHelperMounted +=
             instance => ModHelperInstance = instance;
         Config = new(AutoClimberInfo.PluginGuid);
-        HarmonyInstance.PatchAll();
     }
 
     public override void OnSceneWasLoaded(int buildIndex, string sceneName)
@@ -30,5 +30,13 @@ public sealed class AutoClimberPlugin : MelonMod
         if (sceneName != "Game") return;
         Application.runInBackground = true;
         ModUtils.RegisterComponent<AutoClimberRuntime>();
+
+        // AutoClimberRuntime must be registered in the IL2CPP domain before
+        // Harmony resolves patches that target its managed methods.
+        if (!harmonyPatchesApplied)
+        {
+            HarmonyInstance.PatchAll();
+            harmonyPatchesApplied = true;
+        }
     }
 }

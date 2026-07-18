@@ -326,14 +326,14 @@ public sealed partial class AutoClimberRuntime
             $"Entries={failureTrace.Count}"
         );
 
-        if (!ClimberLog.IsDeveloperMode)
+        if (!ClimberLog.IsDebugMode)
         {
             return;
         }
 
         foreach (string entry in failureTrace)
         {
-            ClimberLog.Developer(
+            ClimberLog.Debug(
                 "Failure trace: " + entry
             );
         }

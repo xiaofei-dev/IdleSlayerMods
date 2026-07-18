@@ -9,10 +9,27 @@ AutoAdventurer is part of **Tashi's Full Automation Suite**. It focuses on
 character control and quest objectives; AutoProgression handles long-term
 account growth, while AutoClimber handles Ascending Heights.
 
+## Documentation
+
+- [User Guide](USER_GUIDE.md) — installation, controls, recommended setup,
+  common behavior, and quick troubleshooting.
+- [Complete Manual](MANUAL.md) — full reference with detailed feature,
+  configuration, logging, and troubleshooting chapters.
+- [Quest Automation](docs/03-quest-automation.md)
+- [Automatic Rage](docs/04-automatic-rage.md)
+- [Auto Boost and Wind Dash](docs/05-auto-boost.md)
+- [Travel, Events, and Safety](docs/06-travel-and-events.md)
+- [Configuration Reference](docs/08-configuration.md)
+- [Logging Reference](docs/09-logging.md)
+- [Troubleshooting](docs/10-troubleshooting.md)
+
 ## Highlights
 
 - Selects supported kill quests using internal game IDs rather than localized
-  quest text.
+  quest text, prioritizing executable quests that unlock new content such as
+  equipment, follow-up quests, characters, minions, giants, NPCs, loadouts, or
+  progression systems. Ordinary numeric ability upgrades do not receive this
+  priority.
 - Travels only through unlocked destinations currently offered by the normal
   Portal.
 - Pauses travel for map events, random boxes, portals, minigames, villages,
@@ -93,14 +110,19 @@ is enabled by default and can be disabled independently from Automatic Rage.
 ## Quest-Guided Dimension Travel
 
 - Press `P` to enable or disable Quest Automation by default.
-- Quest diagnostics have their own `Debug Mode` setting and do not depend on
-  the main AutoAdventurer debug setting.
+- Quest diagnostics use the main AutoAdventurer `Debug Mode` setting together
+  with all other detailed runtime diagnostics.
 - Quest decision logs include both the localized in-game quest name and its
   stable internal ID.
 - All active incomplete kill quests are evaluated together without Daily
   priority. Among targets that can currently be resolved to an unlocked,
-  Portal-selectable dimension, the quest with the smallest total kill
-  requirement is selected; ties preserve the game-list order.
+  Portal-selectable dimension, reward priority is applied only after full
+  executable-target validation. Rewards that unlock additional quest levels
+  have Top priority; equipment, characters, minions, giants, NPCs, loadouts,
+  and other explicit content unlocks have High priority; pure CpS, Souls, Rage,
+  Boost, drop-rate, other numeric improvements, and quests without unlocks have
+  Normal priority. Within the same reward priority, the quest with the smallest
+  total kill requirement is selected; ties preserve the game-list order.
   Ranking reads the serialized `questGoal` value used by the quest UI;
   `Quest.GetGoal()` is not used because it returns zero for some normal quests.
 - Once selected, a quest is locked by internal ID and re-resolved from fresh
@@ -233,6 +255,12 @@ The configuration file is generated at:
 ModLoader/UserData/AutoAdventurer.cfg
 ```
 
+Normal user logs always report initialization, toggle changes, completed
+actions, warnings, and errors. The main `Debug Mode` adds detailed runtime
+diagnostics with a `[Debug]` prefix. Quest Automation has an independent debug
+switch whose messages use `[Debug][Quest]`, so quest diagnostics can be enabled
+without turning on every AutoAdventurer trace.
+
 Settings include the automation toggle key, manual stop key, activation check
 interval, maximum Rage duration, and debug logging. The default maximum Rage
 duration is 120 seconds. Set it to `0` to disable the duration limit. The
@@ -274,7 +302,7 @@ If these mods save you time, you can support continued development through
 ## Versioning
 
 - Public release version: `1.0.0`
-- Internal development version: `V0.73`
+- Internal development version: `V0.76`
 
 ## Disclaimer
 

@@ -22,7 +22,7 @@ internal sealed class AutoClimberConfig(string configName) : BaseConfig(configNa
         ConfigurationVersion = Bind(MainSection, "Configuration Version", 0,
             "Internal preference migration version. Do not edit manually.");
         DebugMode = Bind(MainSection, "Debug Mode", false,
-            "Show detailed diagnostic logs. Disabled automatically in Skip mode.");
+            "Show detailed diagnostic logs. User actions, warnings, errors, and run summaries are always logged; debug output is disabled automatically in Skip mode.");
 
         bool migrateLegacyValues =
             ConfigurationVersion.Value <

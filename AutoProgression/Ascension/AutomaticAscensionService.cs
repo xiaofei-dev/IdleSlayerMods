@@ -88,13 +88,13 @@ internal sealed class AutomaticAscensionService
             stablePurchaseRounds = 0;
             nextCheckTime = 0f;
             StartedAscensionThisTick = true;
-            ProgressionLog.Info(
+            ProgressionLog.User(
                 $"Automatic normal ascension started at {ratioPercent:0.##}% soul bonus.");
             return true;
         }
         catch (Exception exception)
         {
-            Plugin.Logger.Error($"Automatic normal ascension failed safely: {exception}");
+            ProgressionLog.Error($"Automatic normal ascension failed safely: {exception}");
             return false;
         }
     }
@@ -112,7 +112,7 @@ internal sealed class AutomaticAscensionService
         }
         catch (Exception exception)
         {
-            Plugin.Logger.Error($"Post-ascension Buy All failed safely: {exception}");
+            ProgressionLog.Error($"Post-ascension Buy All failed safely: {exception}");
             waitingForPostAscension = false;
             return;
         }
@@ -121,7 +121,7 @@ internal sealed class AutomaticAscensionService
         if (after < before)
         {
             stablePurchaseRounds = 0;
-            ProgressionLog.Info(
+            ProgressionLog.User(
                 $"Post-ascension skills purchased; Slayer Points spent={before - after:0.##}, remaining={after:0.##}.");
             return;
         }
@@ -142,7 +142,7 @@ internal sealed class AutomaticAscensionService
         nextCheckTime = Time.unscaledTime + GetCheckIntervalSeconds();
 
         if (skillsPurchased)
-            ProgressionLog.Info("Post-ascension skill purchasing completed.");
+            ProgressionLog.User("Post-ascension skill purchasing completed.");
     }
 
     internal void Reset()

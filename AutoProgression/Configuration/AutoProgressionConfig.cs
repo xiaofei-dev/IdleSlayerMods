@@ -6,7 +6,7 @@ namespace AutoProgression.Configuration;
 
 internal sealed class AutoProgressionConfig(string configName) : BaseConfig(configName)
 {
-    internal const int CurrentConfigurationVersion = 7;
+    internal const int CurrentConfigurationVersion = 10;
     private const string LegacySection = "AutoProgression";
 
     internal MelonPreferences_Entry<int> ConfigurationVersion;
@@ -23,6 +23,7 @@ internal sealed class AutoProgressionConfig(string configName) : BaseConfig(conf
     internal MelonPreferences_Entry<bool> RegenerateWeeklyQuests;
     internal MelonPreferences_Entry<bool> UnlimitedQuestRerolls;
     internal MelonPreferences_Entry<bool> PreferMinimumRageWeeklyQuest;
+    internal MelonPreferences_Entry<bool> FilterGeneratedDailyQuests;
     internal MelonPreferences_Entry<bool> ResetPortalCooldown;
     internal MelonPreferences_Entry<bool> EnableRagePill;
     internal MelonPreferences_Entry<bool> EnableWhetstone;
@@ -32,6 +33,10 @@ internal sealed class AutoProgressionConfig(string configName) : BaseConfig(conf
     internal MelonPreferences_Entry<int> DeathwaveScepterFeatherReserveAmount;
     internal MelonPreferences_Entry<bool> EnableShardsNecklaceScrapOverflow;
     internal MelonPreferences_Entry<float> ShardsNecklaceScrapThresholdPercent;
+    internal MelonPreferences_Entry<bool> EnableDragonScaleOverflowCraftables;
+    internal MelonPreferences_Entry<float> DragonScaleOverflowThresholdPercent;
+    internal MelonPreferences_Entry<bool> EnableQuestAssistCraftables;
+    internal MelonPreferences_Entry<float> QuestAssistCraftableCooldownMinutes;
     internal MelonPreferences_Entry<float> TimedCraftablesRefillAtMinutes;
     internal MelonPreferences_Entry<float> TimedCraftablesTargetMinutes;
     internal MelonPreferences_Entry<float> RagePillMinimumIntervalSeconds;
@@ -48,8 +53,8 @@ internal sealed class AutoProgressionConfig(string configName) : BaseConfig(conf
     {
         ConfigurationVersion = Bind("Configuration Version", 0,
             "Internal preference migration version. Do not edit manually.");
-        DebugMode = Bind("Debug Mode", true,
-            "Show detailed state, timer, object lookup, and action logs.");
+        DebugMode = Bind("Debug Mode", false,
+            "Show detailed state, timer, object lookup, and diagnostic logs. User actions, warnings, and errors are always logged.");
 
         bool migrateLegacyValues = ConfigurationVersion.Value < CurrentConfigurationVersion;
 
@@ -92,6 +97,9 @@ internal sealed class AutoProgressionConfig(string configName) : BaseConfig(conf
         PreferMinimumRageWeeklyQuest = BindMigrated(
             "Quests", "Prefer 180k Rage Weekly Quest", "Quests - Prefer 180k Rage Weekly Quest", true,
             "After a new Weekly Quest is generated, reroll one generated slot until the 180,000 Rage Mode kill quest appears. Existing additional Weekly Quests are preserved, and manual rerolls do not trigger this feature.", migrateLegacyValues);
+        FilterGeneratedDailyQuests = BindMigrated(
+            "Quests", "Filter Generated Daily Quests", "Quests - Filter Generated Daily Quests", true,
+            "After a new Daily Quest set is generated, reroll Goblin kills, Chest Hunt chests, normal or Silver Random Boxes, normal Boost uses, Rage Mode uses, Bonus Stage entry/completion, Ascending Heights, and Grapple Run objectives. Rage Mode kill and Wind Dash kill quests are retained. Manual rerolls do not trigger this feature.", migrateLegacyValues);
         ResetPortalCooldown = BindMigrated(
             "Quests", "Reset Portal Cooldown", "Quests - Reset Portal Cooldown", true,
             "Keep the normal Portal cooldown at zero while AutoProgression is active.", migrateLegacyValues);
@@ -123,12 +131,24 @@ internal sealed class AutoProgressionConfig(string configName) : BaseConfig(conf
         ShardsNecklaceScrapThresholdPercent = BindMigrated(
             "Craftables", "Shards Necklace Scrap Threshold Percent", "Craftables - Shards Necklace Scrap Threshold Percent", 95f,
             "Craft Shards Necklaces at or above this Scrap percentage and stop below it.", migrateLegacyValues);
+        EnableDragonScaleOverflowCraftables = BindMigrated(
+            "Craftables", "Dragon Scale Overflow Craftables Enabled", "Craftables - Dragon Scale Overflow Craftables Enabled", true,
+            "Craft one of each supported Dragon Scale overflow item per overflow cycle. WARNING: This can spend Jewels of Soul on other missing materials when the global material-purchase option is enabled.", migrateLegacyValues);
+        DragonScaleOverflowThresholdPercent = BindMigrated(
+            "Craftables", "Dragon Scale Overflow Threshold Percent", "Craftables - Dragon Scale Overflow Threshold Percent", 95f,
+            "Start one Dragon Scale overflow crafting cycle when Dragon Scale storage rises above this percentage. Each effect also respects the Timed Items Target Minutes limit.", migrateLegacyValues);
+        EnableQuestAssistCraftables = BindMigrated(
+            "Craftables", "Quest Assist Craftables Enabled", "Craftables - Quest Assist Craftables Enabled", true,
+            "Use Specialization for active normal Goblin or Bonus Stage quests and Key Manifest for active normal Chest Hunt quests. Daily and Weekly Quests are ignored. Scrap, Simurgh Feathers, and Dragon Scales must already be available; other missing materials follow the global Jewel purchase settings.", migrateLegacyValues);
+        QuestAssistCraftableCooldownMinutes = BindMigrated(
+            "Craftables", "Quest Assist Craftable Cooldown Minutes", "Craftables - Quest Assist Craftable Cooldown Minutes", 10f,
+            "Minimum interval after each successful use. Specialization and Key Manifest track this cooldown independently.", migrateLegacyValues);
         TimedCraftablesRefillAtMinutes = BindMigrated(
             "Craftables", "Timed Items Refill At Minutes", "Craftables - Timed Items Refill At Minutes", 10f,
             "Start refilling timed craftables when their remaining duration reaches this value.", migrateLegacyValues);
         TimedCraftablesTargetMinutes = BindMigrated(
             "Craftables", "Timed Items Target Minutes", "Craftables - Timed Items Target Minutes", 60f,
-            "Continue crafting timed items until their duration exceeds this value.", migrateLegacyValues);
+            "Stop crafting timed and material-overflow duration items when their remaining duration reaches this value.", migrateLegacyValues);
 
         BuyMissingMaterialsWithJewels = BindMigrated(
             "Materials", "Buy Missing With Jewels", "Materials - Buy Missing With Jewels", true,
@@ -210,6 +230,7 @@ internal sealed class AutoProgressionConfig(string configName) : BaseConfig(conf
         "Quests - Regenerate Weekly Quests",
         "Quests - Unlimited Quest Rerolls",
         "Quests - Prefer 180k Rage Weekly Quest",
+        "Quests - Filter Generated Daily Quests",
         "Quests - Reset Portal Cooldown",
         "Craftables - Rage Pill Enabled",
         "Craftables - Rage Pill Minimum Interval Seconds",
@@ -220,6 +241,10 @@ internal sealed class AutoProgressionConfig(string configName) : BaseConfig(conf
         "Craftables - Deathwave Scepter Feather Reserve Amount",
         "Craftables - Shards Necklace Scrap Overflow Enabled",
         "Craftables - Shards Necklace Scrap Threshold Percent",
+        "Craftables - Dragon Scale Overflow Craftables Enabled",
+        "Craftables - Dragon Scale Overflow Threshold Percent",
+        "Craftables - Quest Assist Craftables Enabled",
+        "Craftables - Quest Assist Craftable Cooldown Minutes",
         "Craftables - Timed Items Refill At Minutes",
         "Craftables - Timed Items Target Minutes",
         "Materials - Buy Missing With Jewels",

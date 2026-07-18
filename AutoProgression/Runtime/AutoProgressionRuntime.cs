@@ -22,9 +22,12 @@ public sealed class AutoProgressionRuntime : MonoBehaviour
     private readonly RagePillService ragePill = new();
     private readonly TimedCraftableService timedCraftables = new();
     private readonly ShardsNecklaceService shardsNecklace = new();
+    private readonly DragonScaleOverflowService dragonScaleOverflow = new();
+    private readonly QuestAssistCraftableService questAssistCraftables = new();
     private readonly EggOpeningService eggOpening = new();
     private readonly QuestAutomationService quests = new();
     private readonly WeeklyRageQuestService weeklyRageQuests = new();
+    private readonly DailyQuestFilterService dailyQuestFilter = new();
     private readonly SkillPurchaseService skillPurchases = new();
     private readonly BlockedSkillService blockedSkills = new();
     private readonly EquipmentPurchaseService equipmentPurchases = new();
@@ -106,10 +109,12 @@ public sealed class AutoProgressionRuntime : MonoBehaviour
 
         // Do not let normal quest maintenance refresh the same native list
         // while a generated Weekly Quest is being rerolled.
-        if (!weeklyRageQuests.IsProcessing)
+        if (!weeklyRageQuests.IsProcessing && !dailyQuestFilter.IsProcessing)
             quests.Tick(now);
 
         if (weeklyRageQuests.Tick())
+            quests.Reset();
+        if (!weeklyRageQuests.IsProcessing && dailyQuestFilter.Tick())
             quests.Reset();
         TickPurchases(now);
     }
@@ -134,8 +139,10 @@ public sealed class AutoProgressionRuntime : MonoBehaviour
         if (now < itemActionsReadyAt || now < nextItemActionTime)
             return;
 
-        bool acted = timedCraftables.Tick(now) ||
+        bool acted = questAssistCraftables.Tick(now) ||
+                     timedCraftables.Tick(now) ||
                      shardsNecklace.Tick(now) ||
+                     dragonScaleOverflow.Tick(now) ||
                      eggOpening.Tick(now);
 
         if (acted)
@@ -147,7 +154,7 @@ public sealed class AutoProgressionRuntime : MonoBehaviour
         ascensionLockUntil = now + PostAscensionLockSeconds;
         ascension.Reset();
         ResetOperationalServices(discardWeeklyQuestWork: true);
-        ProgressionLog.Info(
+        ProgressionLog.User(
             $"{reason}; other automation paused for {PostAscensionLockSeconds:0.#} seconds and cached objects were cleared.");
     }
 
@@ -157,10 +164,15 @@ public sealed class AutoProgressionRuntime : MonoBehaviour
         ragePill.Reset();
         timedCraftables.Reset();
         shardsNecklace.Reset();
+        dragonScaleOverflow.Reset();
+        questAssistCraftables.Reset();
         eggOpening.Reset();
         quests.Reset();
         if (discardWeeklyQuestWork)
+        {
             weeklyRageQuests.Reset();
+            dailyQuestFilter.Reset();
+        }
         skillPurchases.Reset();
         equipmentPurchases.Reset();
         itemActionsReadyAt = 0f;
@@ -195,7 +207,7 @@ public sealed class AutoProgressionRuntime : MonoBehaviour
             ? "AutoProgression Activated!"
             : "AutoProgression Deactivated!";
 
-        ProgressionLog.Info($"T toggle: {message}; GameState={Il2Cpp.GameState.current}.");
+        ProgressionLog.User($"T toggle: {message}; GameState={Il2Cpp.GameState.current}.");
         Plugin.ModHelperInstance?.ShowNotification(message, autoProgressionEnabled);
     }
 

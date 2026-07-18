@@ -13,7 +13,16 @@ internal static class QuickSkipFinishDistanceOverride
 
     internal static void Apply(AscendingHeightsMap map)
     {
-        if (!ClimberLog.IsQuickSkipModeEnabled || map == null)
+        if (!ClimberLog.IsQuickSkipModeEnabled)
+        {
+            // Auto mode may follow one or more quick-skip runs with a full
+            // route. Restore the shared map before StartBonus caches its
+            // target distance, finish spawn point and progress-bar maximum.
+            Restore();
+            return;
+        }
+
+        if (map == null)
         {
             return;
         }

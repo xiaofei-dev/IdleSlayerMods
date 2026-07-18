@@ -9,6 +9,12 @@ AutoClimber is part of **Tashi's Full Automation Suite**. It focuses on
 Ascending Heights; AutoAdventurer handles active gameplay and quest travel,
 while AutoProgression handles long-term account growth.
 
+## Documentation
+
+- [User Guide](USER_GUIDE.md) for installation, first setup, and common use.
+- [Complete Manual](MANUAL.md) for modes, route behavior, configuration,
+  logging, and troubleshooting.
+
 ## Features
 
 - Detects and evaluates reachable Ascending Heights platforms.
@@ -38,8 +44,9 @@ ModLoader/UserData/AutoClimber.cfg
 
 Available settings include:
 
-- `Debug Mode`: show detailed route and lifecycle diagnostics (disabled by
-  default).
+- `Debug Mode`: show detailed `[Debug]` route and lifecycle diagnostics
+  (disabled by default). User actions, warnings, errors, and run summaries are
+  always logged.
 - `Enabled On Startup`: start with automation enabled.
 - `Toggle Key`: keyboard key used to toggle automation.
 - `Auto Retry Enabled`: continue after a failed run when enabled; automatically
@@ -83,7 +90,7 @@ If these mods save you time, you can support continued development through
 
 ## Versioning
 
-- Public release version: `1.0.0`
+- Public release version: `1.0.1`
 - Route-planner development revisions are tracked separately in the source and startup diagnostics.
 
 ## Disclaimer

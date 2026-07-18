@@ -513,7 +513,7 @@ public sealed partial class AutoClimberRuntime
         PlayerMovement playerMovement,
         Rigidbody2D playerRigidbody)
     {
-        if (!ClimberLog.IsDeveloperMode)
+        if (!ClimberLog.IsDebugMode)
         {
             return;
         }
@@ -615,7 +615,7 @@ public sealed partial class AutoClimberRuntime
         Vector2 playerVelocity,
         bool finished)
     {
-        if (!ClimberLog.IsDeveloperMode)
+        if (!ClimberLog.IsDebugMode)
         {
             return;
         }

@@ -9,17 +9,28 @@ AutoProgression is part of **Tashi's Full Automation Suite**. It focuses on
 account growth and menu-driven maintenance; AutoAdventurer handles active
 gameplay and quest objectives, while AutoClimber handles Ascending Heights.
 
+## Documentation
+
+- [User Guide](USER_GUIDE.md)
+- [Complete Manual](MANUAL.md)
+- [Configuration Reference](docs/08-configuration.md)
+- [Troubleshooting](docs/10-troubleshooting.md)
+
 ## Features
 
 - Purchases the two 500x Jewels of Soul bonuses and refreshes them from their real cooldown state.
 - Crafts and maintains supported temporary craftables, including Rage Pills, Whetstones, and both temporary staffs.
+- Uses Dragon Scale overflow on Random Box Staff, Necklace of Collectables, CpS Compass, and Souls Compass while respecting the shared maximum effect duration.
 - Buys missing craftable materials with Jewels of Soul when allowed.
 - Crafts Shards Necklaces when Scrap reaches a configurable percentage of its current capacity.
 - Opens Dragon Eggs and Simurgh Eggs in the background while preserving configurable reserves.
 - Purchases available skills and unlocked normal equipment.
 - Performs normal Ascension at a configurable soul-bonus threshold and can buy skills afterward.
 - Claims completed Daily and Weekly Quests, regenerates exhausted quest sets, keeps rerolls available, and resets the normal Portal cooldown. Unlimited Daily/Weekly rerolls and blocked vertical-magnet skills remain enforced whenever their settings are enabled, independently from the `T` automation toggle.
+- Uses Specialization for active normal Goblin or Bonus Stage quests and Key Manifest for active normal Chest Hunt quests. Scrap, Simurgh Feathers, and Dragon Scales must already be available; other materials follow the global Jewel purchase settings. Each item has an independent configurable cooldown, and Daily and Weekly Quests are ignored.
+- Scrap- and Dragon Scale-percentage crafting respects the same maximum-duration setting as normal timed craftables, preventing overflow materials from stacking an effect beyond the configured target.
 - Successful background Weekly Quest rerolls suppress only the trailing native UI exception; genuine reroll failures continue to surface normally.
+- Newly generated Daily Quest sets can automatically reroll Goblin, Chest Hunt, normal or Silver Random Box, normal Boost-use, Rage Mode-use, Bonus Stage, Ascending Heights, and Grapple Run objectives. Rage Mode kill and Wind Dash kill quests are retained. Existing quests and manual rerolls do not trigger the filter.
 
 Ultra Ascension is never performed by this mod.
 
@@ -55,6 +66,11 @@ Settings are grouped into these sections:
 > **Currency warning:** `Use Paid 500x Bonuses` directly spends Jewels of Soul. `Buy Missing With Jewels` allows enabled craftable features to spend Jewels of Soul automatically when recipe materials are insufficient. Review these settings before enabling AutoProgression on an unmodified save.
 
 Existing configuration files are migrated when the configuration schema changes.
+
+Normal user logs always report initialization, completed actions, resource
+spending, warnings, and errors. `Debug Mode` is disabled by default and adds
+detailed state, timing, and object-resolution diagnostics with a `[Debug]`
+prefix. Disabling it does not hide meaningful automation results.
 
 ## Safety and Scope
 

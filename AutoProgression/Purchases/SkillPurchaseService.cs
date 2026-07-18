@@ -37,7 +37,7 @@ internal sealed class SkillPurchaseService
         }
         catch (Exception exception)
         {
-            Plugin.Logger.Error($"Failed to refresh the skill list safely: {exception}");
+            ProgressionLog.Error($"Failed to refresh the skill list safely: {exception}");
         }
 
         var upgrades = upgradesList.scrollListData;
@@ -63,7 +63,7 @@ internal sealed class SkillPurchaseService
             }
             catch (Exception exception)
             {
-                Plugin.Logger.Error($"Failed to purchase skill '{upgrade.name}' safely: {exception}");
+                ProgressionLog.Error($"Failed to purchase skill '{upgrade.name}' safely: {exception}");
             }
         }
 

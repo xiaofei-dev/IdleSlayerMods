@@ -2770,6 +2770,7 @@ public sealed partial class AutoClimberRuntime
         );
     }
 
+    [HideFromIl2Cpp]
     private void AddRejectedSignature(
         float platformY,
         PlatformType platformType)
@@ -3302,6 +3303,7 @@ public sealed partial class AutoClimberRuntime
         return minimumX + raw;
     }
 
+    [HideFromIl2Cpp]
     private float GetLandingSafeHalfWidth(
         PlatformType type)
     {
@@ -3816,6 +3818,7 @@ public sealed partial class AutoClimberRuntime
             GravityMagnitude;
     }
 
+    [HideFromIl2Cpp]
     private int GetPlatformTypeRank(
         PlatformType type)
     {
@@ -3868,7 +3871,7 @@ public sealed partial class AutoClimberRuntime
     private void LogSelectedTarget(
         PlatformCandidate candidate)
     {
-        if (!ClimberLog.IsDeveloperMode)
+        if (!ClimberLog.IsDebugMode)
         {
             return;
         }

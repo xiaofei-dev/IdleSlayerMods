@@ -28,12 +28,12 @@ internal sealed class MaterialPurchaseService
             popup.selectedMat = material;
             popup.SelectIndex(ToPopupIndex(purchasePercent));
             popup.Confirm();
-            ProgressionLog.Spending($"Material purchased with Jewels of Soul: {material.name} ({NormalizePercent(purchasePercent)}%).");
+            ProgressionLog.User($"Material purchased with Jewels of Soul: {material.name} ({NormalizePercent(purchasePercent)}%).");
             return true;
         }
         catch (Exception exception)
         {
-            Plugin.Logger.Error($"Failed to purchase material '{material?.name}': {exception}");
+            ProgressionLog.Error($"Failed to purchase material '{material?.name}': {exception}");
             return false;
         }
     }
@@ -46,7 +46,7 @@ internal sealed class MaterialPurchaseService
                 return drop;
         }
 
-        Plugin.Logger.Warning($"Material was not found: {internalName}.");
+        ProgressionLog.Warning($"Material was not found: {internalName}.");
         return null;
     }
 

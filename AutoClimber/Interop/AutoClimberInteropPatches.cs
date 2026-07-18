@@ -155,9 +155,9 @@ internal static class EnemyDiagnosticsBridge
             // being returned to the pool and its transform cannot be read.
         }
 
-        if (ClimberLog.IsDeveloperMode)
+        if (ClimberLog.IsDebugMode)
         {
-            ClimberLog.Developer(
+            ClimberLog.Debug(
                 $"Enemy defeated: Id={instanceId}, " +
                 $"Name={enemyName}, " +
                 $"X={position.x:F2}, Y={position.y:F2}, " +
