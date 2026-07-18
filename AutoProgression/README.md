@@ -11,7 +11,7 @@ AutoProgression is an automation and quality-of-life mod for Idle Slayer. It com
 - Opens Dragon Eggs and Simurgh Eggs in the background while preserving configurable reserves.
 - Purchases available skills and unlocked normal equipment.
 - Performs normal Ascension at a configurable soul-bonus threshold and can buy skills afterward.
-- Claims completed Daily and Weekly Quests, regenerates exhausted quest sets, keeps rerolls available, and resets the normal Portal cooldown.
+- Claims completed Daily and Weekly Quests, regenerates exhausted quest sets, keeps rerolls available, and resets the normal Portal cooldown. Unlimited Daily/Weekly rerolls and blocked vertical-magnet skills remain enforced whenever their settings are enabled, independently from the `T` automation toggle.
 
 Ultra Ascension is never performed by this mod.
 
@@ -42,7 +42,7 @@ Settings are grouped into these sections:
 - `Materials`: Jewel material purchases and refill percentage.
 - `Purchases`: purchase priority and skill/equipment switches.
 - `Skills`: blocked skill options.
-- `Equipment`: idle and sleep timing for equipment purchasing.
+- `Equipment`: idle and sleep timing for equipment purchasing. The latest unlocked equipment is purchased in 10-level increments; older equipment must afford at least 50 levels and is purchased in 50-level increments. Only a purchase meeting those thresholds resets the no-purchase timer.
 
 > **Currency warning:** `Use Paid 500x Bonuses` directly spends Jewels of Soul. `Buy Missing With Jewels` allows enabled craftable features to spend Jewels of Soul automatically when recipe materials are insufficient. Review these settings before enabling AutoProgression on an unmodified save.
 

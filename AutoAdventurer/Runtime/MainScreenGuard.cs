@@ -6,6 +6,7 @@ namespace AutoAdventurer.Runtime;
 internal sealed class MainScreenGuard
 {
     private readonly bool blockMainScreenMenus;
+    private readonly bool allowBonusMode;
 
     private static readonly string[] MenuHolderPaths =
     {
@@ -21,16 +22,20 @@ internal sealed class MainScreenGuard
 
     internal string LastBlockReason { get; private set; } = "Not evaluated";
 
-    internal MainScreenGuard(bool blockMainScreenMenus = true)
+    internal MainScreenGuard(
+        bool blockMainScreenMenus = true,
+        bool allowBonusMode = false)
     {
         this.blockMainScreenMenus = blockMainScreenMenus;
+        this.allowBonusMode = allowBonusMode;
     }
 
     internal bool IsReady(float stableSeconds)
     {
         GameStates state = GameState.current;
         bool supported = state == GameStates.RunnerMode ||
-                         state == GameStates.RageMode;
+                         state == GameStates.RageMode ||
+                         (allowBonusMode && state == GameStates.BonusMode);
 
         if (blockMainScreenMenus && Time.unscaledTime >= nextMenuCheckTime)
         {
@@ -59,7 +64,10 @@ internal sealed class MainScreenGuard
             return false;
         }
 
-        if (!IsRunnerMapStable())
+        // Bonus stages own a separate map lifecycle and do not use the normal
+        // Runner MapController stability contract. GameState plus the shared
+        // stabilization timer is the safe readiness signal there.
+        if (state != GameStates.BonusMode && !IsRunnerMapStable())
         {
             validSince = -1f;
             MapController maps = MapController.instance;

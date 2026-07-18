@@ -12,12 +12,15 @@ namespace AutoClimber;
 public sealed class AutoClimberPlugin : MelonMod
 {
     internal static AutoClimberConfig Config;
+    internal static ModHelper ModHelperInstance;
     internal static readonly MelonLogger.Instance Logger =
         Melon<AutoClimberPlugin>.Logger;
     
     public override void OnInitializeMelon()
     {
         Application.runInBackground = true;
+        ModHelper.ModHelperMounted +=
+            instance => ModHelperInstance = instance;
         Config = new(AutoClimberInfo.PluginGuid);
         HarmonyInstance.PatchAll();
     }

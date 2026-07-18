@@ -1,9 +1,9 @@
 {
   "name": "AutoAdventurer",
-  "author": "Simon",
+  "author": "Tashi",
   "version": "1.0.0",
-  "description": "Automates character actions, beginning with configurable Rage Mode activation and stopping.",
+  "description": "Part of Tashi's full automation suite. Focused on automatic quest completion with quest-guided dimension travel, smart Rage and Boost/Wind Dash, event-aware safety, bonus-stage helpers, and automatic boss completion.",
   "nexus_id": "",
-  "donate_url": "",
-  "github_url": ""
+  "donate_url": "https://www.paypal.com/donate/?business=HK85PL8AREEXY&no_recurring=0&currency_code=USD",
+  "github_url": "https://github.com/xiaofei-dev/IdleSlayerMods/tree/main"
 }

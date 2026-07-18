@@ -57,6 +57,8 @@ internal sealed class EquipmentPurchaseService
             currentPowerIndex = powers.Count - 1;
         }
 
+        int latestUnlockedIndex = FindLatestUnlockedIndex(powers);
+
         while (currentPowerIndex >= 0)
         {
             Power power = powers[currentPowerIndex];
@@ -67,13 +69,16 @@ internal sealed class EquipmentPurchaseService
             }
 
             int affordableLevels = power.CalculateMaxCost().accumulated;
-            if (affordableLevels < 10)
+            int purchaseStack = currentPowerIndex == latestUnlockedIndex
+                ? Stack10
+                : Stack50;
+            if (affordableLevels < purchaseStack)
             {
                 currentPowerIndex--;
                 return true;
             }
 
-            int levelsToBuy = affordableLevels / 10 * 10;
+            int levelsToBuy = affordableLevels / purchaseStack * purchaseStack;
 
             int purchasedLevels = BuyLevels(shop, power, levelsToBuy);
             if (purchasedLevels > 0)
@@ -97,7 +102,10 @@ internal sealed class EquipmentPurchaseService
         float sleepSeconds = Math.Max(0f, Plugin.Config.EquipmentSleepMinutes.Value) * 60f;
         sleepUntil = now + sleepSeconds;
         noPurchaseSince = -1f;
-        ProgressionLog.Info($"No equipment allowed a 10-level purchase for {idleSeconds / 60f:0.##} minutes; equipment buyer sleeping for {sleepSeconds / 60f:0.##} minutes.");
+        ProgressionLog.Info(
+            $"No equipment met its purchase threshold for {idleSeconds / 60f:0.##} minutes " +
+            $"(latest unlocked: 10 levels; older equipment: 50 levels); " +
+            $"equipment buyer sleeping for {sleepSeconds / 60f:0.##} minutes.");
         return false;
     }
 
@@ -120,6 +128,17 @@ internal sealed class EquipmentPurchaseService
         // during the frame in which a skill unlocks a new equipment item.
         Upgrade unlock = power.lockedBehindUpgrade;
         return unlock == null || unlock.bought;
+    }
+
+    private static int FindLatestUnlockedIndex(
+        Il2CppSystem.Collections.Generic.List<Power> powers)
+    {
+        for (int index = powers.Count - 1; index >= 0; index--)
+        {
+            if (IsUnlocked(powers[index])) return index;
+        }
+
+        return -1;
     }
 
     private static int BuyLevels(ShopManager shop, Power power, int levels)

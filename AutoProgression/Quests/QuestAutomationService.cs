@@ -9,35 +9,41 @@ namespace AutoProgression.Quests;
 internal sealed class QuestAutomationService
 {
     private const float CheckIntervalSeconds = 2f;
-    private const float ClaimSettleSeconds = 5f;
     private const float RegenerationSettleSeconds = 5f;
 
     private QuestsList questsList;
     private DailyQuestsManager dailyManager;
     private WeeklyQuestsManager weeklyManager;
-    private DailyQuestReroll dailyReroll;
-    private WeeklyQuestReroll weeklyReroll;
     private PortalButton portalButton;
     private float nextCheckTime;
     private bool missingLogged;
     private bool refreshRequired = true;
-    private int pendingClaimInstanceId;
+
+    internal void TickPersistent()
+    {
+        if (!Plugin.Config.UnlimitedQuestRerolls.Value) return;
+
+        try
+        {
+            // These UI objects can be rebuilt by scene changes, Ascension,
+            // generation, and rerolling. Resolve the current singletons on
+            // every frame instead of retaining IL2CPP objects across those
+            // lifecycle boundaries.
+            DailyQuestReroll daily = DailyQuestReroll.instance;
+            WeeklyQuestReroll weekly = WeeklyQuestReroll.instance;
+            if (daily != null) daily.rerollEnabled = true;
+            if (weekly != null) weekly.rerollEnabled = true;
+        }
+        catch
+        {
+            // A native object may be replaced during this exact frame. The
+            // next frame resolves the replacement, so no cached recovery or
+            // repeated error log is necessary.
+        }
+    }
 
     internal void Tick(float now)
     {
-        // Rerolling is a manual UI action. Restore both flags every frame so
-        // the player never has to wait for the slower quest maintenance pass.
-        try
-        {
-            dailyReroll ??= DailyQuestReroll.instance;
-            weeklyReroll ??= WeeklyQuestReroll.instance;
-            ApplyUnlimitedRerolls();
-        }
-        catch (Exception exception)
-        {
-            Plugin.Logger.Error($"Quest reroll automation failed safely: {exception}");
-        }
-
         if (now < nextCheckTime) return;
         nextCheckTime = now + CheckIntervalSeconds;
 
@@ -98,14 +104,12 @@ internal sealed class QuestAutomationService
                     ProgressionLog.Debug("Automatically claimed 1 completed quest.");
                 }
 
-                // Quest.Claim() can rebuild the native quest collection, and it may
-                // throw after partially completing that rebuild. Never inspect any
-                // other object from this snapshot after a claim attempt.
+                // Claim only one object from each fresh snapshot. A successful
+                // claim is followed by a new snapshot on the next frame.
                 refreshRequired = true;
-                nextCheckTime = now +
-                    (claimResult == ClaimResult.Pending
-                        ? ClaimSettleSeconds
-                        : RegenerationSettleSeconds);
+                nextCheckTime = claimResult == ClaimResult.Claimed
+                    ? now
+                    : now + RegenerationSettleSeconds;
                 return;
             }
         }
@@ -167,22 +171,11 @@ internal sealed class QuestAutomationService
             try
             {
                 if (!quest.CanBeClaimed()) continue;
-
-                int instanceId = quest.GetInstanceID();
-                if (pendingClaimInstanceId != instanceId)
-                {
-                    pendingClaimInstanceId = instanceId;
-                    return ClaimResult.Pending;
-                }
-
                 quest.Claim();
-                pendingClaimInstanceId = 0;
                 return ClaimResult.Claimed;
             }
             catch (Exception exception)
             {
-                pendingClaimInstanceId = 0;
-
                 try
                 {
                     // Weekly Quest claiming can finish its data update before
@@ -208,7 +201,6 @@ internal sealed class QuestAutomationService
             }
         }
 
-        pendingClaimInstanceId = 0;
         return ClaimResult.None;
     }
 
@@ -232,7 +224,6 @@ internal sealed class QuestAutomationService
     private enum ClaimResult
     {
         None,
-        Pending,
         Claimed,
         Failed
     }
@@ -292,13 +283,6 @@ internal sealed class QuestAutomationService
         }
     }
 
-    private void ApplyUnlimitedRerolls()
-    {
-        if (!Plugin.Config.UnlimitedQuestRerolls.Value) return;
-        if (dailyReroll != null) dailyReroll.rerollEnabled = true;
-        if (weeklyReroll != null) weeklyReroll.rerollEnabled = true;
-    }
-
     private void ApplyPortalCooldownReset()
     {
         if (!Plugin.Config.ResetPortalCooldown.Value || portalButton == null) return;
@@ -310,8 +294,6 @@ internal sealed class QuestAutomationService
         questsList ??= FindLoadedSceneComponent<QuestsList>();
         dailyManager ??= DailyQuestsManager.instance;
         weeklyManager ??= WeeklyQuestsManager.instance;
-        dailyReroll ??= DailyQuestReroll.instance;
-        weeklyReroll ??= WeeklyQuestReroll.instance;
         portalButton ??= PortalButton.instance;
     }
 
@@ -342,12 +324,9 @@ internal sealed class QuestAutomationService
         questsList = null;
         dailyManager = null;
         weeklyManager = null;
-        dailyReroll = null;
-        weeklyReroll = null;
         portalButton = null;
         nextCheckTime = 0f;
         missingLogged = false;
         refreshRequired = true;
-        pendingClaimInstanceId = 0;
     }
 }

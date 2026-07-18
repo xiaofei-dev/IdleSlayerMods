@@ -88,7 +88,7 @@ internal sealed class AutoProgressionConfig(string configName) : BaseConfig(conf
             "Generate another set of Weekly Quests when no active Weekly Quests remain.", migrateLegacyValues);
         UnlimitedQuestRerolls = BindMigrated(
             "Quests", "Unlimited Quest Rerolls", "Quests - Unlimited Quest Rerolls", true,
-            "Keep Daily and Weekly Quest rerolls enabled.", migrateLegacyValues);
+            "Keep Daily and Weekly Quest rerolls enabled at all times, independently from the AutoProgression toggle.", migrateLegacyValues);
         PreferMinimumRageWeeklyQuest = BindMigrated(
             "Quests", "Prefer 180k Rage Weekly Quest", "Quests - Prefer 180k Rage Weekly Quest", true,
             "After a new Weekly Quest is generated, reroll one generated slot until the 180,000 Rage Mode kill quest appears. Existing additional Weekly Quests are preserved, and manual rerolls do not trigger this feature.", migrateLegacyValues);
@@ -149,13 +149,13 @@ internal sealed class AutoProgressionConfig(string configName) : BaseConfig(conf
 
         DisableVerticalMagnetSkills = BindMigrated(
             "Skills", "Disable Vertical Magnet Upgrades", "Skills - Disable Vertical Magnet Upgrades", true,
-            "Disable both Random Box vertical magnet upgrades, including manual purchase.", migrateLegacyValues);
+            "Disable both Random Box vertical magnet upgrades at all times, including manual purchase, independently from the AutoProgression toggle.", migrateLegacyValues);
 
         EquipmentIdleBeforeSleepMinutes = BindMigrated(
             "Equipment", "No Purchase Before Sleep Minutes", "Equipment - No Purchase Before Sleep Minutes", 2f,
-            "Sleep the equipment buyer after this many minutes without an eligible 10-level purchase.", migrateLegacyValues);
+            "Sleep the equipment buyer after this many minutes without an eligible purchase: 10 levels for the latest unlocked equipment or 50 levels for any older equipment.", migrateLegacyValues);
         EquipmentSleepMinutes = BindMigrated(
-            "Equipment", "Sleep Minutes", "Equipment - Sleep Minutes", 15f,
+            "Equipment", "Sleep Minutes", "Equipment - Sleep Minutes", 10f,
             "How long only the equipment buyer sleeps.", migrateLegacyValues);
 
         if (migrateLegacyValues)

@@ -1,9 +1,9 @@
 {
   "name": "AutoClimber",
-  "author": "Simon",
+  "author": "Tashi",
   "version": "1.0.0",
-  "description": "",
-  "nexus_id": "",
-  "donate_url": "",
-  "github_url": ""
+  "description": "Automatically completes Ascending Heights with safe route planning, boost-platform priority, recovery, optional enemy hunting, auto-retry, background play, and Normal, Skip, or quest-aware Auto modes.",
+  "nexus_id": "38",
+  "donate_url": "https://www.paypal.com/donate/?business=HK85PL8AREEXY&no_recurring=0&currency_code=USD",
+  "github_url": "https://github.com/xiaofei-dev/IdleSlayerMods/tree/main"
 }

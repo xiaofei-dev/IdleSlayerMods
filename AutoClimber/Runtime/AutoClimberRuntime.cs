@@ -404,7 +404,7 @@ public sealed partial class AutoClimberRuntime : MonoBehaviour
             "safe enemy-touch targeting is available. " +
             $"Enabled={automationEnabled}, " +
             $"ToggleKey={automationToggleKey}, " +
-            $"SkipMinigame={ClimberLog.IsQuickSkipModeEnabled}, " +
+            $"Mode={AutoClimberQuestMode.ConfiguredMode}, " +
             $"TargetEnemies={ClimberLog.IsEnemyTargetingEnabled}."
         );
 
@@ -774,11 +774,13 @@ public sealed partial class AutoClimberRuntime : MonoBehaviour
 
         stateInitialized = true;
 
-        ClimberLog.User(
-            enabled
-                ? "AutoClimber enabled."
-                : "AutoClimber disabled."
-        );
+        string message = enabled
+            ? "AutoClimber Activated!"
+            : "AutoClimber Deactivated!";
+
+        ClimberLog.User(message);
+        AutoClimberPlugin.ModHelperInstance?
+            .ShowNotification(message, enabled);
     }
 
     public void FixedUpdate()
@@ -862,6 +864,9 @@ public sealed partial class AutoClimberRuntime : MonoBehaviour
                 LogVerbose(
                     "Ascending Heights ended."
                 );
+
+                RestoreQuickSkipFinishDistance();
+                AutoClimberQuestMode.EndRunDecision();
             }
             else
             {
@@ -870,8 +875,6 @@ public sealed partial class AutoClimberRuntime : MonoBehaviour
                     "before gameplay confirmation."
                 );
             }
-
-            RestoreQuickSkipFinishDistance();
 
             ResetRuntimeState();
         }

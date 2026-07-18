@@ -57,6 +57,9 @@ is enabled by default and can be disabled independently from Automatic Rage.
   cooldown until the player returns to ground level, then activates
   immediately. This prevents airborne dashes from passing over portals or
   elite enemies. Regular Boost activation is unchanged.
+- Bonus stages support automatic Wind Dash after the existing 0.5-second scene
+  stabilization delay. Normal Boost remains disabled there, and Wind Dash
+  continues to obey the configured grounded requirement and activation delay.
 - Auto Boost supports both Runner Mode and Rage Mode whenever the selected
   movement ability is available. After returning from another scene, it uses
   the shared half-second central-screen stabilization delay without adding a
