@@ -54,6 +54,33 @@ public sealed partial class AutoClimberRuntime
             return false;
         }
 
+        // Use the map's actual finish-ground transform first. Practice maps
+        // do not share the same world-space offset as the normal challenge,
+        // so deriving Y from finishAtDistance can leave the player idle at
+        // the top even though the real finish platform has been reached.
+        try
+        {
+            if (controller.currentAscendingHeightsMap.finishGround != null &&
+                controller.currentAscendingHeightsMap.finishGround.activeInHierarchy &&
+                controller.currentAscendingHeightsMap.finishGround.transform != null)
+            {
+                finishPlatformY =
+                    controller.currentAscendingHeightsMap
+                        .finishGround.transform.position.y;
+
+                if (!float.IsNaN(finishPlatformY) &&
+                    !float.IsInfinity(finishPlatformY))
+                {
+                    return true;
+                }
+            }
+        }
+        catch
+        {
+            // Some map variants release their finish object during teardown.
+            // Continue with detector discovery and the calculated fallback.
+        }
+
         if (finishLineDetectorTransform != null &&
             finishLineDetectorTransform.gameObject != null &&
             finishLineDetectorTransform.gameObject.activeInHierarchy)
@@ -76,6 +103,35 @@ public sealed partial class AutoClimberRuntime
 
         try
         {
+            AscendingHeightsFinishLineDetector[] detectors =
+                Resources.FindObjectsOfTypeAll<
+                    AscendingHeightsFinishLineDetector>();
+
+            if (detectors != null)
+            {
+                foreach (AscendingHeightsFinishLineDetector detector in detectors)
+                {
+                    if (detector == null ||
+                        detector.gameObject == null ||
+                        !detector.gameObject.activeInHierarchy)
+                    {
+                        continue;
+                    }
+
+                    finishLineDetectorTransform = detector.transform;
+                    finishPlatformY = detector.transform.position.y;
+                    finishDetectorSearchWarningLogged = false;
+
+                    LogVerbose(
+                        "Spawned typed finish-line detector located at world Y=" +
+                        $"{finishPlatformY:F2}."
+                    );
+
+                    return !float.IsNaN(finishPlatformY) &&
+                           !float.IsInfinity(finishPlatformY);
+                }
+            }
+
             MonoBehaviour[] behaviours =
                 Resources
                     .FindObjectsOfTypeAll<MonoBehaviour>();

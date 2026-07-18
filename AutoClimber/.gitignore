@@ -224,3 +224,7 @@ AppPackages/
 # End of core ignore list, below put you custom 'per project' settings (patterns or path)
 #####
 
+# Nexus Mods full-description draft; not part of the GitHub release source.
+/NexusPage.txt
+/.reference-cross-tm/
+

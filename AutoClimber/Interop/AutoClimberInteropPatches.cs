@@ -15,6 +15,7 @@ internal static class AscendingHeightsQuickSkipPreModalPatch
         // Apply before the game calculates its target label, starting boost,
         // finish spawn point and completion condition. Applying this from the
         // runtime Update loop is too late for those cached values.
+        AutoClimberQuestMode.BeginRunDecision();
         QuickSkipFinishDistanceOverride.Apply(__0);
     }
 }
@@ -23,9 +24,20 @@ internal static class AscendingHeightsQuickSkipPreModalPatch
 internal static class AscendingHeightsQuickSkipStartingBoostPatch
 {
     [HarmonyPrefix]
-    private static void Prefix(out bool __state)
+    private static void Prefix(
+        AscendingHeightsController __instance,
+        out bool __state)
     {
         __state = false;
+
+        // Practice starts can enter StartBonus without going through the
+        // regular pre-modal path. Make the mode decision and apply the finish
+        // distance here as well, before StartBonus caches its target and
+        // finish-spawn values. The operation is idempotent for normal starts.
+        AutoClimberQuestMode.BeginRunDecision();
+        QuickSkipFinishDistanceOverride.Apply(
+            __instance?.currentAscendingHeightsMap
+        );
 
         if (!ClimberLog.IsQuickSkipModeEnabled)
         {

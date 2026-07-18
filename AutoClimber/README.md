@@ -10,9 +10,10 @@ AutoClimber automatically controls movement during the Ascending Heights minigam
 - Handles difficult landings, route recovery, and stalled movement.
 - Supports background movement control while the game window is unfocused.
 - Can automatically continue the challenge after a failed run.
+- Can safely target nearby enemies without replacing completion as the primary
+  objective.
+- Provides Normal, Skip, and quest-aware Auto modes.
 - Remains dormant outside Ascending Heights.
-
-Enemy-target routing is currently disabled.
 
 ## Controls
 
@@ -30,14 +31,16 @@ ModLoader/UserData/AutoClimber.cfg
 
 Available settings include:
 
-- `Debug Mode`: show detailed route and lifecycle diagnostics.
+- `Debug Mode`: show detailed route and lifecycle diagnostics (disabled by
+  default).
 - `Enabled On Startup`: start with automation enabled.
 - `Toggle Key`: keyboard key used to toggle automation.
 - `Auto Retry Enabled`: continue after a failed run when enabled; automatically
   choose No and exit the challenge when disabled.
-- `Skip Minigame`: an independent quick-skip mode that temporarily sets the
-  finish distance to `100`. It keeps the game's normal finish/exit flow, but
-  suppresses route debug output and does not affect V5 run statistics.
+- `Mode`: `Auto` plays the full route only for an incomplete Ascending Heights
+  enemy quest, `Normal` always plays the full route, and `Skip` always uses
+  the independent quick-skip path. Quick-skip runs do not affect route
+  statistics.
 
 ## Building
 

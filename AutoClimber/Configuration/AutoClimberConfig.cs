@@ -5,7 +5,7 @@ namespace AutoClimber.Configuration;
 
 internal sealed class AutoClimberConfig(string configName) : BaseConfig(configName)
 {
-    private const int CurrentConfigurationVersion = 6;
+    private const int CurrentConfigurationVersion = 9;
     private const string MainSection = "AutoClimber";
     private const string AutomationSection = "Automation";
 
@@ -14,15 +14,15 @@ internal sealed class AutoClimberConfig(string configName) : BaseConfig(configNa
     internal MelonPreferences_Entry<bool> EnabledOnStartup;
     internal MelonPreferences_Entry<string> ToggleKey;
     internal MelonPreferences_Entry<bool> EnableAutoRetry;
-    internal MelonPreferences_Entry<bool> SkipMinigame;
     internal MelonPreferences_Entry<bool> TargetEnemies;
+    internal MelonPreferences_Entry<string> Mode;
 
     protected override void SetBindings()
     {
         ConfigurationVersion = Bind(MainSection, "Configuration Version", 0,
             "Internal preference migration version. Do not edit manually.");
-        DebugMode = Bind(MainSection, "Debug Mode", true,
-            "Show detailed diagnostic logs. Disabled automatically while Skip Minigame is enabled.");
+        DebugMode = Bind(MainSection, "Debug Mode", false,
+            "Show detailed diagnostic logs. Disabled automatically in Skip mode.");
 
         bool migrateLegacyValues =
             ConfigurationVersion.Value <
@@ -38,25 +38,33 @@ internal sealed class AutoClimberConfig(string configName) : BaseConfig(configNa
                     MainSection,
                     "Auto Retry Enabled"
                 )
-                : true;
+                : false;
+        string migratedMode = "Normal";
 
-        EnableAutoRetry = Bind(
+        if (migrateLegacyValues &&
+            MelonPreferences.HasEntry(
+                AutomationSection,
+                "Automatic Quest Mode") &&
+            !MelonPreferences.GetEntryValue<bool>(
+                AutomationSection,
+                "Automatic Quest Mode"))
+        {
+            migratedMode =
+                MelonPreferences.HasEntry(
+                    AutomationSection,
+                    "Skip Minigame") &&
+                MelonPreferences.GetEntryValue<bool>(
+                    AutomationSection,
+                    "Skip Minigame")
+                    ? "Skip"
+                    : "Normal";
+        }
+
+        Mode = Bind(
             AutomationSection,
-            "Auto Retry Enabled",
-            autoRetryEnabled,
-            "Continue after a failed run when enabled; automatically choose No and exit when disabled."
-        );
-        SkipMinigame = Bind(
-            AutomationSection,
-            "Skip Minigame",
-            false,
-            "Use the independent quick-skip mode. It temporarily sets the Ascending Heights finish distance to 100 and does not record route diagnostics or run statistics."
-        );
-        TargetEnemies = Bind(
-            AutomationSection,
-            "Target Enemies",
-            true,
-            "Prefer touching enemies only when the detour remains safe; completion and boost platforms keep priority."
+            "Mode",
+            migratedMode,
+            "Auto: full route only for Ascending Heights enemy quests. Normal: always play the full route. Skip: always quick-skip the minigame."
         );
         EnabledOnStartup = Bind(
             AutomationSection,
@@ -70,10 +78,18 @@ internal sealed class AutoClimberConfig(string configName) : BaseConfig(configNa
             "Y",
             "Keyboard key used to enable or disable AutoClimber."
         );
-
-        // V5.3 needs detailed retention/generation traces for reliability
-        // validation. Enable it once for existing installations while still
-        // respecting a later user choice to turn Debug Mode off.
+        EnableAutoRetry = Bind(
+            AutomationSection,
+            "Auto Retry Enabled",
+            autoRetryEnabled,
+            "Continue after a failed run when enabled; automatically choose No and exit when disabled."
+        );
+        TargetEnemies = Bind(
+            AutomationSection,
+            "Target Enemies",
+            true,
+            "Prefer touching enemies only when the detour remains safe; completion and boost platforms keep priority."
+        );
         if (migrateLegacyValues)
         {
             RemoveLegacyEntries();
@@ -96,5 +112,11 @@ internal sealed class AutoClimberConfig(string configName) : BaseConfig(configNa
         category.DeleteEntry("My Setting");
         category.DeleteEntry("Auto Retry Enabled");
         category.DeleteEntry("Log Enemy Defeats");
+
+        MelonPreferences_Category automation =
+            MelonPreferences.GetCategory(AutomationSection);
+
+        automation?.DeleteEntry("Skip Minigame");
+        automation?.DeleteEntry("Automatic Quest Mode");
     }
 }

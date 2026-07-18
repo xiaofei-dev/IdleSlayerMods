@@ -67,6 +67,17 @@ internal sealed class AutomaticBoostService
 
             managerMissingLogged = false;
             Ability selected = manager.selectedAbility;
+            bool bonusMode = GameState.current == GameStates.BonusMode;
+
+            // The game supports Wind Dash in Bonus stages, but normal Boost
+            // remains outside this automation's supported Bonus-stage path.
+            if (bonusMode && selected is not WindDash)
+            {
+                immediateActivationRequested = false;
+                ResetAbilityStability();
+                return;
+            }
+
             bool immediate = immediateActivationRequested;
             if (immediate)
             {
@@ -140,7 +151,9 @@ internal sealed class AutomaticBoostService
     private bool IsGameplayStateStable(float now)
     {
         GameStates state = GameState.current;
-        if (state != GameStates.RunnerMode && state != GameStates.RageMode)
+        if (state != GameStates.RunnerMode &&
+            state != GameStates.RageMode &&
+            state != GameStates.BonusMode)
         {
             runnerValidSince = -1f;
             ResetAbilityStability();

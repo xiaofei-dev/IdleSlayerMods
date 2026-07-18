@@ -3,7 +3,7 @@ namespace AutoClimber.Diagnostics;
 internal static class ClimberLog
 {
     internal static bool IsQuickSkipModeEnabled =>
-        AutoClimberPlugin.Config?.SkipMinigame?.Value == true;
+        AutoClimberQuestMode.IsQuickSkipActive;
 
     internal static bool IsDeveloperMode =>
         !IsQuickSkipModeEnabled &&

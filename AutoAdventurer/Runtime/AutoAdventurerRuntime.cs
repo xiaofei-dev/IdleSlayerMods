@@ -15,7 +15,9 @@ public sealed class AutoAdventurerRuntime : MonoBehaviour
     private const float RepeatedBattleModeLogIntervalSeconds = 60f;
 
     private readonly MainScreenGuard rageScreen = new(blockMainScreenMenus: false);
-    private readonly MainScreenGuard boostScreen = new(blockMainScreenMenus: false);
+    private readonly MainScreenGuard boostScreen = new(
+        blockMainScreenMenus: false,
+        allowBonusMode: true);
     private readonly MainScreenGuard questScreen = new(blockMainScreenMenus: false);
     private readonly RageControlService rage = new();
     private readonly SliderSkipService sliderSkip = new();

@@ -43,6 +43,11 @@ public sealed class AutoProgressionRuntime : MonoBehaviour
             ToggleAutoProgression();
         }
 
+        // These configuration-backed protections are intentionally
+        // independent from the T automation toggle.
+        blockedSkills.Tick();
+        quests.TickPersistent();
+
         if (!autoProgressionEnabled)
         {
             return;
@@ -96,7 +101,6 @@ public sealed class AutoProgressionRuntime : MonoBehaviour
             return;
         }
 
-        blockedSkills.Tick();
         paidBonuses.Tick(now);
         TickItemActions(now);
 
@@ -159,7 +163,6 @@ public sealed class AutoProgressionRuntime : MonoBehaviour
             weeklyRageQuests.Reset();
         skillPurchases.Reset();
         equipmentPurchases.Reset();
-        blockedSkills.Reset();
         itemActionsReadyAt = 0f;
         nextItemActionTime = 0f;
     }
