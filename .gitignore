@@ -23,6 +23,7 @@
 # Local logs and temporary files
 *.log
 *.tmp
+**/NexusPage.txt
 *.pdb
 *.nupkg
 Thumbs.db
