@@ -15,6 +15,8 @@ internal sealed class QuestTravelService
     private const float CharacterSwitchStabilitySeconds = 0.5f;
     private const float CharacterSwitchCheckIntervalSeconds = 0.25f;
     private const float EventCheckIntervalSeconds = 0.5f;
+    private const float EventTimerGraceSeconds = 1f;
+    private const float EventEndConfirmationSeconds = 2f;
     private const float StalledProgressCheckSeconds = 300f;
 
     private readonly QuestDiscoveryService discovery = new();
@@ -62,6 +64,8 @@ internal sealed class QuestTravelService
     private bool activeRandomEvent;
     private string activeRandomEventName = string.Empty;
     private string activeRandomEventKey = string.Empty;
+    private float activeRandomEventProtectedUntil;
+    private float activeRandomEventMissingSince = -1f;
     private bool activeRandomBox;
     private string activeRandomBoxDescription = string.Empty;
 
@@ -755,12 +759,46 @@ internal sealed class QuestTravelService
         string previousKey = activeRandomEventKey;
         bool boxWasActive = activeRandomBox;
         string previousBox = activeRandomBoxDescription;
-        activeRandomEvent =
-            interruptions.TryGetActiveRandomEvent(out string eventName);
-        activeRandomEventName = activeRandomEvent ? eventName : string.Empty;
-        activeRandomEventKey = activeRandomEvent
-            ? GetStableEventKey(eventName)
-            : string.Empty;
+        bool eventObserved = interruptions.TryGetActiveRandomEvent(
+            out string eventName, out double eventRemainingSeconds);
+        if (eventObserved)
+        {
+            activeRandomEvent = true;
+            activeRandomEventName = eventName;
+            activeRandomEventKey = GetStableEventKey(eventName);
+            activeRandomEventMissingSince = -1f;
+            activeRandomEventProtectedUntil = Math.Max(
+                activeRandomEventProtectedUntil,
+                now + (float)eventRemainingSeconds + EventTimerGraceSeconds);
+        }
+        else if (wasActive)
+        {
+            // RandomEvent components can briefly disappear from Unity's
+            // active-object scan while their map content is still running.
+            // Keep the event latched through its last observed timer, then
+            // require consecutive missing observations before declaring it
+            // finished. A transient lookup gap must never open a Portal.
+            if (now < activeRandomEventProtectedUntil)
+            {
+                activeRandomEvent = true;
+            }
+            else
+            {
+                if (activeRandomEventMissingSince < 0f)
+                    activeRandomEventMissingSince = now;
+                activeRandomEvent =
+                    now - activeRandomEventMissingSince <
+                    EventEndConfirmationSeconds;
+            }
+        }
+        else
+        {
+            activeRandomEvent = false;
+            activeRandomEventName = string.Empty;
+            activeRandomEventKey = string.Empty;
+            activeRandomEventProtectedUntil = 0f;
+            activeRandomEventMissingSince = -1f;
+        }
         activeRandomBox =
             interruptions.TryGetActiveRandomBox(out string boxDescription);
         activeRandomBoxDescription = activeRandomBox
@@ -780,6 +818,10 @@ internal sealed class QuestTravelService
             lastSelection = string.Empty;
             pendingQuestStatusReason = $"map event ended ({previousName})";
             nextScanTime = 0f;
+            activeRandomEventName = string.Empty;
+            activeRandomEventKey = string.Empty;
+            activeRandomEventProtectedUntil = 0f;
+            activeRandomEventMissingSince = -1f;
         }
 
         if (!activeRandomBox && boxWasActive && !activeRandomEvent)
@@ -901,6 +943,8 @@ internal sealed class QuestTravelService
         activeRandomEvent = false;
         activeRandomEventName = string.Empty;
         activeRandomEventKey = string.Empty;
+        activeRandomEventProtectedUntil = 0f;
+        activeRandomEventMissingSince = -1f;
         activeRandomBox = false;
         activeRandomBoxDescription = string.Empty;
         postRagePortalBlockedUntil = 0f;

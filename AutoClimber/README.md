@@ -1,6 +1,13 @@
 # AutoClimber
 
-AutoClimber automatically controls movement during the Ascending Heights minigame in Idle Slayer.
+AutoClimber fully automates the Ascending Heights minigame in Idle Slayer. It
+plans routes from the live platform layout, handles difficult landings and
+recovery, supports full or quick completion, and can pursue compatible quest
+enemies without sacrificing run safety.
+
+AutoClimber is part of **Tashi's Full Automation Suite**. It focuses on
+Ascending Heights; AutoAdventurer handles active gameplay and quest travel,
+while AutoProgression handles long-term account growth.
 
 ## Features
 
@@ -56,6 +63,23 @@ dotnet build
 ```
 
 The build creates the DLL and packaged ZIP without deploying by default.
+
+## Full Automation Suite
+
+- **AutoAdventurer** handles active gameplay, quest objectives, dimension
+  travel, Rage, movement abilities, Bonus assistance, and boss fights.
+- **AutoProgression** handles purchases, normal Ascension, craftables,
+  materials, quests, eggs, and repeatable account maintenance.
+- **AutoClimber** automates Ascending Heights route planning, recovery,
+  rewards, and compatible quest enemies.
+
+Each mod can be used independently. Together, they cover complementary parts
+of a fully automated Idle Slayer setup.
+
+## Support Development
+
+If these mods save you time, you can support continued development through
+[PayPal](https://www.paypal.com/donate/?business=HK85PL8AREEXY&no_recurring=0&currency_code=USD).
 
 ## Versioning
 

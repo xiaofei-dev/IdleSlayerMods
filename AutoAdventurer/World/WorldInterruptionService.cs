@@ -43,7 +43,8 @@ internal sealed class WorldInterruptionService
         return true;
     }
 
-    internal bool TryGetActiveRandomEvent(out string eventName)
+    internal bool TryGetActiveRandomEvent(out string eventName,
+        out double remainingSeconds)
     {
         // Only map-bound events that generate temporary run content should
         // prevent dimension travel. Long-lived numeric bonuses (CpS, Souls,
@@ -84,10 +85,12 @@ internal sealed class WorldInterruptionService
                 : randomEvent.name;
             eventName =
                 $"{eventType} (name={internalName}, timeLeft={randomEvent.timeLeft:0.##}s)";
+            remainingSeconds = System.Math.Max(0d, randomEvent.timeLeft);
             return true;
         }
 
         eventName = string.Empty;
+        remainingSeconds = 0d;
         return false;
     }
 

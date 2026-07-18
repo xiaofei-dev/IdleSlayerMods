@@ -1,0 +1,133 @@
+[center][size=6][b]AutoAdventurer[/b][/size]
+[i]Automatic quests, smart character actions, and safe dimension travel for Idle Slayer.[/i]
+
+[b]Part of Tashi's Full Automation Suite[/b] — a collection of companion mods designed to keep Idle Slayer progressing with minimal manual input.[/center]
+
+[size=5][b]Overview[/b][/size]
+
+AutoAdventurer automates the active-play side of Idle Slayer. It selects executable kill quests, travels to suitable unlocked dimensions, manages compatible character requirements, and coordinates Rage, Boost, Wind Dash, Bonus Stage helpers, and boss fights.
+
+The automation uses internal game IDs and live game objects rather than localized quest text. It is designed to pause safely around map events, random boxes, portals, unsupported scenes, and transitions.
+
+[size=5][b]Quest Automation[/b][/size]
+
+[list]
+[*]Scans all active incomplete quests and considers supported kill objectives.
+[*]Selects the executable quest with the smallest kill requirement instead of forcing Daily priority.
+[*]Supports exact enemies, evolution stages, elemental targets, flying enemies, giants, arrow kills, and compatible character-specific kills.
+[*]Ignores collection, box, generic AnyEnemy, unsupported character, and other non-executable objectives.
+[*]Locks a selected quest until completion, replacement, timeout, or validation failure.
+[*]Travels only to unlocked standard dimensions currently available through the normal Portal.
+[*]Keeps the current dimension when it can complete the selected task.
+[*]Uses the game's live Portal map scores to choose the best Souls dimension when no supported quest is available.
+[*]Tracks session completions separately for Daily and normal quests.
+[*]Detects stalled or invalid tasks and excludes abnormal tasks for the current automation session.
+[/list]
+
+[size=5][b]Safe Travel and Event Handling[/b][/size]
+
+[list]
+[*]Waits for active Rage Mode to end naturally before opening a quest Portal.
+[*]Only the manual Stop key force-ends Rage Mode.
+[*]Requires the native Portal button to be available, interactable, and off cooldown.
+[*]Pauses travel for Hordes, coin waves, Frenzy, Gemstone Rush, Lucky Coins, Dual Randomness, and other supported map-bound events.
+[*]Pauses around Normal, Silver, Golden, Special, and minigame Random Boxes while their outcome is unresolved.
+[*]Freezes quest travel in villages, boss scenes, minigames, and unsupported GameStates, then safely resumes after returning.
+[*]Does not retain IL2CPP quest, enemy, map, character, or Portal objects across scene changes.
+[/list]
+
+[size=5][b]Automatic Rage[/b][/size]
+
+[list]
+[*][b]K[/b] enables or disables Automatic Rage by default.
+[*]Activates Rage on the configured interval when the skill is ready and the world is safe.
+[*]Can refresh Rage during an active execution without resetting its maximum-duration timer.
+[*]After Rage ends, waits through the configured protection period before allowing another Rage or quest Portal.
+[*][b]J[/b] immediately ends the current Rage execution. This is the only forced Rage termination path.
+[/list]
+
+[size=5][b]Smart Auto Boost[/b][/size]
+
+[list]
+[*][b]L[/b] enables or disables Auto Boost by default.
+[*]Follows the movement ability currently selected by the player.
+[*]Automatically switches between normal Boost and Wind Dash behavior when the player changes skills.
+[*]Supports an optional grounded requirement for safer Wind Dash activation.
+[*]Supports Wind Dash in minigames and reward sections only while the game's main ability icon is actually visible; normal Boost remains limited to regular gameplay.
+[*]Re-resolves ability objects after Ascension and scene transitions to avoid stale references.
+[/list]
+
+[size=5][b]Bonus and Boss Helpers[/b][/size]
+
+[list]
+[*]Can automatically confirm supported Bonus start sliders.
+[*]Can automate boss dialogue, reduce the active boss to 1 HP, and perform the finishing arrow attack.
+[*]Auto Boss is independently configurable; disabling it leaves boss health and combat untouched.
+[/list]
+
+[size=5][b]Controls[/b][/size]
+
+[list]
+[*][b]P:[/b] Enable or disable Quest Automation.
+[*][b]K:[/b] Enable or disable Automatic Rage.
+[*][b]J:[/b] End the current Rage execution immediately.
+[*][b]L:[/b] Enable or disable Auto Boost.
+[/list]
+
+All keys can be changed in the configuration file.
+
+[size=5][b]Configuration[/b][/size]
+
+Launch the game once to generate:
+
+[code]%LOCALAPPDATA%\IdleSlayerModManager\ModLoader\UserData\AutoAdventurer.cfg[/code]
+
+The configuration separates general diagnostics, Quest Debug, Automatic Rage, Auto Boost, quest travel, completion notifications, Bonus helpers, and Auto Boss. Existing settings are migrated when the configuration schema changes.
+
+[size=5][b]Installation[/b][/size]
+
+[b]Idle Slayer Mod Manager (recommended)[/b]
+
+[list=1]
+[*]Install and initialize [url=https://www.nexusmods.com/idleslayer/mods/33]Idle Slayer Mod Manager[/url].
+[*]Make sure [url=https://www.nexusmods.com/idleslayer/mods/3]Idle Slayer Mods Core[/url] is installed.
+[*]Import the downloaded AutoAdventurer ZIP without extracting it.
+[*]Enable AutoAdventurer and start the game.
+[/list]
+
+[b]Manual installation[/b]
+
+Place [b]AutoAdventurer.dll[/b] in:
+
+[code]%LOCALAPPDATA%\IdleSlayerModManager\ModLoader\Mods\[/code]
+
+[size=5][b]Full Automation Suite[/b][/size]
+
+[list]
+[*][b]AutoAdventurer[/b] handles active gameplay, quest objectives, dimension travel, Rage, movement skills, Bonus assistance, and boss fights.
+[*][b]AutoProgression[/b] handles long-term progression, purchases, Ascension, craftables, materials, and repeatable account maintenance.
+[*][b]AutoClimber[/b] fully automates Ascending Heights, including route planning, rewards, and compatible quest enemies.
+[/list]
+
+Each mod can be used independently. Together, they cover complementary parts of a fully automated Idle Slayer setup.
+
+[size=5][b]Requirements and Notes[/b][/size]
+
+[list]
+[*]Requires Idle Slayer, MelonLoader 0.7.1 or newer, and Idle Slayer Mods Core.
+[*]AutoAdventurer does not claim completed quests; claiming can be handled by the game or AutoProgression.
+[*]Ultra Ascension is never performed by AutoAdventurer.
+[*]For reproducible problems, enable the relevant Debug option and include the MelonLoader log.
+[/list]
+
+[size=5][b]Support Development[/b][/size]
+
+If this mod saves you time and you would like to support continued development:
+
+[center][url=https://www.paypal.com/donate/?business=HK85PL8AREEXY&no_recurring=0&currency_code=USD][b]Donate with PayPal[/b][/url][/center]
+
+[size=5][b]Credits[/b][/size]
+
+Created by Tashi. Thanks to the Idle Slayer modding community and the maintainers of Idle Slayer Mods Core.
+
+This is an unofficial community mod. Idle Slayer and its assets belong to their respective owners.

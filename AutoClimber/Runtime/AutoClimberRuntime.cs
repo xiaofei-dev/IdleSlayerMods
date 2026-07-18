@@ -671,13 +671,35 @@ public sealed partial class AutoClimberRuntime : MonoBehaviour
 
             ObservePlatformGenerationResets();
 
+            bool recordEnemyDiagnostics =
+                Time.time >= nextEnemyScanTime;
+
+            if (ClimberLog.IsEnemyTargetingEnabled ||
+                recordEnemyDiagnostics)
+            {
+                try
+                {
+                    // The reflection-backed scan is the reliable source for
+                    // live enemy objects. Annotate candidates before route
+                    // selection so enemy routing does not depend on the
+                    // stale public platform.enemyObject reference.
+                    ScanVisibleEnemies(recordEnemyDiagnostics);
+                }
+                catch (Exception exception)
+                {
+                    LogEnemyDiagnosticWarningOnce(
+                        "Enemy association scan failed: " +
+                        exception.Message
+                    );
+                }
+            }
+
             UpdateCurrentTargetV5(
                 playerPosition,
                 playerVelocity
             );
 
-            if (Time.time >=
-                nextEnemyScanTime)
+            if (recordEnemyDiagnostics)
             {
                 nextEnemyScanTime =
                     Time.time +
@@ -686,7 +708,6 @@ public sealed partial class AutoClimberRuntime : MonoBehaviour
                 try
                 {
                     ScanUnknownPlatforms();
-                    ScanVisibleEnemies();
                 }
                 catch (Exception exception)
                 {
@@ -1102,7 +1123,8 @@ public sealed partial class AutoClimberRuntime : MonoBehaviour
         );
     }
 
-    private void ScanVisibleEnemies()
+    private void ScanVisibleEnemies(
+        bool recordDiagnostics)
     {
         foreach (PlatformCandidate candidate
                  in planner.Candidates)
@@ -1177,15 +1199,6 @@ public sealed partial class AutoClimberRuntime : MonoBehaviour
                 continue;
             }
 
-            int enemyId = enemyObject.GetInstanceID();
-
-            if (!detectedEnemyIds.Add(enemyId))
-            {
-                continue;
-            }
-
-            runEnemiesDetected++;
-
             Vector3 enemyPosition =
                 enemyObject.transform.position;
 
@@ -1197,6 +1210,32 @@ public sealed partial class AutoClimberRuntime : MonoBehaviour
                 enemyPosition = enemyBounds.center;
                 enemySize = enemyBounds.size;
             }
+
+            int enemyId = enemyComponent != null
+                ? enemyComponent.GetInstanceID()
+                : enemyObject.GetInstanceID();
+
+            candidate.HasEnemy = true;
+            candidate.EnemyInstanceId = enemyId;
+            candidate.EnemyOffsetX =
+                enemyPosition.x -
+                candidate.CurrentPosition.x;
+            candidate.EnemyOffsetY =
+                enemyPosition.y -
+                candidate.CurrentPosition.y;
+            candidate.EnemyWidth = enemySize.x;
+
+            if (!recordDiagnostics)
+            {
+                continue;
+            }
+
+            if (!detectedEnemyIds.Add(enemyId))
+            {
+                continue;
+            }
+
+            runEnemiesDetected++;
 
             ClimberLog.Developer(
                 $"Enemy detected: Id={enemyId}, " +

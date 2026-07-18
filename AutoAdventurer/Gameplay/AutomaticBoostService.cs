@@ -1,5 +1,6 @@
 using System;
 using AutoAdventurer.Diagnostics;
+using AutoAdventurer.Runtime;
 using Il2Cpp;
 using UnityEngine;
 
@@ -67,11 +68,17 @@ internal sealed class AutomaticBoostService
 
             managerMissingLogged = false;
             Ability selected = manager.selectedAbility;
-            bool bonusMode = GameState.current == GameStates.BonusMode;
+            GameStates state = GameState.current;
+            bool minigameAbilityMode =
+                state != GameStates.RunnerMode &&
+                state != GameStates.RageMode &&
+                MainScreenGuard.IsMainAbilityIconVisible();
 
-            // The game supports Wind Dash in Bonus stages, but normal Boost
-            // remains outside this automation's supported Bonus-stage path.
-            if (bonusMode && selected is not WindDash)
+            // Outside the central Runner/Rage scene, the real on-screen main
+            // ability icon is the authority. Supported minigames and reward
+            // sections expose Wind Dash only while it can actually be used.
+            // Normal Boost remains outside this minigame automation path.
+            if (minigameAbilityMode && selected is not WindDash)
             {
                 immediateActivationRequested = false;
                 ResetAbilityStability();
@@ -153,7 +160,7 @@ internal sealed class AutomaticBoostService
         GameStates state = GameState.current;
         if (state != GameStates.RunnerMode &&
             state != GameStates.RageMode &&
-            state != GameStates.BonusMode)
+            !MainScreenGuard.IsMainAbilityIconVisible())
         {
             runnerValidSince = -1f;
             ResetAbilityStability();
