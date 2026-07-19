@@ -6,7 +6,7 @@ namespace AutoProgression.Configuration;
 
 internal sealed class AutoProgressionConfig(string configName) : BaseConfig(configName)
 {
-    internal const int CurrentConfigurationVersion = 17;
+    internal const int CurrentConfigurationVersion = 21;
     private const string LegacySection = "AutoProgression";
 
     internal MelonPreferences_Entry<int> ConfigurationVersion;
@@ -18,6 +18,7 @@ internal sealed class AutoProgressionConfig(string configName) : BaseConfig(conf
     internal MelonPreferences_Entry<bool> EnablePaidBonuses;
     internal MelonPreferences_Entry<bool> EnableMinionClaimAndSend;
     internal MelonPreferences_Entry<bool> EnableAutomaticMinionPrestige;
+    internal MelonPreferences_Entry<bool> EnableEggOpening;
     internal MelonPreferences_Entry<int> DragonEggReserveAmount;
     internal MelonPreferences_Entry<int> SimurghEggReserveAmount;
     internal MelonPreferences_Entry<int> ArmoryBoxesPerPress;
@@ -73,7 +74,7 @@ internal sealed class AutoProgressionConfig(string configName) : BaseConfig(conf
             "Ascension", "Soul Bonus Threshold Percent", "Ascension - Soul Bonus Threshold Percent", 50f,
             "Ascend when pending Slayer Points reach this percentage of lifetime Slayer Points.", migrateLegacyValues);
         AutomaticAscensionCheckIntervalMinutes = BindMigrated(
-            "Ascension", "Check Interval Minutes", "Ascension - Check Interval Minutes", 1f,
+            "Ascension", "Check Interval Minutes", "Ascension - Check Interval Minutes", 5f,
             "How often to check the normal Ascension threshold. Enabling AutoProgression always performs an initial check.", migrateLegacyValues);
         BuyAscensionSkillsAfterAutomaticAscension = BindMoved(
             "Ascension", "Buy Skills After Automatic Ascension", "Ascension", "Buy Skills After Ascension",
@@ -81,16 +82,19 @@ internal sealed class AutoProgressionConfig(string configName) : BaseConfig(conf
             "After automatic Ascension, use the Ascension Skill Tree Buy All action until no more Slayer Points can be spent.", migrateLegacyValues);
 
         EnablePaidBonuses = BindMigrated(
-            "Paid Bonuses", "Use Paid 500x Bonuses", "Use Paid 500x Bonuses", true,
+            "Paid Bonuses", "Use Paid 500x Bonuses", "Use Paid 500x Bonuses", false,
             "WARNING: This option spends Jewels of Soul. Use both paid 500x bonuses while AutoProgression is active.", migrateLegacyValues);
 
         EnableMinionClaimAndSend = BindMigrated(
             "Minions", "Auto Claim and Send", "Minions - Auto Claim and Send", true,
             "While AutoProgression is active, claim completed unlocked Minion missions and send standing Minions again when their Slayer Point cost is affordable.", migrateLegacyValues);
         EnableAutomaticMinionPrestige = BindMigrated(
-            "Minions", "Automatic Maximum-Level Prestige", "Minions - Automatic Maximum-Level Prestige", true,
+            "Minions", "Automatic Maximum-Level Prestige", "Minions - Automatic Maximum-Level Prestige", false,
             "While AutoProgression is active and Minion Prestige is unlocked, automatically prestige standing Minions whose level is above 1 and whose maximum level is at least 70. The eligible Minion is raised to its maximum level for that prestige.", migrateLegacyValues);
 
+        EnableEggOpening = BindMigrated(
+            "Egg Opening", "Enabled", "Egg Opening - Enabled", false,
+            "Master switch for automatic Dragon Egg and Simurgh Egg opening while AutoProgression is active.", migrateLegacyValues);
         DragonEggReserveAmount = BindMigrated(
             "Egg Opening", "Dragon Egg Reserve Amount", "Egg Opening - Dragon Egg Reserve Amount", 300,
             "Open normal Dragon Eggs one at a time while the inventory amount is greater than this value.", migrateLegacyValues);
@@ -127,17 +131,17 @@ internal sealed class AutoProgressionConfig(string configName) : BaseConfig(conf
             "Quests", "Unlimited Quest Rerolls", "Quests - Unlimited Quest Rerolls", true,
             "Keep Daily and Weekly Quest rerolls enabled while AutoProgression is active.", migrateLegacyValues);
         PreferMinimumRageWeeklyQuest = BindMigrated(
-            "Quests", "Prefer 180k Rage Weekly Quest", "Quests - Prefer 180k Rage Weekly Quest", true,
+            "Quests", "Prefer 180k Rage Weekly Quest", "Quests - Prefer 180k Rage Weekly Quest", false,
             "After a new Weekly Quest is generated, reroll one generated slot until the 180,000 Rage Mode kill quest appears. Existing additional Weekly Quests are preserved, and manual rerolls do not trigger this feature.", migrateLegacyValues);
         FilterGeneratedDailyQuests = BindMigrated(
-            "Quests", "Filter Generated Daily Quests", "Quests - Filter Generated Daily Quests", true,
+            "Quests", "Filter Generated Daily Quests", "Quests - Filter Generated Daily Quests", false,
             "After a new Daily Quest set is generated, reroll Goblin kills, material collection, Chest Hunt chests, normal or Silver Random Boxes, normal Boost uses, Rage Mode uses, Bonus Stage entry/full completion/sections, Ascending Heights, and Grapple Run objectives. Rage Mode kill and Wind Dash kill quests are retained. Manual rerolls do not trigger this feature.", migrateLegacyValues);
         ResetPortalCooldown = BindMigrated(
             "Quests", "Reset Portal Cooldown", "Quests - Reset Portal Cooldown", true,
             "Keep the normal Portal cooldown at zero while AutoProgression is active.", migrateLegacyValues);
 
         EnableCraftableAutomation = BindMigrated(
-            "Craftables", "Enabled", "Craftables - Enabled", true,
+            "Craftables", "Enabled", "Craftables - Enabled", false,
             "Master switch for all craftable automation. When disabled, every other option in this section and its automatic material purchases are inactive.", migrateLegacyValues);
         EnableRagePill = BindMigrated(
             "Craftables", "Rage Pill Enabled", "Craftables - Rage Pill Enabled", true,
@@ -182,13 +186,13 @@ internal sealed class AutoProgressionConfig(string configName) : BaseConfig(conf
             "Craftables", "Timed Items Refill At Minutes", "Craftables - Timed Items Refill At Minutes", 3f,
             "Start refilling timed craftables when their remaining duration reaches this value.", migrateLegacyValues);
         TimedCraftablesTargetMinutes = BindMigrated(
-            "Craftables", "Timed Items Target Minutes", "Craftables - Timed Items Target Minutes", 15f,
+            "Craftables", "Timed Items Target Minutes", "Craftables - Timed Items Target Minutes", 6f,
             "Stop crafting timed and material-overflow duration items when their remaining duration reaches this value.", migrateLegacyValues);
 
         BuyMissingMaterialsWithJewels = BindMoved(
             "Craftables", "Buy Missing With Jewels", "Materials", "Buy Missing With Jewels",
-            "Materials - Buy Missing With Jewels", true,
-            "WARNING: This option spends Jewels of Soul. Allow enabled craftable modules to buy missing materials automatically.", migrateLegacyValues);
+            "Materials - Buy Missing With Jewels", false,
+            "WARNING: This option spends Jewels of Soul. It is active only when Craftables Enabled is true and allows enabled craftable modules to buy missing materials automatically.", migrateLegacyValues);
         MaterialPurchasePercent = BindMoved(
             "Craftables", "Material Purchase Percent", "Materials", "Purchase Percent",
             "Materials - Purchase Percent", 100,
@@ -300,12 +304,16 @@ internal sealed class AutoProgressionConfig(string configName) : BaseConfig(conf
             AutomaticAscensionSoulBonusPercent.Value = 50f;
         if (AutomaticAscensionCheckIntervalMinutes.Value == 15f)
             AutomaticAscensionCheckIntervalMinutes.Value = 1f;
+        if (AutomaticAscensionCheckIntervalMinutes.Value == 1f)
+            AutomaticAscensionCheckIntervalMinutes.Value = 5f;
         if (QuestAssistCraftableCooldownMinutes.Value == 10f)
             QuestAssistCraftableCooldownMinutes.Value = 5f;
         if (TimedCraftablesRefillAtMinutes.Value == 10f)
             TimedCraftablesRefillAtMinutes.Value = 3f;
         if (TimedCraftablesTargetMinutes.Value == 60f)
             TimedCraftablesTargetMinutes.Value = 15f;
+        if (TimedCraftablesTargetMinutes.Value == 15f)
+            TimedCraftablesTargetMinutes.Value = 6f;
         if (EquipmentIdleBeforeSleepMinutes.Value == 2f)
             EquipmentIdleBeforeSleepMinutes.Value = 1f;
     }

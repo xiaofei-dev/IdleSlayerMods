@@ -15,7 +15,7 @@ every setting and behavior, see the [Complete Manual](MANUAL.md).
 - Maintains supported timed craftables and refreshes Rage with Rage Pills.
 - Uses Scrap and Dragon Scale overflow without exceeding the configured
   maximum effect duration.
-- Opens Dragon and Simurgh Eggs in the background while preserving reserves.
+- Optionally opens Dragon and Simurgh Eggs in the background while preserving reserves.
 - Claims completed Daily and Weekly Quests and regenerates exhausted sets.
 - Filters selected newly generated Daily Quests and selects the 180,000-kill
   Rage Weekly Quest.
@@ -62,9 +62,9 @@ Random Box magnet upgrades is a persistent protection and remains active while
 
 Before pressing `T`, review these settings:
 
-1. Disable `Use Paid 500x Bonuses` unless you want automatic Jewel spending.
-2. Disable `Buy Missing With Jewels` unless craftables may buy materials.
-3. Set the Dragon and Simurgh Egg reserves you want to keep.
+1. Enable `Use Paid 500x Bonuses` only if you want automatic Jewel spending.
+2. Enable `Craftables` and `Buy Missing With Jewels` only if craftables may buy materials.
+3. Enable egg opening if desired, then set the Dragon and Simurgh Egg reserves you want to keep.
 4. Review the normal Ascension threshold and post-Ascension Buy All setting.
 5. Confirm the Scrap and Dragon Scale overflow thresholds.
 
@@ -84,7 +84,7 @@ materials follow the global Jewel setting.
 ## Normal Ascension
 
 The default threshold is 50%: pending Slayer Points must reach the configured
-percentage of lifetime Slayer Points. Checks occur every 1 minute by default
+percentage of lifetime Slayer Points. Checks occur every 5 minutes by default
 and once immediately after enabling AutoProgression.
 
 Only normal Ascension is used. Afterward, the mod can repeatedly invoke the
@@ -96,7 +96,7 @@ The `Craftables > Enabled` setting is the master switch for every craftable
 option and any material purchase requested by those craftables. The detailed
 settings below it are evaluated only while this switch is enabled.
 
-Timed items begin refilling at 3 minutes and stop at 15 minutes by default.
+Timed items begin refilling at 3 minutes and stop at 6 minutes by default.
 Rage Pills use their own minimum interval.
 
 Scrap and Dragon Scale overflow items are triggered by inventory percentage,
@@ -149,7 +149,8 @@ filter.
 
 ## Eggs
 
-Eggs open in the background without the normal animation:
+Set `Egg Opening > Enabled = true` to open eggs in the background without the
+normal animation. This feature is disabled by default:
 
 - Simurgh Eggs open while above their reserve.
 - Dragon Eggs open while above their reserve and Dragon Scale storage is not

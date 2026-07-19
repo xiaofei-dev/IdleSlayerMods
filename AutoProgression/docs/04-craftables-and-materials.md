@@ -8,7 +8,7 @@ Egg opening remains controlled separately.
 
 Whetstone, Alternate Dimension Staff, Bidimensional Staff, and Deathwave
 Scepter use a shared refill policy. By default, refilling starts below 3
-minutes and continues toward 15 minutes, at most one item action per second.
+minutes and continues toward 6 minutes, at most one item action per second.
 Deathwave Scepter also preserves the configured Simurgh Feather reserve.
 
 Rage Pill is checked without the normal item startup delay and uses its own

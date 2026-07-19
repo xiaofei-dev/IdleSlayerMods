@@ -181,7 +181,7 @@ public sealed class AutoProgressionRuntime : MonoBehaviour
                       shardsNecklace.Tick(now) ||
                       dragonScaleOverflow.Tick(now));
 
-        if (!acted)
+        if (!acted && Plugin.Config.EnableEggOpening.Value)
             acted = eggOpening.Tick(now);
 
         if (acted)

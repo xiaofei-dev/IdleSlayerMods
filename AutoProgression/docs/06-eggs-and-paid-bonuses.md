@@ -19,7 +19,7 @@ system are skipped safely.
 ## Background Egg Opening
 
 Eggs are opened directly in the background without playing the normal opening
-animation.
+animation when `Egg Opening > Enabled` is turned on. It is disabled by default.
 
 - Dragon Eggs open only above their reserve and only while Dragon Scale
   storage is not full.
@@ -36,6 +36,6 @@ effect duration and updates the next check conservatively. This also tolerates
 time-changing effects.
 
 > `Use Paid 500x Bonuses` directly spends Jewels of Soul. It is intended only
-> for players who explicitly want that behavior.
+> for players who explicitly want that behavior and is disabled by default.
 
 [Back to the Complete Manual](../MANUAL.md)

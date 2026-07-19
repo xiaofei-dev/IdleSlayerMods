@@ -24,7 +24,7 @@ gameplay and quest objectives, while AutoClimber handles Ascending Heights.
 - Uses Dragon Scale overflow on Random Box Staff, Necklace of Collectables, CpS Compass, and Souls Compass while respecting the shared maximum effect duration.
 - Buys missing craftable materials with Jewels of Soul when allowed.
 - Crafts Shards Necklaces when Scrap reaches a configurable percentage of its current capacity.
-- Opens Dragon Eggs and Simurgh Eggs in the background while preserving configurable reserves.
+- Optionally opens Dragon Eggs and Simurgh Eggs in the background while preserving configurable reserves.
 - Purchases available skills and unlocked normal equipment.
 - Performs normal Ascension at a configurable soul-bonus threshold and can buy skills afterward.
 - Claims completed Daily and Weekly Quests, regenerates exhausted quest sets, keeps rerolls available, and resets the normal Portal cooldown. Periodic automation requires the global `T` toggle; configured vertical-magnet skill blocking remains active independently.
@@ -55,7 +55,7 @@ Settings are grouped into these sections:
 - `Ascension`: normal Ascension threshold, check interval, and post-Ascension skill purchasing.
 - `Paid Bonuses`: paid 500x bonus automation.
 - `Minions`: automatic mission claiming/sending and maximum-level prestige.
-- `Egg Opening`: Dragon Egg and Simurgh Egg reserve amounts.
+- `Egg Opening`: master switch plus Dragon Egg and Simurgh Egg reserve amounts.
 - `Quests`: claiming, regeneration, rerolls, and Portal cooldown.
 - `Craftables`: master switch, supported craftables, durations, thresholds, and Jewel material purchasing.
 - Deathwave Scepter uses the shared timed-item refill and target durations, but

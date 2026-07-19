@@ -5,7 +5,7 @@
 AutoProgression compares pending Slayer Points with lifetime Slayer Points.
 At the default `50%` threshold, pending points must reach half of lifetime
 points. The check runs immediately after
-enabling and every 1 minute by default.
+enabling and every 5 minutes by default.
 
 Only normal Ascension is supported. Ultra Ascension is never invoked.
 
