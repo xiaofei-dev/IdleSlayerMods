@@ -15,11 +15,12 @@ The runtime starts disabled. The toggle does not overwrite configuration.
 - normal Ascension threshold
 - Dragon and Simurgh Egg reserves
 - Scrap and Dragon Scale overflow thresholds
+- automatic Minion maximum-level prestige behavior
 
-## Features Independent from `T`
+## Global Toggle Scope
 
-When configured, unlimited Daily/Weekly rerolls and the two blocked vertical
-Random Box magnet upgrades remain enforced even while runtime automation is
-off. These are persistent game-behavior protections, not periodic actions.
+Periodic features require the global `T` toggle. Turning it off stops unlimited
+reroll enforcement, but configured vertical Random Box magnet blocking remains
+active to protect both automatic and manual purchases.
 
 [Back to the Complete Manual](../MANUAL.md)

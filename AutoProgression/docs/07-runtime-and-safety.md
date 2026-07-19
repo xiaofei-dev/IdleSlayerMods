@@ -16,6 +16,12 @@ other unsupported scenes pause runtime actions.
 
 Quest-set rerolls wait five seconds after generation and verify that quest data
 is in a normal state before modifying it. While a generated-set filter is
-running, conflicting quest maintenance is paused.
+running, conflicting quest maintenance is paused. Daily replacements receive a
+short post-reroll settle delay and a final second scan before filtering ends.
+Missing Daily reroll objects are retried without discarding the generation.
+Normal Ascension also preserves pending Daily and Weekly generation events;
+explicit runtime shutdown still clears them. A native Daily reroll that leaves
+its target active is treated as a transient claim/list race and retried within
+the existing per-generation safety limit.
 
 [Back to the Complete Manual](../MANUAL.md)

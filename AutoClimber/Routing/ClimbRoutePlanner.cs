@@ -51,6 +51,11 @@ internal sealed class ClimbRoutePlanner
     private const float MaximumSafeLifecycleLandingTime = 2.65f;
     private const float MaximumSafeFutureLifecycleRisk = 1050f;
 
+    // Optional enemy collection must never destabilize the unique, narrow
+    // routes near the end of a 2,000-point challenge. Below this height it
+    // remains a safe-route tie-breaker; above it route progress wins outright.
+    private const float EnemyAlternativeMaximumHeight = 1500f;
+
     private const float LowAltitudePreferredWorldLimit = 3.50f;
     private const float HighAltitudePreferredWorldLimit = 3.10f;
     private const float LowAltitudeAbsoluteWorldLimit = 4.35f;
@@ -1349,8 +1354,15 @@ internal sealed class ClimbRoutePlanner
         if (!ClimberLog.IsEnemyTargetingEnabled ||
             decision == null ||
             decision.Candidate == null ||
+            best == null ||
+            best.Candidate == null ||
+            Mathf.Max(
+                decision.Candidate.CurrentPosition.y,
+                best.Candidate.CurrentPosition.y
+            ) >= EnemyAlternativeMaximumHeight ||
             !decision.Candidate.HasEnemy ||
-            decision.Candidate.Type == PlatformType.Breakable ||
+            decision.Candidate.Type == PlatformType.Fake ||
+            decision.Candidate.Type == PlatformType.Unknown ||
             decision.IsEmergency ||
             !decision.GenerationStable ||
             !decision.RetentionSafe ||
@@ -1365,16 +1377,44 @@ internal sealed class ClimbRoutePlanner
             return false;
         }
 
-        // Never trade meaningful progress, route continuity or landing
-        // reserve merely to collect an enemy. This makes enemy selection a
-        // tie-break between already-safe routes, not a new routing objective.
-        return decision.Candidate.CurrentPosition.y >=
-                   best.Candidate.CurrentPosition.y - 0.25f &&
-               decision.Score >= best.Score - 60f &&
-               decision.LandingMargin >=
-                   best.LandingMargin - 0.35f &&
-               decision.SuccessorCount >=
-                   best.SuccessorCount;
+        bool nearEquivalentRoute =
+            decision.Candidate.CurrentPosition.y >=
+                best.Candidate.CurrentPosition.y - 0.25f &&
+            decision.Score >= best.Score - 60f &&
+            decision.LandingMargin >=
+                best.LandingMargin - 0.35f &&
+            decision.SuccessorCount >=
+                best.SuccessorCount;
+
+        // A stationary real platform with generous landing reserve is a safe
+        // enemy detour even if it gives up some immediate height. Ascending
+        // Heights always resumes upward routing after the bounce, so require
+        // one verified successor rather than matching the best route's exact
+        // height and successor count. Breakable platforms use tighter limits.
+        bool breakable =
+            decision.Candidate.Type == PlatformType.Breakable;
+
+        bool conservativeFixedEnemyDetour =
+            !decision.Candidate.IsMoving &&
+            Mathf.Abs(
+                decision.Candidate.PlatformVelocityX
+            ) < 0.10f &&
+            decision.ReachRatio <=
+                (breakable ? 0.55f : 0.68f) &&
+            decision.LandingMargin >=
+                (breakable ? 3.50f : 2.75f) &&
+            decision.LandingTime <=
+                (breakable ? 1.50f : 1.90f) &&
+            decision.ApexOvershoot <=
+                (breakable ? 5.50f : PreferredApexOvershoot) &&
+            decision.LifecycleRisk <=
+                (breakable ? 250f : 400f) &&
+            decision.SuccessorCount >= 1;
+
+        // Enemy selection remains an optional choice among routes already
+        // proven safe; it never becomes a general routing objective.
+        return nearEquivalentRoute ||
+               conservativeFixedEnemyDetour;
     }
 
     private int GetBoostRank(

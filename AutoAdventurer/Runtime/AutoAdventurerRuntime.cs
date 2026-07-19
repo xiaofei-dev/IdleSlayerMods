@@ -23,6 +23,8 @@ public sealed class AutoAdventurerRuntime : MonoBehaviour
     private readonly SliderSkipService sliderSkip = new();
     private readonly AutoBossService autoBoss = new();
     private readonly AutomaticBoostService autoBoost = new();
+    private readonly SilverBoxQuestService silverBoxes = new();
+    private readonly QuestElementService questElements = new();
     private readonly QuestTravelService questTravel = new();
     private bool automaticRageEnabled;
     private bool automaticBoostEnabled;
@@ -60,6 +62,17 @@ public sealed class AutoAdventurerRuntime : MonoBehaviour
             // run independently from the Runner/Rage character-action guard.
             sliderSkip.Tick(Time.unscaledTime);
             autoBoss.Tick(Time.unscaledTime);
+            silverBoxes.Tick(Time.unscaledTime,
+                Plugin.Config.EnableSilverBoxControl.Value,
+                Plugin.Config.AutoReleaseSilverBoxLock.Value,
+                Plugin.Config.PermanentSilverBoxReleaseAboveDivinityPoints.Value);
+            if (questElements.Tick(Time.unscaledTime,
+                    questAutomationEnabled &&
+                    Plugin.Config.AutoAlignElementalDivinities.Value))
+            {
+                questTravel.DeferScanAfterElementAlignment(
+                    Time.unscaledTime + 0.5f);
+            }
             while (QuestClaimBridge.TryDequeue(out ClaimedQuestEvent claimed))
                 questTravel.ObserveClaimedQuest(
                     claimed, questAutomationEnabled);
@@ -173,11 +186,13 @@ public sealed class AutoAdventurerRuntime : MonoBehaviour
             questAutomationEnabled = !questAutomationEnabled;
             if (!questAutomationEnabled)
             {
+                questElements.Reset();
                 questTravel.EndSession();
                 questTravel.Reset();
             }
             else
             {
+                questElements.Reset();
                 questTravel.BeginSession();
                 logNextQuestResume = true;
             }
@@ -207,6 +222,8 @@ public sealed class AutoAdventurerRuntime : MonoBehaviour
         sliderSkip.Reset();
         autoBoss.Reset();
         autoBoost.Reset();
+        silverBoxes.Reset();
+        questElements.Reset();
         questTravel.Reset();
         wasRageReady = false;
         wasBoostReady = false;

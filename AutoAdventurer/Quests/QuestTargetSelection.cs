@@ -2,11 +2,14 @@ using Il2Cpp;
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using AutoAdventurer.Diagnostics;
+using UnityEngine;
 
 namespace AutoAdventurer.Quests;
 
 internal sealed class QuestTargetSelection
 {
+    private int? cachedRewardPriority;
     private static readonly HashSet<string> PriorityUnlockBenefits =
         new(StringComparer.Ordinal)
         {
@@ -36,7 +39,7 @@ internal sealed class QuestTargetSelection
     internal string QuestDisplayName =>
         string.IsNullOrWhiteSpace(Quest?.localizedName)
             ? QuestId
-            : Quest.localizedName;
+            : LogText.Normalize(Quest.localizedName);
     internal string EnemyId => Enemy?.name ?? "AnyEnemy";
     internal string MapId => Map?.name ?? "UnknownMap";
     internal string QuestTypeId => Quest?.questType.ToString() ?? "UnknownQuestType";
@@ -55,12 +58,12 @@ internal sealed class QuestTargetSelection
     internal string UnlockRewardDisplayName =>
         string.IsNullOrWhiteSpace(UnlockReward?.localizedName)
             ? UnlockRewardId
-            : UnlockReward.localizedName;
+            : LogText.Normalize(UnlockReward.localizedName);
     internal string UnlockRewardBenefitId =>
-        UnlockReward?.newBenefit?.benefit?.name ?? string.Empty;
-    internal int RewardPriority =>
-        string.Equals(UnlockRewardBenefitId, "IncreaseQuestsLevel",
-            StringComparison.Ordinal)
+        UnlockReward?.newBenefit?.benefit?.GetIl2CppType()?.Name ??
+        string.Empty;
+    internal int RewardPriority => cachedRewardPriority ??=
+        IsQuestLevelUnlockReward || UnlocksFollowUpQuest
             ? 2
             : PriorityUnlockBenefits.Contains(UnlockRewardBenefitId)
                 ? 1
@@ -73,6 +76,87 @@ internal sealed class QuestTargetSelection
     };
     internal bool HasPriorityUnlockReward =>
         RewardPriority > 0;
+    private bool IsQuestLevelUnlockReward =>
+        string.Equals(UnlockRewardBenefitId, "IncreaseQuestsLevel",
+            StringComparison.Ordinal) ||
+        (UnlockRewardId.StartsWith("upgrade_", StringComparison.Ordinal) &&
+         UnlockRewardId.EndsWith("_quests", StringComparison.Ordinal));
+
+    private bool UnlocksFollowUpQuest
+    {
+        get
+        {
+            Upgrade reward = UnlockReward;
+            var quests = PlayerInventory.instance?.allQuests;
+            if (reward == null || quests == null) return false;
+
+            try
+            {
+                var futureBundles = new HashSet<string>(
+                    StringComparer.Ordinal);
+                for (int index = 0; index < quests.Count; index++)
+                {
+                    Quest followUp = quests[index];
+                    Upgrade required = followUp?.bundleRequired;
+                    if (followUp == null || required == null ||
+                        followUp.isClaimed) continue;
+                    if (string.Equals(required.name, reward.name,
+                            StringComparison.Ordinal))
+                        return true;
+
+                    if (!IsUpgradeUnlocked(required))
+                        futureBundles.Add(required.name);
+                }
+
+                // Many quest chains are indirect: the current quest rewards
+                // an upgrade, and a later quest-bundle upgrade lists that
+                // reward in upgradesRequired. Follow the internal dependency
+                // graph instead of relying on localized text or upgrade-name
+                // conventions.
+                foreach (Upgrade bundle in
+                         Resources.FindObjectsOfTypeAll<Upgrade>())
+                {
+                    if (bundle == null ||
+                        !futureBundles.Contains(bundle.name)) continue;
+                    if (DependsOnUpgrade(bundle, reward,
+                            new HashSet<string>(StringComparer.Ordinal), 0))
+                        return true;
+                }
+            }
+            catch
+            {
+                // A transient catalogue wrapper must not break selection;
+                // the existing reward metadata remains the fallback.
+            }
+
+            return false;
+        }
+    }
+
+    private static bool DependsOnUpgrade(
+        Upgrade candidate, Upgrade target, HashSet<string> visited, int depth)
+    {
+        if (candidate == null || target == null || depth >= 16 ||
+            !visited.Add(candidate.name ?? $"upgrade_{depth}")) return false;
+        var requirements = candidate.upgradesRequired;
+        if (requirements == null) return false;
+
+        for (int index = 0; index < requirements.Count; index++)
+        {
+            Upgrade required = requirements[index]?.upgrade;
+            if (required == null) continue;
+            if (string.Equals(required.name, target.name,
+                    StringComparison.Ordinal)) return true;
+            if (DependsOnUpgrade(required, target, visited, depth + 1))
+                return true;
+        }
+
+        return false;
+    }
+
+    private static bool IsUpgradeUnlocked(Upgrade upgrade) =>
+        upgrade != null && (upgrade.bought ||
+            (upgrade.isSpecialUnlock && upgrade.specialUnlocked));
     internal double RemainingKills =>
         System.Math.Max(0d, RequiredKills - CurrentKills);
     internal string LockKey => BuildLockKey(Quest);

@@ -19,8 +19,9 @@ internal sealed class AutoClimberConfig(string configName) : BaseConfig(configNa
 
     protected override void SetBindings()
     {
-        ConfigurationVersion = Bind(MainSection, "Configuration Version", 0,
-            "Internal preference migration version. Do not edit manually.");
+        ConfigurationVersion = Bind(MainSection, "Configuration Version",
+            CurrentConfigurationVersion,
+            $"Internal preference migration version. Current version: {CurrentConfigurationVersion}. Do not edit manually; modified values are restored automatically.");
         DebugMode = Bind(MainSection, "Debug Mode", false,
             "Show detailed diagnostic logs. User actions, warnings, errors, and run summaries are always logged; debug output is disabled automatically in Skip mode.");
 
@@ -91,8 +92,10 @@ internal sealed class AutoClimberConfig(string configName) : BaseConfig(configNa
             "Prefer touching enemies only when the detour remains safe; completion and boost platforms keep priority."
         );
         if (migrateLegacyValues)
-        {
             RemoveLegacyEntries();
+
+        if (ConfigurationVersion.Value != CurrentConfigurationVersion)
+        {
             ConfigurationVersion.Value =
                 CurrentConfigurationVersion;
             MelonPreferences.Save();

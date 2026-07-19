@@ -1,10 +1,14 @@
 # Craftables and Materials
 
+`Craftables > Enabled` is the master switch for this chapter. When disabled,
+no craftable is used and no material is purchased on behalf of a craftable.
+Egg opening remains controlled separately.
+
 ## Timed Craftables
 
 Whetstone, Alternate Dimension Staff, Bidimensional Staff, and Deathwave
-Scepter use a shared refill policy. By default, refilling starts below 10
-minutes and continues toward 60 minutes, at most one item action per second.
+Scepter use a shared refill policy. By default, refilling starts below 3
+minutes and continues toward 15 minutes, at most one item action per second.
 Deathwave Scepter also preserves the configured Simurgh Feather reserve.
 
 Rage Pill is checked without the normal item startup delay and uses its own
@@ -26,7 +30,13 @@ at the shared maximum-duration target.
 - Key Manifest reacts to active normal Chest Hunt objectives.
 
 Daily and Weekly Quests are ignored. The items have independent cooldowns,
-10 minutes by default.
+5 minutes by default.
+
+Specialization has a fixed safety reserve: it is not crafted if the resulting
+Scrap amount would be below 50% of the player's current unlocked storage
+capacity. This threshold is deliberately hidden rather than configurable, so
+an unsafe setting cannot permanently starve the Scrap-overflow craftable. Key
+Manifest is unaffected because it does not consume Scrap.
 
 ## Missing Materials
 

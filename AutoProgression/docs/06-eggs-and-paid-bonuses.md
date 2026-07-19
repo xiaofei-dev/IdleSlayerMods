@@ -1,4 +1,20 @@
-# Eggs and Paid Bonuses
+# Minions, Eggs, and Paid Bonuses
+
+## Minion Automation
+
+Two independent settings control Minions, and both require the global `T`
+runtime to be active.
+
+- `Auto Claim and Send` claims completed unlocked Minion missions and sends a
+  standing Minion when its mission cost is lower than available Slayer Points.
+- `Automatic Maximum-Level Prestige` checks standing Minions with a level
+  above 1 and a maximum level of at least 70. When Minion Prestige is unlocked,
+  the eligible Minion is raised to maximum level for that prestige action.
+
+When both are enabled, the order is claim, prestige, then send. When only
+automatic prestige is enabled, a mission must be claimed manually before its
+standing Minion can be processed. Locked Minions and an unavailable Prestige
+system are skipped safely.
 
 ## Background Egg Opening
 

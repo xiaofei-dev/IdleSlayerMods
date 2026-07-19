@@ -4,7 +4,7 @@ AutoAdventurer is the active-gameplay module in Tashi's Full Automation Suite.
 It coordinates quest objectives, dimension travel, character requirements,
 Rage Mode, movement abilities, Bonus helpers, and boss fights.
 
-This manual covers configuration version 20. New users should begin with the
+This manual covers configuration version 26. New users should begin with the
 [User Guide](USER_GUIDE.md).
 
 ## Reference Chapters
@@ -56,4 +56,3 @@ controlled directly by configuration and default to enabled.
 
 If these mods save you time, you can support continued development through
 [PayPal](https://www.paypal.com/donate/?business=HK85PL8AREEXY&no_recurring=0&currency_code=USD).
-

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using AutoAdventurer.Diagnostics;
 using Il2Cpp;
+using UnityEngine;
 
 namespace AutoAdventurer.Quests;
 
@@ -9,8 +10,10 @@ internal sealed class QuestTargetResolver
 {
     private readonly HashSet<string> loggedUnavailableStages = new();
     private readonly HashSet<string> loggedUnavailableCharacterQuests = new();
+    private readonly HashSet<string> loggedUnresolvedElementQuests = new();
 
-    internal QuestTargetSelection Select(List<Quest> quests)
+    internal QuestTargetSelection Select(
+        List<Quest> quests, bool allowDimensionTravel = true)
     {
         QuestTargetSelection best = null;
         foreach (Quest quest in quests)
@@ -18,7 +21,20 @@ internal sealed class QuestTargetResolver
             if (!IsExecutableKillQuest(quest)) continue;
 
             QuestTargetSelection candidate = ResolveMap(quest);
-            if (candidate == null) continue;
+            if (candidate == null)
+            {
+                LogUnresolvedElementQuestOnce(quest);
+                continue;
+            }
+            loggedUnresolvedElementQuests.Remove(
+                QuestTargetSelection.BuildLockKey(quest));
+            if (!allowDimensionTravel)
+            {
+                string currentMap = MapController.instance?.selectedMap?.name;
+                if (!string.Equals(candidate.MapId, currentMap,
+                        StringComparison.Ordinal))
+                    continue;
+            }
 
             if (best == null ||
                 candidate.RewardPriority > best.RewardPriority ||
@@ -43,7 +59,16 @@ internal sealed class QuestTargetResolver
         {
             if (quest is DailyQuest daily &&
                 (!daily.active || !daily.CheckIfIsValid())) return false;
-            if (!quest.CanBeCompleted()) return false;
+            bool explicitElementQuest =
+                quest.questType == QuestType.KillEnemiesOfType &&
+                quest.enemyType != null;
+            // CanBeCompleted() is not authoritative for explicit elemental
+            // objectives. The game may return false under a different active
+            // elemental Dark Divinity even when a matching enemy (for example
+            // a naturally Fire enemy unaffected by Ice) is already present.
+            // These quests came from the live active-task cache; validate them
+            // against actual current evolution stages and unlocked maps below.
+            if (!explicitElementQuest && !quest.CanBeCompleted()) return false;
             bool characterQuest =
                 quest.questType == QuestType.KillEnemiesWithCharacter ||
                 quest.characterRequired != null;
@@ -71,8 +96,7 @@ internal sealed class QuestTargetResolver
             // Exact targets, native types, provable map categories, and
             // generic arrow kills are executable without parsing text.
             return quest.enemyToKill != null ||
-                   (quest.questType == QuestType.KillEnemiesOfType &&
-                    quest.enemyType != null) ||
+                   explicitElementQuest ||
                    quest.questType == QuestType.KillFlyers ||
                    quest.questType == QuestType.KillGiants ||
                    quest.questType == QuestType.KillEnemiesWithArrows ||
@@ -152,7 +176,8 @@ internal sealed class QuestTargetResolver
         MapController controller, BaseMap currentMap, Quest quest,
         Func<Enemy, bool> predicate, string preferredMapId)
     {
-        Enemy currentEnemy = FindMatchingCurrentEnemy(currentMap, predicate);
+        Enemy currentEnemy = FindMatchingQuestEnemy(
+            currentMap, quest, predicate);
         if (currentEnemy == null &&
             quest.questType == QuestType.KillGiants &&
             !string.IsNullOrEmpty(preferredMapId) &&
@@ -184,7 +209,8 @@ internal sealed class QuestTargetResolver
                 if (preferred == null || !string.Equals(preferred.name,
                         preferredMapId, StringComparison.Ordinal) ||
                     !preferred.IsAvailable()) continue;
-                Enemy matched = FindMatchingCurrentEnemy(preferred, predicate);
+                Enemy matched = FindMatchingQuestEnemy(
+                    preferred, quest, predicate);
                 if (matched == null &&
                     quest.questType == QuestType.KillGiants)
                     matched = FindUnlockedGiantInEvolutionChains(preferred);
@@ -202,7 +228,7 @@ internal sealed class QuestTargetResolver
         {
             Map map = maps[index];
             if (!IsStandardPortalDimension(map) || !map.IsAvailable()) continue;
-            Enemy matched = FindMatchingCurrentEnemy(map, predicate);
+            Enemy matched = FindMatchingQuestEnemy(map, quest, predicate);
             if (matched == null) continue;
 
             return CreateSelection(quest, matched, map);
@@ -267,6 +293,137 @@ internal sealed class QuestTargetResolver
         return null;
     }
 
+    private static Enemy FindMatchingQuestEnemy(
+        BaseMap map, Quest quest, Func<Enemy, bool> predicate)
+    {
+        // The selected map's serialized enemy list can lag behind an enemy
+        // evolution unlocked by a newly claimed quest. Runtime enemy objects
+        // are authoritative for what is actually spawning on screen, so use
+        // them first for the current dimension. Never retain these IL2CPP
+        // objects beyond this call or use them to infer another dimension.
+        BaseMap selectedMap = MapController.instance?.selectedMap;
+        if (selectedMap != null && string.Equals(map?.name,
+                selectedMap.name, StringComparison.Ordinal))
+        {
+            Enemy runtime = FindMatchingRuntimeEnemy(predicate);
+            if (runtime != null) return runtime;
+        }
+
+        Enemy current = FindMatchingCurrentEnemy(map, predicate);
+        if (current != null) return current;
+
+        if (quest?.questType == QuestType.KillEnemiesOfType &&
+            quest.enemyType != null)
+        {
+            EnemyType activeElementType = GetActiveElementType();
+            // With no active elemental Divinity, do not infer a future
+            // elemental evolution from a stale chain. Only the game's actual
+            // current stage above is authoritative in that state.
+            if (activeElementType == null) return null;
+            Enemy elemental = FindUnlockedTypeInEvolutionChains(
+                map, quest.enemyType, activeElementType);
+            if (elemental != null) return elemental;
+        }
+
+        return null;
+    }
+
+    private static Enemy FindMatchingRuntimeEnemy(Func<Enemy, bool> predicate)
+    {
+        foreach (EnemyGameObject enemyObject in
+                 Resources.FindObjectsOfTypeAll<EnemyGameObject>())
+        {
+            try
+            {
+                if (enemyObject == null || enemyObject.gameObject == null ||
+                    !enemyObject.gameObject.activeInHierarchy) continue;
+                var scene = enemyObject.gameObject.scene;
+                if (!scene.IsValid() || !scene.isLoaded) continue;
+
+                Enemy enemy = enemyObject.enemyStats?.enemy;
+                if (enemy != null && predicate(enemy)) return enemy;
+            }
+            catch
+            {
+                // Spawn pools may invalidate an IL2CPP wrapper while this
+                // snapshot is being inspected. The next scan retries it.
+            }
+        }
+
+        return null;
+    }
+
+    private static Enemy FindUnlockedTypeInEvolutionChains(
+        BaseMap map, EnemyType requiredType, EnemyType activeElementType)
+    {
+        var enemies = map?.enemies;
+        if (enemies == null || requiredType == null) return null;
+
+        for (int index = 0; index < enemies.Count; index++)
+        {
+            Enemy stage = GetEnemyFirstStage(enemies[index]);
+            HashSet<string> visited = new(StringComparer.Ordinal);
+            Enemy requiredStage = null;
+            bool activeElementOverridesChain = false;
+            for (int depth = 0; stage != null && depth < 32; depth++)
+            {
+                string identity = stage.name ?? $"stage_{index}_{depth}";
+                if (!visited.Add(identity)) break;
+                if (IsEnemyEvolutionUnlocked(stage))
+                {
+                    if (requiredStage == null &&
+                        SameEnemyType(stage.type, requiredType))
+                        requiredStage = stage;
+                    if (activeElementType != null &&
+                        !SameEnemyType(activeElementType, requiredType) &&
+                        SameEnemyType(stage.type, activeElementType))
+                        activeElementOverridesChain = true;
+                }
+                stage = stage.evolutionForward;
+            }
+
+            // A different active element only suppresses the requested
+            // element when that same enemy chain actually contains an
+            // unlocked stage for the active element. For example, Ice does
+            // not suppress a Fire Bat chain that has no Ice evolution.
+            if (requiredStage != null && !activeElementOverridesChain)
+                return requiredStage;
+        }
+
+        return null;
+    }
+
+    private static EnemyType GetActiveElementType()
+    {
+        foreach (Divinity divinity in
+                 UnityEngine.Resources.FindObjectsOfTypeAll<Divinity>())
+        {
+            if (divinity == null || !divinity.unlocked ||
+                !divinity.isElemental) continue;
+            EnemyType type = divinity.newBenefit?.enemyType;
+            if (type != null) return type;
+        }
+
+        return null;
+    }
+
+    private static bool IsElementalDivinityActiveFor(EnemyType requiredType)
+    {
+        return SameEnemyType(GetActiveElementType(), requiredType);
+    }
+
+    private void LogUnresolvedElementQuestOnce(Quest quest)
+    {
+        if (quest?.questType != QuestType.KillEnemiesOfType ||
+            quest.enemyType == null) return;
+        string key = QuestTargetSelection.BuildLockKey(quest);
+        if (!loggedUnresolvedElementQuests.Add(key)) return;
+        AdventurerLog.QuestDebug(
+            $"Quest skipped: quest={GetQuestLabel(quest)}; " +
+            $"reason=no unlocked Portal-selectable map currently exposes an enemy stage for elemental type; " +
+            $"enemyType={quest.enemyType.name}; matchingElementActive={IsElementalDivinityActiveFor(quest.enemyType)}.");
+    }
+
     private static Enemy GetEnemyFirstStage(Enemy enemy)
     {
         // EnemyUtility.GetEnemyFirstStage can resolve the wrong asset for
@@ -327,6 +484,6 @@ internal sealed class QuestTargetResolver
         string displayName = quest?.localizedName;
         return string.IsNullOrWhiteSpace(displayName)
             ? id
-            : $"{displayName} ({id})";
+            : $"{LogText.Normalize(displayName)} ({id})";
     }
 }

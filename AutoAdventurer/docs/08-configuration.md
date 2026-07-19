@@ -10,7 +10,7 @@ Configuration file:
 
 | Setting | Default | Description |
 |---|---:|---|
-| `Configuration Version` | `20` | Internal migration version; do not edit |
+| `Configuration Version` | `26` | Internal migration version; do not edit |
 | `Debug Mode` | `false` | All detailed diagnostics, including Quest Automation; user actions, warnings, and errors always log |
 
 ## Automatic Rage
@@ -44,14 +44,26 @@ Configuration file:
 |---|---:|---|
 | `Toggle Key` | `P` | Toggle quest selection and guided travel |
 | `Show Completion Notifications` | `true` | Show in-game session totals; logs remain enabled |
+| `Auto Align Elemental Divinities` | `true` | While `P` is enabled, every five seconds align to the first active elemental task in the live list, correcting manual changes and activating an available affordable element when none is active; this never changes task priority or replaces the current lock |
 | `Minimum Dimension Stay Minutes` | `0` | Minimum stay after automatic arrival |
-| `Maximum Quest Time Minutes` | `10` | Maximum time on one locked task; `0` disables the limit |
+| `Maximum Quest Time Minutes` | `5` | Maximum time on one locked task; `0` disables the limit |
+
+## Silver Box Automation
+
+These global settings run every five seconds after the game loads and do not
+depend on `P` or any other hotkey.
+
+| Setting | Default | Description |
+|---|---:|---|
+| `Enabled` | `true` | Master switch for this section; when disabled, both rules are inactive and Silver Bank remains under manual control |
+| `Auto Release Silver Box Lock` | `true` | Force Silver Bank off whenever an active normal task requires Silver Random Boxes |
+| `Permanent Release Above Divinity Points` | `0` | Disable Silver Bank above this normalized available-point threshold and enable it again at or below the threshold when affordable; `0` disables threshold control without forcing either state |
 
 ## Example
 
 ```ini
 [AutoAdventurer]
-"Configuration Version" = 20
+"Configuration Version" = 26
 "Debug Mode" = false
 
 ["Automatic Rage"]
@@ -65,6 +77,11 @@ Configuration file:
 "Skip Bonus Start Slider" = true
 "Auto Boss" = true
 
+["Silver Box Automation"]
+"Enabled" = true
+"Auto Release Silver Box Lock" = true
+"Permanent Release Above Divinity Points" = 0.0
+
 ["Auto Boost"]
 "Toggle Key" = "L"
 "Activation Delay Seconds" = 0.1
@@ -73,8 +90,9 @@ Configuration file:
 ["Quest Automation"]
 "Toggle Key" = "P"
 "Show Completion Notifications" = true
+"Auto Align Elemental Divinities" = true
 "Minimum Dimension Stay Minutes" = 0.0
-"Maximum Quest Time Minutes" = 10.0
+"Maximum Quest Time Minutes" = 5.0
 ```
 
 The activation delay is stored as a double to avoid long single-precision

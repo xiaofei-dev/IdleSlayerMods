@@ -42,6 +42,24 @@ internal sealed class QuestAutomationService
         }
     }
 
+    internal void StopPersistentAutomation()
+    {
+        if (!Plugin.Config.UnlimitedQuestRerolls.Value) return;
+
+        try
+        {
+            DailyQuestReroll daily = DailyQuestReroll.instance;
+            WeeklyQuestReroll weekly = WeeklyQuestReroll.instance;
+            if (daily != null) daily.rerollEnabled = false;
+            if (weekly != null) weekly.rerollEnabled = false;
+        }
+        catch
+        {
+            // Native reroll objects may be replaced during this exact frame.
+            // Runtime automation is already stopped, so no retry is needed.
+        }
+    }
+
     internal void Tick(float now)
     {
         if (now < nextCheckTime) return;

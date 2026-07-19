@@ -68,6 +68,7 @@ internal sealed class QuestTravelService
     private float activeRandomEventMissingSince = -1f;
     private bool activeRandomBox;
     private string activeRandomBoxDescription = string.Empty;
+    private double observedUltraAscensions = -1d;
 
     private bool HasMapActivityBlocker =>
         activeRandomEvent || activeRandomBox;
@@ -81,12 +82,21 @@ internal sealed class QuestTravelService
 
     internal void PrioritizePostRageScan() => nextScanTime = 0f;
 
+    internal void DeferScanAfterElementAlignment(float readyAt)
+    {
+        nextScanTime = Math.Max(nextScanTime, readyAt);
+        AdventurerLog.QuestDebug(string.IsNullOrEmpty(lockedQuestKey)
+            ? "Element alignment completed; current quest lock=None. The next task scan will use the refreshed enemy state."
+            : $"Element alignment completed; current quest lock={lockedQuestDisplayName} [{lockedQuestId}]. The element helper did not replace it.");
+    }
+
     internal void Tick(float now, bool enabled)
     {
         if (!enabled) return;
 
         try
         {
+            ObserveUltraAscensionReset();
             UpdateRandomEventState(now);
             if (HasMapActivityBlocker)
             {
@@ -139,7 +149,15 @@ internal sealed class QuestTravelService
             if (currentMap != null && string.Equals(currentMap.name,
                     selection.MapId, StringComparison.Ordinal)) return;
             if (!MinimumStayElapsed(now)) return;
-            if (!CanPreparePortalTravel()) return;
+            if (!CanConsiderPortalTravel())
+            {
+                AdventurerLog.QuestDebug(
+                    $"Quest lock released: quest={selection.QuestDisplayName} [{selection.QuestId}]; " +
+                    "reason=Portal is not currently usable for dimension travel; the task will be reconsidered on a later scan.");
+                ClearQuestLock();
+                nextScanTime = 0f;
+                return;
+            }
 
             BeginTravelIntent(selection);
 
@@ -234,9 +252,16 @@ internal sealed class QuestTravelService
                 return;
             }
 
-            // A locked target may be temporarily unresolvable during the
-            // Rage-to-Runner transition. Keep suppressing Rage and retry.
-            if (selection == null) return;
+            if (selection == null)
+            {
+                AdventurerLog.QuestDebug(
+                    $"Quest lock released: quest={lockedQuestDisplayName} [{lockedQuestId}]; " +
+                    "reason=target dimension is no longer reachable through the current Portal list.");
+                ClearPendingTravel();
+                ClearQuestLock();
+                nextScanTime = 0f;
+                return;
+            }
 
             if (!EnsureRequiredCharacter(selection, now)) return;
 
@@ -246,6 +271,17 @@ internal sealed class QuestTravelService
                 AdventurerLog.QuestDebug(
                     "Travel intent: target map changed; released the stale travel lock for recalculation.");
                 ClearPendingTravel();
+                return;
+            }
+
+            if (!CanConsiderPortalTravel())
+            {
+                AdventurerLog.QuestDebug(
+                    $"Quest lock released: quest={lockedQuestDisplayName} [{lockedQuestId}]; " +
+                    "reason=Portal became unavailable before it could be opened.");
+                ClearPendingTravel();
+                ClearQuestLock();
+                nextScanTime = 0f;
                 return;
             }
 
@@ -369,8 +405,6 @@ internal sealed class QuestTravelService
             }
             else
             {
-                // Keep the lock even when its target is temporarily
-                // unreachable. Do not silently switch to a different quest.
                 lockedQuestSuppressesRage =
                     locked.questType == QuestType.KillEnemiesWithArrows;
                 QuestTargetSelection tracked = resolver.ResolveLocked(
@@ -411,6 +445,14 @@ internal sealed class QuestTravelService
                     // The stalled-progress watchdog released this lock. Fall
                     // through and select again from the fresh snapshot.
                 }
+                else if (tracked == null)
+                {
+                    AdventurerLog.QuestDebug(
+                        $"Quest lock released: quest={lockedQuestDisplayName} [{lockedQuestId}]; " +
+                        "reason=no currently reachable target dimension; selecting another available task.");
+                    ClearPendingTravel();
+                    ClearQuestLock();
+                }
                 else
                 {
                 if (tracked != null && !string.Equals(tracked.MapId,
@@ -428,7 +470,7 @@ internal sealed class QuestTravelService
         }
 
         QuestTargetSelection selection = resolver.Select(
-            ExcludeAbnormalQuests(quests));
+            ExcludeAbnormalQuests(quests), CanConsiderPortalTravel());
         if (selection == null) return null;
 
         lockedQuestId = selection.QuestId;
@@ -749,6 +791,18 @@ internal sealed class QuestTravelService
                !interruptions.TryGetBlocker(out _);
     }
 
+    private bool CanConsiderPortalTravel()
+    {
+        PortalButton portal = PortalButton.instance;
+        if (portal == null || portal.currentCd > 0d) return false;
+
+        // Rage temporarily hides/disables the button even though the Portal
+        // system itself is ready. That state is allowed to wait for a natural
+        // Rage ending; Runner must expose a genuinely clickable Portal.
+        return GameState.current == GameStates.RageMode ||
+               CanClickPortalButton(portal);
+    }
+
     private void UpdateRandomEventState(float now)
     {
         if (now < nextEventCheckTime) return;
@@ -869,10 +923,10 @@ internal sealed class QuestTravelService
             ? "on-target-map"
             : "travel-required";
         string heading = resumed
-            ? $"Quest resumed ({pendingQuestStatusReason})"
+            ? $"Current quest lock resumed ({pendingQuestStatusReason})"
             : changed
-                ? "Quest selected"
-                : "Quest progress";
+                ? "Current quest lock acquired"
+                : "Current quest lock progress";
         pendingQuestStatusReason = string.Empty;
         nextQuestStatusLogTime = Time.unscaledTime + 60f;
         AdventurerLog.QuestDebug(
@@ -904,6 +958,45 @@ internal sealed class QuestTravelService
     {
         MapController maps = MapController.instance;
         return maps != null && maps.initialized && !maps.changingMap;
+    }
+
+    private void ObserveUltraAscensionReset()
+    {
+        PlayerInventory inventory = PlayerInventory.instance;
+        if (inventory == null) return;
+        double current = Math.Max(0d, inventory.ultraAscensions);
+        if (observedUltraAscensions < 0d)
+        {
+            observedUltraAscensions = current;
+            return;
+        }
+        if (current <= observedUltraAscensions) return;
+
+        observedUltraAscensions = current;
+        // Preserve the P-session completion totals, but discard every cached
+        // quest/travel/object decision from the pre-UA progression state.
+        ClearQuestLock();
+        ClearPendingTravel();
+        discovery.Reset();
+        soulFarming.Reset();
+        abnormalQuestReasons.Clear();
+        countedDailyQuestInstances.Clear();
+        countedNormalQuestInstances.Clear();
+        lastQuestSnapshotAvailable = false;
+        lastSoulFallbackMapId = string.Empty;
+        lastAutomaticArrivalAt = -1f;
+        nextScanTime = 0f;
+        nextEventCheckTime = 0f;
+        activeRandomEvent = false;
+        activeRandomEventName = string.Empty;
+        activeRandomEventKey = string.Empty;
+        activeRandomEventProtectedUntil = 0f;
+        activeRandomEventMissingSince = -1f;
+        activeRandomBox = false;
+        activeRandomBoxDescription = string.Empty;
+        postRagePortalBlockedUntil = 0f;
+        AdventurerLog.QuestDebug(
+            $"Ultra Ascension detected: count={current:0}; all quest, travel, scene-object, abnormal-task, and temporary Divinity caches were reset.");
     }
 
     private void ClearPendingTravel()
@@ -951,6 +1044,7 @@ internal sealed class QuestTravelService
         activeRandomBox = false;
         activeRandomBoxDescription = string.Empty;
         postRagePortalBlockedUntil = 0f;
+        observedUltraAscensions = -1d;
         ClearQuestLock();
         ClearPendingTravel();
         discovery.Reset();

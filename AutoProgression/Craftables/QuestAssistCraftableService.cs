@@ -10,6 +10,7 @@ namespace AutoProgression.Craftables;
 internal sealed class QuestAssistCraftableService
 {
     private const float CheckIntervalSeconds = 1f;
+    private const double SpecializationScrapReserveRatio = 0.50d;
     private readonly MaterialPurchaseService materials = new();
 
     private readonly Entry goblinSupport = new(
@@ -74,6 +75,10 @@ internal sealed class QuestAssistCraftableService
                 return false;
         }
 
+        if (ReferenceEquals(entry, goblinSupport) &&
+            !PreservesSpecializationScrapReserve(entry.Item))
+            return false;
+
         entry.Item.Craft();
         float cooldownSeconds = Mathf.Max(0f,
             Plugin.Config.QuestAssistCraftableCooldownMinutes.Value) * 60f;
@@ -82,6 +87,29 @@ internal sealed class QuestAssistCraftableService
             $"Quest assist: crafted {entry.DisplayName}; " +
             $"its next use is available in {cooldownSeconds / 60f:0.##} minute(s).");
         return true;
+    }
+
+    private static bool PreservesSpecializationScrapReserve(
+        TemporaryCraftableItem item)
+    {
+        Drop scrap = Drops.list?.Scrap;
+        var requirements = item.GetRequirements();
+        if (scrap == null || requirements == null) return false;
+
+        double maximum = scrap.GetMaxAmount();
+        if (maximum <= 0d) return false;
+
+        double scrapCost = 0d;
+        foreach (MaterialRequirement requirement in requirements)
+        {
+            if (requirement?.material != null &&
+                IsScrapMaterial(requirement.material))
+                scrapCost += requirement.amount;
+        }
+
+        return scrapCost <= 0d ||
+               scrap.amount - scrapCost >=
+               maximum * SpecializationScrapReserveRatio;
     }
 
     private static bool HasRequiredProtectedMaterials(
@@ -122,16 +150,20 @@ internal sealed class QuestAssistCraftableService
     {
         if (material == null) return false;
         Drops drops = Drops.list;
-        if (ReferenceEquals(material, drops?.Scrap) ||
+        if (IsScrapMaterial(material) ||
             ReferenceEquals(material, drops?.SimurghFeather) ||
             ReferenceEquals(material, drops?.DragonScale))
             return true;
 
         string name = Normalize(material.name);
-        return name.Contains("scrap") ||
-               name.Contains("simurghfeather") ||
+        return name.Contains("simurghfeather") ||
                name.Contains("dragonscale");
     }
+
+    private static bool IsScrapMaterial(Drop material) =>
+        material != null &&
+        (ReferenceEquals(material, Drops.list?.Scrap) ||
+         Normalize(material.name).Contains("scrap"));
 
     private List<Quest> SnapshotNormalQuests()
     {

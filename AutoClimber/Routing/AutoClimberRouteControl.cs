@@ -4361,55 +4361,134 @@ public sealed partial class AutoClimberRuntime
     {
         direction = 0f;
 
-        PlatformCandidate candidate = currentTargetCandidate;
-
         if (!ClimberLog.IsEnemyTargetingEnabled ||
-            candidate == null ||
-            !candidate.HasEnemy ||
             playerMovement.IsGrounded() ||
-            remainingLandingTime <= 0.45f ||
-            EnemyDiagnosticsBridge.WasHit(candidate.EnemyInstanceId))
+            remainingLandingTime <=
+                (currentTargetType == PlatformType.Strong ||
+                 currentTargetType == PlatformType.Golden
+                    ? 0.80f
+                    : 0.45f))
         {
+            activeAirborneEnemyInterceptId = 0;
             return false;
         }
 
-        float enemyX =
-            candidate.CurrentPosition.x +
-            candidate.EnemyOffsetX;
+        PlatformCandidate candidate = null;
+        float enemyX = 0f;
+        float enemyY = 0f;
+        float bestInterceptScore = float.PositiveInfinity;
+        bool incidentalIntercept = false;
 
-        float enemyY =
-            candidate.CurrentPosition.y +
-            candidate.EnemyOffsetY;
+        IReadOnlyList<PlatformCandidate> candidates =
+            planner.Candidates;
 
-        float verticalOffset =
-            enemyY - playerPosition.y;
-
-        // Begin the sidestep only near the enemy. This avoids spending the
-        // early jump committed to an optional waypoint.
-        if (verticalOffset < -3.0f ||
-            verticalOffset > 10.0f)
+        // Evaluate the locked target first even if it has temporarily left
+        // the broad scanner, then consider every other visible enemy as an
+        // optional incidental intercept.
+        for (int index = -1;
+             index < candidates.Count;
+             index++)
         {
+            PlatformCandidate nearby =
+                index < 0
+                    ? currentTargetCandidate
+                    : candidates[index];
+
+            if (nearby == null ||
+                !nearby.HasEnemy ||
+                EnemyDiagnosticsBridge.WasHit(
+                    nearby.EnemyInstanceId))
+            {
+                continue;
+            }
+
+            float nearbyEnemyX =
+                nearby.CurrentPosition.x +
+                nearby.EnemyOffsetX;
+
+            float nearbyEnemyY =
+                nearby.CurrentPosition.y +
+                nearby.EnemyOffsetY;
+
+            bool belongsToRouteTarget =
+                currentTargetCandidate != null &&
+                nearby.InstanceId == currentTargetCandidate.InstanceId &&
+                nearby.Generation == currentTargetCandidate.Generation;
+
+            float verticalOffset =
+                nearbyEnemyY - playerPosition.y;
+
+            if (verticalOffset <
+                    (belongsToRouteTarget ? -3.0f : -0.75f) ||
+                verticalOffset >
+                    (belongsToRouteTarget ? 10.0f : 8.0f))
+            {
+                continue;
+            }
+
+            float returnDistance =
+                nearbyEnemyX < landingLeft
+                    ? landingLeft - nearbyEnemyX
+                    : nearbyEnemyX > landingRight
+                        ? nearbyEnemyX - landingRight
+                        : 0f;
+
+            float interceptDistance =
+                Mathf.Abs(
+                    nearbyEnemyX - projectedPlayerX
+                );
+
+            float returnReserve =
+                returnDistance / HorizontalMoveSpeed +
+                (belongsToRouteTarget
+                    ? 0.30f
+                    : IncidentalEnemyReturnReserveSeconds);
+
+            if (interceptDistance / HorizontalMoveSpeed +
+                    returnReserve >= remainingLandingTime)
+            {
+                continue;
+            }
+
+            if (!belongsToRouteTarget &&
+                (playerRigidbody.velocity.y < 8.0f ||
+                 interceptDistance >
+                    IncidentalEnemyMaximumHorizontalDistance ||
+                 returnDistance >
+                    IncidentalEnemyMaximumReturnDistance))
+            {
+                continue;
+            }
+
+            float interceptScore =
+                interceptDistance +
+                Mathf.Abs(verticalOffset) * 0.12f -
+                (belongsToRouteTarget ? 0.35f : 0f) -
+                (nearby.EnemyInstanceId ==
+                    activeAirborneEnemyInterceptId
+                    ? 1.25f
+                    : 0f);
+
+            if (interceptScore >= bestInterceptScore)
+            {
+                continue;
+            }
+
+            candidate = nearby;
+            enemyX = nearbyEnemyX;
+            enemyY = nearbyEnemyY;
+            bestInterceptScore = interceptScore;
+            incidentalIntercept = !belongsToRouteTarget;
+        }
+
+        if (candidate == null)
+        {
+            activeAirborneEnemyInterceptId = 0;
             return false;
         }
 
-        float returnDistance =
-            enemyX < landingLeft
-                ? landingLeft - enemyX
-                : enemyX > landingRight
-                    ? enemyX - landingRight
-                    : 0f;
-
-        float returnReserve =
-            returnDistance / 10f + 0.30f;
-
-        float interceptDistance =
-            Mathf.Abs(enemyX - projectedPlayerX);
-
-        if (interceptDistance / 10f + returnReserve >=
-            remainingLandingTime)
-        {
-            return false;
-        }
+        activeAirborneEnemyInterceptId =
+            candidate.EnemyInstanceId;
 
         float hitHalfWidth =
             Mathf.Clamp(
@@ -4432,6 +4511,7 @@ public sealed partial class AutoClimberRuntime
             LogVerbose(
                 $"Enemy intercept started: EnemyId={candidate.EnemyInstanceId}, " +
                 $"PlatformId={candidate.InstanceId}, " +
+                $"Source={(incidentalIntercept ? "Nearby" : "Target")}, " +
                 $"EnemyX={enemyX:F2}, EnemyY={enemyY:F2}, " +
                 $"Landing=[{landingLeft:F2},{landingRight:F2}], " +
                 $"Remaining={remainingLandingTime:F2}."
@@ -4505,6 +4585,33 @@ public sealed partial class AutoClimberRuntime
         if (descendingOrLate)
         {
             targetControlPhase = 1;
+        }
+
+        bool precisionBoostLanding =
+            targetControlPhase == 1 &&
+            remainingLandingTime > 0f &&
+            remainingLandingTime <= 0.80f &&
+            (currentTargetType == PlatformType.Strong ||
+             currentTargetType == PlatformType.Golden);
+
+        if (precisionBoostLanding)
+        {
+            float landingCenter =
+                (leftBoundary + rightBoundary) * 0.50f;
+
+            if (projectedPlayerX <
+                landingCenter - BoostFinalCenterHalfWidth)
+            {
+                return 1f;
+            }
+
+            if (projectedPlayerX >
+                landingCenter + BoostFinalCenterHalfWidth)
+            {
+                return -1f;
+            }
+
+            return 0f;
         }
 
         float extraTolerance =

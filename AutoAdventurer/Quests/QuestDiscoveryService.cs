@@ -12,7 +12,6 @@ internal sealed class QuestDiscoveryService
     private bool unavailableLogged;
     private float nextListResolveTime;
     private float nextSafeRefreshTime;
-    private float nextProgressRefreshTime;
     private string lastRefreshLog = string.Empty;
     private string lastActiveDailySignature = string.Empty;
     private string lastSupplementLogSignature = string.Empty;
@@ -51,14 +50,9 @@ internal sealed class QuestDiscoveryService
         else if (source != null)
         {
             ObserveWatchedCompletion(source, watchedQuestKey);
-            if (Time.unscaledTime >= nextProgressRefreshTime &&
-                ContainsSettledQuest(source))
-            {
-                nextProgressRefreshTime = Time.unscaledTime + 5f;
-                if (TryRefreshInactiveList(questsList,
-                        "Quest list: refreshed after quest progress changed."))
-                    source = questsList.lastScrollListData;
-            }
+            // The global Silver Box automation owns the safe five-second
+            // hidden-cache refresh even while P is disabled. Reuse that fresh
+            // cache here instead of invoking RefreshList twice in one frame.
         }
 
         if (source == null)
@@ -100,6 +94,11 @@ internal sealed class QuestDiscoveryService
             }
         }
 
+        int normalAdded = AppendActiveNormalQuests(result, seen);
+        if (normalAdded > 0)
+            AdventurerLog.QuestDebug(
+                $"Quest list: supplemented {normalAdded} active normal quest(s) missing from the UI cache.");
+
         int dailyAdded = AppendActiveDailyQuests(result, seen);
         if (dailyAdded > 0 && !string.Equals(lastSupplementLogSignature,
                 lastActiveDailySignature, StringComparison.Ordinal))
@@ -110,6 +109,51 @@ internal sealed class QuestDiscoveryService
         }
 
         return result;
+    }
+
+    private int AppendActiveNormalQuests(
+        List<Quest> result, HashSet<string> seen)
+    {
+        var all = PlayerInventory.instance?.allQuests;
+        if (all == null) return 0;
+
+        int added = 0;
+        for (int index = 0; index < all.Count; index++)
+        {
+            Quest quest = all[index];
+            if (quest == null || quest is DailyQuest || quest is WeeklyQuest)
+                continue;
+            try
+            {
+                // allQuests is the complete definition catalogue, including
+                // future locked quests. Only supplement entries the game says
+                // are currently available. Passive Silver Box handling reads
+                // the live quest cache separately to avoid a circular gate.
+                bool explicitElementQuest =
+                    quest.questType == QuestType.KillEnemiesOfType &&
+                    quest.enemyType != null;
+                Upgrade requiredBundle = quest.bundleRequired;
+                bool elementQuestUnlocked = requiredBundle == null ||
+                    requiredBundle.bought ||
+                    (requiredBundle.isSpecialUnlock &&
+                     requiredBundle.specialUnlocked);
+                if (quest.isClaimed) continue;
+                if ((!explicitElementQuest && !quest.CanBeCompleted()) ||
+                    (explicitElementQuest && !elementQuestUnlocked) ||
+                    quest.IsCompleted()) continue;
+                string key = QuestTargetSelection.BuildLockKey(quest);
+                if (!seen.Add(key)) continue;
+                result.Add(quest);
+                added++;
+            }
+            catch (Exception exception)
+            {
+                AdventurerLog.QuestDebug(
+                    $"Quest list: skipped unreadable authoritative normal quest index={index}; exception={exception.GetType().Name}.");
+            }
+        }
+
+        return added;
     }
 
     private int AppendActiveDailyQuests(
@@ -250,7 +294,6 @@ internal sealed class QuestDiscoveryService
         unavailableLogged = false;
         nextListResolveTime = 0f;
         nextSafeRefreshTime = 0f;
-        nextProgressRefreshTime = 0f;
         LastSnapshotAvailable = false;
         WatchedQuestCompleted = false;
         lastRefreshLog = string.Empty;
@@ -265,7 +308,6 @@ internal sealed class QuestDiscoveryService
         resolvedQuestList = null;
         nextListResolveTime = 0f;
         nextSafeRefreshTime = 0f;
-        nextProgressRefreshTime = 0f;
         LastSnapshotAvailable = false;
         WatchedQuestCompleted = false;
         ActiveDailySetChanged = false;

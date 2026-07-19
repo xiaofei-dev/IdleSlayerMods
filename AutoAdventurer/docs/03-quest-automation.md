@@ -68,7 +68,7 @@ numeric improvements remain Normal priority.
 
 ## Time Limits and Abnormal Tasks
 
-- `Maximum Quest Time Minutes` defaults to 10 minutes.
+- `Maximum Quest Time Minutes` defaults to 5 minutes.
 - When it expires, the current task is excluded while alternatives are tested.
 - If no alternative exists, the target is validated again; a valid task may
   continue with refreshed timers.
@@ -89,6 +89,16 @@ numeric improvements remain Normal priority.
 
 Generic arrow-kill tasks suppress new automatic Rage activations so ordinary
 bow kills can continue. A Rage execution already running still ends naturally.
+
+## Elemental Dark Divinities
+
+`Auto Align Elemental Divinities` defaults to `true` and runs only while `P`
+is enabled. An explicit elemental kill task may switch among a set of elemental
+Dark Divinities that the player already activated. This helper does not select,
+lock, or increase the priority of that task.
+
+Silver Random Box task handling is a separate global feature documented in
+the configuration reference. It does not depend on Quest Automation or `P`.
 
 ## Completion Statistics
 

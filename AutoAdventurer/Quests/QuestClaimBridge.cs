@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using HarmonyLib;
 using Il2Cpp;
 using UnityEngine;
+using AutoAdventurer.Diagnostics;
 
 namespace AutoAdventurer.Quests;
 
@@ -43,7 +44,7 @@ internal static class QuestClaimBridge
                 quest.name ?? "UnknownQuest",
                 string.IsNullOrWhiteSpace(quest.localizedName)
                     ? quest.name ?? "UnknownQuest"
-                    : quest.localizedName,
+                    : LogText.Normalize(quest.localizedName),
                 instanceId, daily, false));
         }
         catch

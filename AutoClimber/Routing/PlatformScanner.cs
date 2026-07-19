@@ -432,7 +432,7 @@ internal sealed class PlatformScanner
             currentPosition.x -
             track.LastObservedX;
 
-        bool horizontalTeleport =
+        bool horizontalObservationDiscontinuity =
             deltaTime > 0.001f &&
             Mathf.Abs(deltaX) >
                 MovingPlatformSpeed *
@@ -444,13 +444,13 @@ internal sealed class PlatformScanner
                 currentPosition.y -
                 track.LastObservedY
             ) > GenerationHeightTolerance ||
-            platformType != track.LastObservedType ||
-            horizontalTeleport;
+            platformType != track.LastObservedType;
 
         bool observationSequenceReset =
             !generationChanged &&
-            deltaTime >
-                GenerationObservationGapSeconds;
+            (deltaTime >
+                 GenerationObservationGapSeconds ||
+             horizontalObservationDiscontinuity);
 
         if (generationChanged)
         {
@@ -466,9 +466,12 @@ internal sealed class PlatformScanner
         }
         else if (observationSequenceReset)
         {
-            // The broad scanner can temporarily lose a still-live target
-            // below its box during a boost jump. Keep the logical generation
-            // when height/type still match, but discard stale motion history.
+            // The broad scanner can temporarily lose a still-live target,
+            // and reflected moving platforms can appear to wrap horizontally
+            // at a boundary. If height/type still match, preserve the logical
+            // route node and only discard stale motion history. Treating the
+            // horizontal discontinuity as a recycled generation caused target
+            // churn and several high-altitude falls in long runs.
             track.GenerationObservedSince = currentTime;
             track.ConsecutiveObservations = 1;
             track.StationaryObservations = 0;

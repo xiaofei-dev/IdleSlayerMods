@@ -4,6 +4,9 @@ using AutoProgression.Diagnostics;
 using AutoProgression.Purchases;
 using AutoProgression.Ascension;
 using AutoProgression.Quests;
+using AutoProgression.Minions;
+using AutoProgression.Armory;
+using AutoProgression.SilverBoxes;
 using UnityEngine;
 
 namespace AutoProgression.Runtime;
@@ -19,6 +22,7 @@ public sealed class AutoProgressionRuntime : MonoBehaviour
     private readonly AscensionMonitor ascension = new();
     private readonly AutomaticAscensionService automaticAscension = new();
     private readonly PaidBonusService paidBonuses = new();
+    private readonly MinionAutomationService minions = new();
     private readonly RagePillService ragePill = new();
     private readonly TimedCraftableService timedCraftables = new();
     private readonly ShardsNecklaceService shardsNecklace = new();
@@ -31,6 +35,8 @@ public sealed class AutoProgressionRuntime : MonoBehaviour
     private readonly SkillPurchaseService skillPurchases = new();
     private readonly BlockedSkillService blockedSkills = new();
     private readonly EquipmentPurchaseService equipmentPurchases = new();
+    private readonly ArmoryBoxOpeningService armoryBoxes = new();
+    private readonly SilverBoxClaimService silverBoxes = new();
     private bool autoProgressionEnabled;
     private bool wasReady;
     private bool readyLogged;
@@ -38,22 +44,39 @@ public sealed class AutoProgressionRuntime : MonoBehaviour
     private float ascensionLockUntil;
     private float itemActionsReadyAt;
     private float nextItemActionTime;
+    private bool questAutomationWasEnabled;
 
     public void Update()
     {
+        // Manual Armory-box controls are intentionally independent from T.
+        armoryBoxes.Tick();
+        silverBoxes.Tick(Time.unscaledTime);
+
         if (Input.GetKeyDown(KeyCode.T))
         {
             ToggleAutoProgression();
         }
 
-        // These configuration-backed protections are intentionally
-        // independent from the T automation toggle.
+        // This configured safety rule must also block manual purchases while
+        // periodic automation is paused with T.
         blockedSkills.Tick();
-        quests.TickPersistent();
 
         if (!autoProgressionEnabled)
         {
+            WeeklyQuestGenerationBridge.DiscardPending();
+            DailyQuestGenerationBridge.DiscardPending();
             return;
+        }
+
+        if (Plugin.Config.EnableQuestAutomation.Value)
+        {
+            quests.TickPersistent();
+            questAutomationWasEnabled = true;
+        }
+        else if (questAutomationWasEnabled)
+        {
+            quests.StopPersistentAutomation();
+            questAutomationWasEnabled = false;
         }
 
         float now = Time.unscaledTime;
@@ -105,17 +128,29 @@ public sealed class AutoProgressionRuntime : MonoBehaviour
         }
 
         paidBonuses.Tick(now);
+        minions.Tick(now);
         TickItemActions(now);
 
-        // Do not let normal quest maintenance refresh the same native list
-        // while a generated Weekly Quest is being rerolled.
-        if (!weeklyRageQuests.IsProcessing && !dailyQuestFilter.IsProcessing)
-            quests.Tick(now);
+        if (Plugin.Config.EnableQuestAutomation.Value)
+        {
+            // Do not let normal quest maintenance refresh the same native list
+            // while a generated Weekly Quest is being rerolled.
+            if (!weeklyRageQuests.IsProcessing && !dailyQuestFilter.IsProcessing)
+                quests.Tick(now);
 
-        if (weeklyRageQuests.Tick())
+            if (weeklyRageQuests.Tick())
+                quests.Reset();
+            if (!weeklyRageQuests.IsProcessing && dailyQuestFilter.Tick())
+                quests.Reset();
+        }
+        else
+        {
+            WeeklyQuestGenerationBridge.DiscardPending();
+            DailyQuestGenerationBridge.DiscardPending();
+            weeklyRageQuests.Reset();
+            dailyQuestFilter.Reset();
             quests.Reset();
-        if (!weeklyRageQuests.IsProcessing && dailyQuestFilter.Tick())
-            quests.Reset();
+        }
         TickPurchases(now);
     }
 
@@ -124,7 +159,8 @@ public sealed class AutoProgressionRuntime : MonoBehaviour
         // Rage Pill is time-sensitive and uses its own configured check
         // interval, so it is not held behind the startup delay. A successful
         // Rage Pill action still occupies the shared one-second action slot.
-        if (ragePill.Tick(now))
+        bool craftablesEnabled = Plugin.Config.EnableCraftableAutomation.Value;
+        if (craftablesEnabled && ragePill.Tick(now))
         {
             nextItemActionTime = now + ItemActionIntervalSeconds;
             return;
@@ -139,11 +175,14 @@ public sealed class AutoProgressionRuntime : MonoBehaviour
         if (now < itemActionsReadyAt || now < nextItemActionTime)
             return;
 
-        bool acted = questAssistCraftables.Tick(now) ||
-                     timedCraftables.Tick(now) ||
-                     shardsNecklace.Tick(now) ||
-                     dragonScaleOverflow.Tick(now) ||
-                     eggOpening.Tick(now);
+        bool acted = craftablesEnabled &&
+                     (questAssistCraftables.Tick(now) ||
+                      timedCraftables.Tick(now) ||
+                      shardsNecklace.Tick(now) ||
+                      dragonScaleOverflow.Tick(now));
+
+        if (!acted)
+            acted = eggOpening.Tick(now);
 
         if (acted)
             nextItemActionTime = now + ItemActionIntervalSeconds;
@@ -153,7 +192,10 @@ public sealed class AutoProgressionRuntime : MonoBehaviour
     {
         ascensionLockUntil = now + PostAscensionLockSeconds;
         ascension.Reset();
-        ResetOperationalServices(discardWeeklyQuestWork: true);
+        // Normal Ascension does not invalidate active Daily or Weekly Quests.
+        // Preserve generated-set work captured immediately before Ascension so
+        // it can resume after the global transaction lock.
+        ResetOperationalServices(discardWeeklyQuestWork: false);
         ProgressionLog.User(
             $"{reason}; other automation paused for {PostAscensionLockSeconds:0.#} seconds and cached objects were cleared.");
     }
@@ -161,6 +203,7 @@ public sealed class AutoProgressionRuntime : MonoBehaviour
     private void ResetOperationalServices(bool discardWeeklyQuestWork)
     {
         paidBonuses.Reset();
+        minions.Reset();
         ragePill.Reset();
         timedCraftables.Reset();
         shardsNecklace.Reset();
@@ -181,18 +224,6 @@ public sealed class AutoProgressionRuntime : MonoBehaviour
 
     private void TickPurchases(float now)
     {
-        bool equipmentFirst = string.Equals(
-            Plugin.Config.PurchasePriority.Value,
-            "Equipment",
-            System.StringComparison.OrdinalIgnoreCase);
-
-        if (equipmentFirst)
-        {
-            equipmentPurchases.Tick(now);
-            skillPurchases.Tick(now);
-            return;
-        }
-
         skillPurchases.Tick(now);
         if (equipmentPurchases.Tick(now))
             skillPurchases.Tick(now);
@@ -202,6 +233,11 @@ public sealed class AutoProgressionRuntime : MonoBehaviour
     {
         autoProgressionEnabled = !autoProgressionEnabled;
         ResetRuntimeState();
+        if (!autoProgressionEnabled)
+        {
+            quests.StopPersistentAutomation();
+            questAutomationWasEnabled = false;
+        }
 
         string message = autoProgressionEnabled
             ? "AutoProgression Activated!"
@@ -221,10 +257,13 @@ public sealed class AutoProgressionRuntime : MonoBehaviour
         readyLogged = false;
         pendingAscensionReset = false;
         ascensionLockUntil = 0f;
+        questAutomationWasEnabled = false;
     }
 
     public void OnDisable()
     {
+        armoryBoxes.Reset();
+        silverBoxes.Reset();
         ResetRuntimeState();
     }
 }

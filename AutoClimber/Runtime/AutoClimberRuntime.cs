@@ -48,6 +48,10 @@ public sealed partial class AutoClimberRuntime : MonoBehaviour
     private const float NormalLandingSafeHalfWidth = 0.72f;
     private const float StrongLandingSafeHalfWidth = 0.64f;
     private const float BreakableLandingSafeHalfWidth = 0.55f;
+    private const float BoostFinalCenterHalfWidth = 0.30f;
+    private const float IncidentalEnemyMaximumHorizontalDistance = 3.00f;
+    private const float IncidentalEnemyMaximumReturnDistance = 2.20f;
+    private const float IncidentalEnemyReturnReserveSeconds = 0.45f;
 
     // Moving platforms reverse at the horizontal play-area boundaries.
     // Raw linear prediction can produce impossible positions such as X=8.
@@ -359,6 +363,8 @@ public sealed partial class AutoClimberRuntime : MonoBehaviour
     private readonly HashSet<int> attemptedEnemyInterceptIds =
         new HashSet<int>();
 
+    private int activeAirborneEnemyInterceptId;
+
     private readonly HashSet<long> observedGenerationResetKeys =
         new HashSet<long>();
 
@@ -398,7 +404,7 @@ public sealed partial class AutoClimberRuntime : MonoBehaviour
         InitializeAutomationSettings();
 
         ClimberLog.User(
-            "AutoClimber route planner V6.0.1 initialized. " +
+            "AutoClimber route planner V6.2.1 initialized. " +
             "Generation-aware pooling, apex-retention tiers and center-return routing are active; " +
             "the runtime remains dormant outside Ascending Heights; " +
             "safe enemy-touch targeting is available. " +
@@ -1047,6 +1053,8 @@ public sealed partial class AutoClimberRuntime : MonoBehaviour
         runSummaryLogged = false;
         runEnemiesDetected = 0;
         detectedEnemyIds.Clear();
+        attemptedEnemyInterceptIds.Clear();
+        activeAirborneEnemyInterceptId = 0;
         EnemyDiagnosticsBridge.BeginRun();
 
         velocityInitialized = true;

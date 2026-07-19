@@ -14,7 +14,7 @@ This manual covers configuration version 10. New users should begin with the
 3. [Ascension and Purchases](docs/03-ascension-and-purchases.md)
 4. [Craftables and Materials](docs/04-craftables-and-materials.md)
 5. [Quest Maintenance](docs/05-quest-maintenance.md)
-6. [Eggs and Paid Bonuses](docs/06-eggs-and-paid-bonuses.md)
+6. [Minions, Eggs, and Paid Bonuses](docs/06-eggs-and-paid-bonuses.md)
 7. [Runtime Scope and Safety](docs/07-runtime-and-safety.md)
 8. [Configuration Reference](docs/08-configuration.md)
 9. [Logging Reference](docs/09-logging.md)
@@ -54,4 +54,3 @@ turned off.
 
 If these mods save you time, you can support continued development through
 [PayPal](https://www.paypal.com/donate/?business=HK85PL8AREEXY&no_recurring=0&currency_code=USD).
-

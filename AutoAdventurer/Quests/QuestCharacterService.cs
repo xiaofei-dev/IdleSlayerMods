@@ -104,6 +104,6 @@ internal sealed class QuestCharacterService
         string displayName = skin?.localizedName;
         return string.IsNullOrWhiteSpace(displayName)
             ? id
-            : $"{displayName} ({id})";
+            : $"{LogText.Normalize(displayName)} ({id})";
     }
 }
