@@ -254,6 +254,7 @@ internal sealed class PlatformScanner
 
         bool hasEnemy = false;
         int enemyInstanceId = 0;
+        long enemyLogicalKey = 0L;
         float enemyOffsetX = 0f;
         float enemyOffsetY = 0f;
         float enemyWidth = 0f;
@@ -289,6 +290,12 @@ internal sealed class PlatformScanner
                 enemyInstanceId = enemyComponent != null
                     ? enemyComponent.GetInstanceID()
                     : enemyObject.GetInstanceID();
+                enemyLogicalKey = EnemyDiagnosticsBridge.Observe(
+                    enemyInstanceId,
+                    gameObject.GetInstanceID(),
+                    track.Generation,
+                    enemyCenter
+                );
                 enemyOffsetX = enemyCenter.x - currentPosition.x;
                 enemyOffsetY = enemyCenter.y - currentPosition.y;
             }
@@ -351,6 +358,7 @@ internal sealed class PlatformScanner
 
                 HasEnemy = hasEnemy,
                 EnemyInstanceId = enemyInstanceId,
+                EnemyLogicalKey = enemyLogicalKey,
                 EnemyOffsetX = enemyOffsetX,
                 EnemyOffsetY = enemyOffsetY,
                 EnemyWidth = enemyWidth,

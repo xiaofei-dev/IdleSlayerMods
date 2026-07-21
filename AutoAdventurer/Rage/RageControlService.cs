@@ -190,7 +190,7 @@ internal sealed class RageControlService
         }
 
         float maximumDuration = Math.Max(0f,
-            Plugin.Config.MaximumRageDurationSeconds.Value);
+            Plugin.Config.MaximumRageDurationSecondsValue);
         if (maximumDuration > 0f &&
             now - automaticRageStartedAt >= maximumDuration)
         {
@@ -226,10 +226,10 @@ internal sealed class RageControlService
         {
             observationPending = true;
             observationReadyAt = now + Math.Max(0f,
-                Plugin.Config.PostRageObservationSeconds.Value);
+                Plugin.Config.PostRageObservationSecondsValue);
             nextBlockerPollTime = observationReadyAt;
             AdventurerLog.Debug(
-                $"Post-Rage protection scheduled for {Plugin.Config.PostRageObservationSeconds.Value:0.#} seconds.");
+                $"Post-Rage protection scheduled for {Plugin.Config.PostRageObservationSecondsValue:0.#} seconds.");
         }
     }
 
@@ -267,7 +267,7 @@ internal sealed class RageControlService
         manager.currentState == RageModeManager.RageModeStates.Execution;
 
     private static float GetActivationInterval() =>
-        Math.Max(0.1f, Plugin.Config.ActivationCheckIntervalSeconds.Value);
+        Math.Max(0.1f, Plugin.Config.ActivationCheckIntervalSecondsValue);
 
     private void ResolveManager(float now, bool force = false)
     {

@@ -4369,7 +4369,7 @@ public sealed partial class AutoClimberRuntime
                     ? 0.80f
                     : 0.45f))
         {
-            activeAirborneEnemyInterceptId = 0;
+            activeAirborneEnemyInterceptKey = 0L;
             return false;
         }
 
@@ -4397,7 +4397,7 @@ public sealed partial class AutoClimberRuntime
             if (nearby == null ||
                 !nearby.HasEnemy ||
                 EnemyDiagnosticsBridge.WasHit(
-                    nearby.EnemyInstanceId))
+                    nearby.EnemyLogicalKey))
             {
                 continue;
             }
@@ -4464,8 +4464,8 @@ public sealed partial class AutoClimberRuntime
                 interceptDistance +
                 Mathf.Abs(verticalOffset) * 0.12f -
                 (belongsToRouteTarget ? 0.35f : 0f) -
-                (nearby.EnemyInstanceId ==
-                    activeAirborneEnemyInterceptId
+                (nearby.EnemyLogicalKey ==
+                    activeAirborneEnemyInterceptKey
                     ? 1.25f
                     : 0f);
 
@@ -4483,12 +4483,12 @@ public sealed partial class AutoClimberRuntime
 
         if (candidate == null)
         {
-            activeAirborneEnemyInterceptId = 0;
+            activeAirborneEnemyInterceptKey = 0L;
             return false;
         }
 
-        activeAirborneEnemyInterceptId =
-            candidate.EnemyInstanceId;
+        activeAirborneEnemyInterceptKey =
+            candidate.EnemyLogicalKey;
 
         float hitHalfWidth =
             Mathf.Clamp(
@@ -4506,10 +4506,11 @@ public sealed partial class AutoClimberRuntime
         );
 
         if (attemptedEnemyInterceptIds.Add(
-                candidate.EnemyInstanceId))
+                candidate.EnemyLogicalKey))
         {
             LogVerbose(
                 $"Enemy intercept started: EnemyId={candidate.EnemyInstanceId}, " +
+                $"EnemyKey={candidate.EnemyLogicalKey}, " +
                 $"PlatformId={candidate.InstanceId}, " +
                 $"Source={(incidentalIntercept ? "Nearby" : "Target")}, " +
                 $"EnemyX={enemyX:F2}, EnemyY={enemyY:F2}, " +

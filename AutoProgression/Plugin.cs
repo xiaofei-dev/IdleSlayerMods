@@ -19,12 +19,23 @@ public class Plugin : MelonMod
     public override void OnInitializeMelon()
     {
         ModHelper.ModHelperMounted += SetModHelperInstance;
+        WarnIfConfigurationIsMissing();
         Config = new(AutoProgressionInfo.PluginGuid);
         HarmonyInstance.PatchAll();
         ProgressionLog.User(
             $"Plugin {AutoProgressionInfo.PluginGuid} v{AutoProgressionInfo.PluginVersion} " +
             $"(internal {AutoProgressionInfo.InternalVersion}) loaded; " +
             $"configuration schema v{AutoProgressionConfig.CurrentConfigurationVersion}.");
+    }
+
+    private static void WarnIfConfigurationIsMissing()
+    {
+        string path = System.IO.Path.Combine(
+            MelonLoader.Utils.MelonEnvironment.UserDataDirectory,
+            $"{AutoProgressionInfo.PluginGuid}.cfg");
+        if (!System.IO.File.Exists(path))
+            ProgressionLog.User(
+                $"Configuration file was not found at '{path}'. Default settings will be used and a new file will be created when the game saves preferences. Verify that your Mod Manager edits this exact file.");
     }
 
     private static void SetModHelperInstance(ModHelper instance)

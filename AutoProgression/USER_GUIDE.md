@@ -168,6 +168,12 @@ Prestige is unlocked. A standing Minion must have a level above 1 and a maximum
 level of at least 70. The service raises that Minion to its maximum level for
 the prestige action.
 
+When this setting is enabled, manually triggered prestige uses the selected
+Minion's maximum level even when its maximum level is below 70 and while the
+global `T` automation toggle is off. The 70 maximum-level threshold applies
+only to automatic prestige. Disabling the setting restores the game's normal
+manual prestige behavior.
+
 With both settings enabled, the order is claim, prestige when eligible, then
 send. With only automatic prestige enabled, manually claiming a mission leaves
 the Minion standing by for the next automatic prestige check.

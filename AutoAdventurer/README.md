@@ -301,7 +301,7 @@ If these mods save you time, you can support continued development through
 
 ## Versioning
 
-- Public release version: `1.1.0`
+- Public release version: `1.1.1`
 - Internal development version: `V0.76`
 
 ## Disclaimer

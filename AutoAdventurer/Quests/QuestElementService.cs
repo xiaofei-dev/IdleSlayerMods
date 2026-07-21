@@ -162,13 +162,25 @@ internal sealed class QuestElementService
         Divinity desired = null;
         foreach (Quest quest in quests)
         {
-            EnemyType candidateType = GetRequiredElementType(quest, elemental);
-            Divinity candidateDivinity = FindForType(elemental, candidateType);
-            if (candidateType == null || candidateDivinity == null) continue;
-            chosenQuest = quest;
-            requiredType = candidateType;
-            desired = candidateDivinity;
-            break;
+            try
+            {
+                EnemyType candidateType = GetRequiredElementType(
+                    quest, elemental);
+                Divinity candidateDivinity = FindForType(
+                    elemental, candidateType);
+                if (candidateType == null || candidateDivinity == null)
+                    continue;
+                chosenQuest = quest;
+                requiredType = candidateType;
+                desired = candidateDivinity;
+                break;
+            }
+            catch
+            {
+                // A completed/replaced quest can retain an invalid IL2CPP
+                // enemy wrapper for a few frames. Skip only that definition
+                // so it cannot abort every subsequent five-second scan.
+            }
         }
 
         if (chosenQuest == null)

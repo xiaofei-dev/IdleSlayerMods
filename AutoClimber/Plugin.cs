@@ -3,6 +3,7 @@ using MelonLoader;
 using HarmonyLib;
 using UnityEngine;
 using AutoClimber.Configuration;
+using AutoClimber.Diagnostics;
 
 [assembly: MelonInfo(typeof(AutoClimber.AutoClimberPlugin), AutoClimber.AutoClimberInfo.PluginName, AutoClimber.AutoClimberInfo.PluginVersion, AutoClimber.AutoClimberInfo.PluginAuthor)]
 [assembly: MelonAdditionalDependencies("IdleSlayerMods.Common")]
@@ -22,7 +23,18 @@ public sealed class AutoClimberPlugin : MelonMod
         Application.runInBackground = true;
         ModHelper.ModHelperMounted +=
             instance => ModHelperInstance = instance;
+        WarnIfConfigurationIsMissing();
         Config = new(AutoClimberInfo.PluginGuid);
+    }
+
+    private static void WarnIfConfigurationIsMissing()
+    {
+        string path = System.IO.Path.Combine(
+            MelonLoader.Utils.MelonEnvironment.UserDataDirectory,
+            $"{AutoClimberInfo.PluginGuid}.cfg");
+        if (!System.IO.File.Exists(path))
+            ClimberLog.User(
+                $"Configuration file was not found at '{path}'. Default settings will be used and a new file will be created when the game saves preferences. Verify that your Mod Manager edits this exact file.");
     }
 
     public override void OnSceneWasLoaded(int buildIndex, string sceneName)

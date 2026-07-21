@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 using AutoAdventurer.Diagnostics;
 using AutoAdventurer.Rage;
 using AutoAdventurer.Gameplay;
@@ -50,6 +51,17 @@ public sealed class AutoAdventurerRuntime : MonoBehaviour
             "Quest Automation Toggle Key");
         AdventurerLog.User(
             $"Automatic Rage is ready. Press {toggleKey} to toggle automation and {stopKey} to end the current Rage Mode.");
+        AdventurerLog.Debug(
+            "Numeric configuration loaded: " +
+            $"minimumDimensionStayMinutes={Plugin.Config.MinimumDimensionStayMinutesValue.ToString("R", CultureInfo.InvariantCulture)}, " +
+            $"maximumQuestTimeMinutes={Plugin.Config.MaximumQuestTimeMinutesValue.ToString("R", CultureInfo.InvariantCulture)}, " +
+            $"rageCheckInterval={Plugin.Config.ActivationCheckIntervalSecondsValue.ToString("R", CultureInfo.InvariantCulture)}, " +
+            $"maximumRageDuration={Plugin.Config.MaximumRageDurationSecondsValue.ToString("R", CultureInfo.InvariantCulture)}, " +
+            $"postRageProtection={Plugin.Config.PostRageObservationSecondsValue.ToString("R", CultureInfo.InvariantCulture)}, " +
+            $"boostActivationDelay={Plugin.Config.AutoBoostActivationDelaySecondsValue.ToString("R", CultureInfo.InvariantCulture)}, " +
+            $"silverReleaseThreshold={Plugin.Config.PermanentSilverBoxReleaseAboveDivinityPointsValue.ToString("R", CultureInfo.InvariantCulture)}, " +
+            $"culture={CultureInfo.CurrentCulture.Name}, " +
+            $"decimalSeparator={CultureInfo.CurrentCulture.NumberFormat.NumberDecimalSeparator}.");
     }
 
     public void Update()
@@ -65,7 +77,7 @@ public sealed class AutoAdventurerRuntime : MonoBehaviour
             silverBoxes.Tick(Time.unscaledTime,
                 Plugin.Config.EnableSilverBoxControl.Value,
                 Plugin.Config.AutoReleaseSilverBoxLock.Value,
-                Plugin.Config.PermanentSilverBoxReleaseAboveDivinityPoints.Value);
+                Plugin.Config.PermanentSilverBoxReleaseAboveDivinityPointsValue);
             if (questElements.Tick(Time.unscaledTime,
                     questAutomationEnabled &&
                     Plugin.Config.AutoAlignElementalDivinities.Value))

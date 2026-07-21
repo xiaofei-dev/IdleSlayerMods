@@ -214,7 +214,7 @@ internal sealed class QuestTravelService
             if (pendingTravelPortalReadyAt <= 0f)
             {
                 float protectionSeconds = Math.Max(0f,
-                    Plugin.Config.PostRageObservationSeconds.Value);
+                    Plugin.Config.PostRageObservationSecondsValue);
                 pendingTravelPortalReadyAt = now +
                     protectionSeconds;
                 postRagePortalBlockedUntil = Math.Max(
@@ -319,9 +319,9 @@ internal sealed class QuestTravelService
 
         if (!string.IsNullOrEmpty(lockedQuestKey))
         {
-            float watchdogMinutes = Math.Max(0f,
-                Plugin.Config.MaximumQuestTimeMinutes.Value);
-            if (watchdogMinutes > 0f && lockedQuestStartedAt > 0f &&
+            double watchdogMinutes = Math.Max(0d,
+                Plugin.Config.MaximumQuestTimeMinutesValue);
+            if (watchdogMinutes > 0d && lockedQuestStartedAt > 0f &&
                 Time.unscaledTime - lockedQuestStartedAt >=
                 watchdogMinutes * 60f)
             {
@@ -946,8 +946,8 @@ internal sealed class QuestTravelService
     private bool MinimumStayElapsed(float now)
     {
         if (lastAutomaticArrivalAt < 0f) return true;
-        float seconds = Math.Max(0f,
-            Plugin.Config.MinimumDimensionStayMinutes.Value) * 60f;
+        double seconds = Math.Max(0d,
+            Plugin.Config.MinimumDimensionStayMinutesValue) * 60f;
         return now - lastAutomaticArrivalAt >= seconds;
     }
 

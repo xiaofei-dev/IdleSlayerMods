@@ -6,7 +6,7 @@ namespace AutoProgression.Configuration;
 
 internal sealed class AutoProgressionConfig(string configName) : BaseConfig(configName)
 {
-    internal const int CurrentConfigurationVersion = 21;
+    internal const int CurrentConfigurationVersion = 23;
     private const string LegacySection = "AutoProgression";
 
     internal MelonPreferences_Entry<int> ConfigurationVersion;
@@ -90,7 +90,7 @@ internal sealed class AutoProgressionConfig(string configName) : BaseConfig(conf
             "While AutoProgression is active, claim completed unlocked Minion missions and send standing Minions again when their Slayer Point cost is affordable.", migrateLegacyValues);
         EnableAutomaticMinionPrestige = BindMigrated(
             "Minions", "Automatic Maximum-Level Prestige", "Minions - Automatic Maximum-Level Prestige", false,
-            "While AutoProgression is active and Minion Prestige is unlocked, automatically prestige standing Minions whose level is above 1 and whose maximum level is at least 70. The eligible Minion is raised to its maximum level for that prestige.", migrateLegacyValues);
+            "Use maximum-level prestige for every manually prestiged Minion, independently from the T toggle. Automatic prestige requires AutoProgression to be active and processes only Minions whose maximum level is at least 70.", migrateLegacyValues);
 
         EnableEggOpening = BindMigrated(
             "Egg Opening", "Enabled", "Egg Opening - Enabled", false,

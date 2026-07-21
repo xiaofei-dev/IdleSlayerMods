@@ -1,0 +1,9 @@
+{
+  "name": "AutoBonusRunner",
+  "author": "Tashi",
+  "version": "1.0.0",
+  "description": "Automatically plays and completes Bonus Stages through precise jump timing. It does not skip the stage.",
+  "nexus_id": "",
+  "donate_url": "",
+  "github_url": ""
+}

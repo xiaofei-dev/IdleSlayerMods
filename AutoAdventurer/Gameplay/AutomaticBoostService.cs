@@ -15,6 +15,8 @@ internal sealed class AutomaticBoostService
     // had already been declared safe.
     private const float RunnerStableSeconds = 0f;
     private const float RepeatedActionLogIntervalSeconds = 30f;
+    private const float StationaryGroundFallbackSeconds = 0.25f;
+    private const float StationaryVerticalTolerance = 0.0025f;
     private const int RequiredStableAbilityChecks = 3;
 
     private float nextCheckTime;
@@ -22,12 +24,16 @@ internal sealed class AutomaticBoostService
     private float runnerValidSince = -1f;
     private float cooldownReadySince = -1f;
     private float nextTriggerLogTime;
+    private float nextUnavailableLogTime;
     private bool hasFirstSkillState;
     private bool previousFirstSkillBought;
     private string stableAbilityType = string.Empty;
     private int stableAbilityChecks;
     private bool managerMissingLogged;
     private bool immediateActivationRequested;
+    private float lastPlayerY;
+    private float verticallyStationarySince = -1f;
+    private bool hasPlayerY;
 
     internal void RequestImmediateActivation(float now)
     {
@@ -54,7 +60,7 @@ internal sealed class AutomaticBoostService
         {
             // Resolve the authoritative singleton every pass. Ascension can
             // rebuild ability objects without forcing GameState out of Runner.
-            AbilitiesManager manager = AbilitiesManager.instance;
+            AbilitiesManager manager = ResolveAbilitiesManager();
             if (manager == null)
             {
                 ResetAbilityStability();
@@ -78,7 +84,7 @@ internal sealed class AutomaticBoostService
             // ability icon is the authority. Supported minigames and reward
             // sections expose Wind Dash only while it can actually be used.
             // Normal Boost remains outside this minigame automation path.
-            if (minigameAbilityMode && selected is not WindDash)
+            if (minigameAbilityMode && !IsWindDash(selected))
             {
                 immediateActivationRequested = false;
                 ResetAbilityStability();
@@ -88,14 +94,19 @@ internal sealed class AutomaticBoostService
             bool immediate = immediateActivationRequested;
             if (immediate)
             {
-                if (selected is not Boost && selected is not WindDash)
+                if (!IsSupportedAbility(selected))
                 {
+                    LogUnavailableAbility(now, selected);
                     immediateActivationRequested = false;
                     ResetAbilityStability();
                     return;
                 }
             }
-            else if (!TrackStableSupportedAbility(selected)) return;
+            else if (!TrackStableSupportedAbility(selected))
+            {
+                if (!IsSupportedAbility(selected)) LogUnavailableAbility(now, selected);
+                return;
+            }
 
             if (now < suspendedUntil) return;
             if (!selected.Unlocked())
@@ -118,7 +129,7 @@ internal sealed class AutomaticBoostService
             }
 
             double activationDelay = Math.Max(0d,
-                Plugin.Config.AutoBoostActivationDelaySeconds.Value);
+                Plugin.Config.AutoBoostActivationDelaySecondsValue);
             if (!immediate && now - cooldownReadySince < activationDelay) return;
 
             // Wind Dash can pass above portals and elite enemies when it is
@@ -126,9 +137,9 @@ internal sealed class AutomaticBoostService
             // is therefore safer than comparing an absolute world Y value.
             // Once the ability is ready, poll every frame until the player is
             // back at the safe height; no additional activation delay is used.
-            if (selected is WindDash &&
+            if (IsWindDash(selected) &&
                 Plugin.Config.WindDashRequireGrounded.Value &&
-                !IsWindDashHeightSafe())
+                !IsWindDashHeightSafe(now))
             {
                 nextCheckTime = now;
                 return;
@@ -206,7 +217,7 @@ internal sealed class AutomaticBoostService
 
     private bool TrackStableSupportedAbility(Ability selected)
     {
-        if (selected is not Boost && selected is not WindDash)
+        if (!IsSupportedAbility(selected))
         {
             ResetAbilityStability();
             return false;
@@ -244,10 +255,83 @@ internal sealed class AutomaticBoostService
     private static string GetAbilityName(Ability ability) =>
         ability?.GetIl2CppType()?.Name ?? "Unknown";
 
-    private static bool IsWindDashHeightSafe()
+    private static bool IsWindDash(Ability ability) =>
+        string.Equals(GetAbilityName(ability), nameof(WindDash), StringComparison.Ordinal);
+
+    private static bool IsSupportedAbility(Ability ability)
+    {
+        string name = GetAbilityName(ability);
+        return string.Equals(name, nameof(Boost), StringComparison.Ordinal) ||
+               string.Equals(name, nameof(WindDash), StringComparison.Ordinal);
+    }
+
+    private static AbilitiesManager ResolveAbilitiesManager()
+    {
+        AbilitiesManager singleton = AbilitiesManager.instance;
+        if (singleton != null && IsSupportedAbility(singleton.selectedAbility))
+            return singleton;
+
+        // Scene reloads can leave the static IL2CPP singleton pointing at an
+        // obsolete manager while the ability button is already bound to the
+        // replacement. Prefer the loaded manager that exposes the supported
+        // ability the player can currently use.
+        AbilitiesManager[] managers = Resources.FindObjectsOfTypeAll<AbilitiesManager>();
+        foreach (AbilitiesManager candidate in managers)
+        {
+            if (candidate != null && IsSupportedAbility(candidate.selectedAbility))
+                return candidate;
+        }
+
+        return singleton;
+    }
+
+    private void LogUnavailableAbility(float now, Ability selected)
+    {
+        if (now < nextUnavailableLogTime) return;
+        nextUnavailableLogTime = now + 30f;
+        AdventurerLog.Debug(
+            $"Auto Boost is enabled but no supported selected ability was resolved; selected={GetAbilityName(selected)}.");
+    }
+
+    private bool IsWindDashHeightSafe(float now)
     {
         PlayerMovement player = PlayerMovement.instance;
-        return player != null && player.IsGrounded();
+        if (player == null)
+        {
+            ResetGroundObservation();
+            return false;
+        }
+
+        float currentY = player.transform.position.y;
+        if (player.IsGrounded())
+        {
+            lastPlayerY = currentY;
+            hasPlayerY = true;
+            verticallyStationarySince = now;
+            return true;
+        }
+
+        // IsGrounded can remain false while the character stands continuously
+        // on the floor; jumping causes the game to refresh that contact flag,
+        // which previously made AutoJump appear to fix Auto Boost. Treat a
+        // sustained, virtually unchanged Y position as grounded too. The
+        // duration prevents the brief apex of a jump from passing this check.
+        if (!hasPlayerY || Math.Abs(currentY - lastPlayerY) > StationaryVerticalTolerance)
+        {
+            lastPlayerY = currentY;
+            hasPlayerY = true;
+            verticallyStationarySince = now;
+            return false;
+        }
+
+        return verticallyStationarySince >= 0f &&
+               now - verticallyStationarySince >= StationaryGroundFallbackSeconds;
+    }
+
+    private void ResetGroundObservation()
+    {
+        hasPlayerY = false;
+        verticallyStationarySince = -1f;
     }
 
     internal void Reset()
@@ -255,11 +339,13 @@ internal sealed class AutomaticBoostService
         nextCheckTime = 0f;
         suspendedUntil = 0f;
         nextTriggerLogTime = 0f;
+        nextUnavailableLogTime = 0f;
         runnerValidSince = -1f;
         hasFirstSkillState = false;
         previousFirstSkillBought = false;
         managerMissingLogged = false;
         immediateActivationRequested = false;
+        ResetGroundObservation();
         ResetAbilityStability();
     }
 }

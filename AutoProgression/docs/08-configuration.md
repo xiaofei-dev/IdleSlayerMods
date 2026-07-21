@@ -1,6 +1,6 @@
 # Configuration Reference
 
-The configuration schema is version 21. Entries are grouped by purpose.
+The configuration schema is version 23. Entries are grouped by purpose.
 
 ## General and Ascension
 
@@ -26,7 +26,7 @@ The configuration schema is version 21. Entries are grouped by purpose.
 | Setting | Default | Meaning |
 |---|---:|---|
 | Auto Claim and Send | `true` | Claims completed unlocked Minion missions and sends affordable missions again. |
-| Automatic Maximum-Level Prestige | `false` | When Prestige is unlocked, raises eligible standing Minions with `maxLevel >= 70` to maximum level for automatic prestige. |
+| Automatic Maximum-Level Prestige | `false` | Automatic prestige processes Minions with `maxLevel >= 70`; manual prestige uses maximum level for every Minion and is independent from `T`. |
 
 The prestige option deliberately changes the Minion level used for prestige;
 disable it if normal Minion level progression should be preserved.
