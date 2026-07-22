@@ -16,14 +16,13 @@ public sealed class AutoAdventurerRuntime : MonoBehaviour
     private const float RepeatedBattleModeLogIntervalSeconds = 60f;
 
     private readonly MainScreenGuard rageScreen = new(blockMainScreenMenus: false);
-    private readonly MainScreenGuard boostScreen = new(
-        blockMainScreenMenus: false,
-        allowBonusMode: true);
+    private readonly MainScreenGuard boostScreen = new(blockMainScreenMenus: false);
     private readonly MainScreenGuard questScreen = new(blockMainScreenMenus: false);
     private readonly RageControlService rage = new();
     private readonly SliderSkipService sliderSkip = new();
     private readonly AutoBossService autoBoss = new();
     private readonly AutomaticBoostService autoBoost = new();
+    private readonly AutomaticJumpAttackService autoJumpAttack = new();
     private readonly SilverBoxQuestService silverBoxes = new();
     private readonly QuestElementService questElements = new();
     private readonly QuestTravelService questTravel = new();
@@ -134,11 +133,18 @@ public sealed class AutoAdventurerRuntime : MonoBehaviour
                 if (!wasBoostReady)
                     AdventurerLog.Debug(
                         "Auto Boost resumed after the central gameplay scene stabilized.");
+                autoJumpAttack.Tick(
+                    Time.unscaledTime,
+                    automaticBoostEnabled,
+                    Plugin.Config.AutoJump.Value,
+                    Plugin.Config.AutoShootArrows.Value,
+                    Plugin.Config.ArrowAttackFrequency.Value);
                 autoBoost.Tick(Time.unscaledTime, automaticBoostEnabled);
             }
             else if (wasBoostReady)
             {
                 autoBoost.Reset();
+                autoJumpAttack.Reset();
                 AdventurerLog.Debug(
                     "Auto Boost paused outside the central gameplay scene.");
             }
@@ -187,6 +193,8 @@ public sealed class AutoAdventurerRuntime : MonoBehaviour
             automaticBoostEnabled = !automaticBoostEnabled;
             if (automaticBoostEnabled)
                 autoBoost.RequestImmediateActivation(Time.unscaledTime);
+            else
+                autoJumpAttack.Reset();
             string state = automaticBoostEnabled ? "enabled" : "disabled";
             AdventurerLog.User($"Auto Boost {state}.");
             Plugin.ModHelperInstance?.ShowNotification(
@@ -234,6 +242,7 @@ public sealed class AutoAdventurerRuntime : MonoBehaviour
         sliderSkip.Reset();
         autoBoss.Reset();
         autoBoost.Reset();
+        autoJumpAttack.Reset();
         silverBoxes.Reset();
         questElements.Reset();
         questTravel.Reset();

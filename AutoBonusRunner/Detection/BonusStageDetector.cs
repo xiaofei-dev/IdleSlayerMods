@@ -1,4 +1,5 @@
 using Il2Cpp;
+using AutoBonusRunner.Diagnostics;
 using UnityEngine;
 
 namespace AutoBonusRunner.Detection;
@@ -7,6 +8,7 @@ internal sealed class BonusStageDetector
 {
     private int stableRequiredSection = -1;
     private double stableRequiredSpheres = double.NaN;
+    private bool rewardFlagReadFailureLogged;
 
     internal BonusStageState Capture()
     {
@@ -15,6 +17,7 @@ internal sealed class BonusStageDetector
         {
             stableRequiredSection = -1;
             stableRequiredSpheres = double.NaN;
+            rewardFlagReadFailureLogged = false;
             return BonusStageState.Outside(gameStateName);
         }
 
@@ -82,6 +85,42 @@ internal sealed class BonusStageDetector
         bool characterFellOff = controller?.characterFellOff ?? false;
         bool spiritBoostEnabled = controller?.spiritBoostEnabled ?? false;
         bool isTimerVisible = controller?.showCurrentTime ?? false;
+        bool waitingForRewardZone = false;
+        bool rewardZoneEntered = false;
+        bool givingRewards = false;
+        bool rewardFlagsAvailable = false;
+        try
+        {
+            if (controller != null)
+            {
+                waitingForRewardZone = controller.waitForRewardZone;
+                rewardZoneEntered = controller.rewardZone;
+                givingRewards = controller.givingRewards;
+                rewardFlagsAvailable = true;
+                if (rewardFlagReadFailureLogged)
+                {
+                    rewardFlagReadFailureLogged = false;
+                    BonusRunnerLog.Debug(
+                        "Native reward flags are readable again.",
+                        "Detection");
+                }
+            }
+        }
+        catch (System.Exception exception)
+        {
+            // Reward flags are independent diagnostics/control evidence. A
+            // transient wrapper read failure must not invalidate terrain and
+            // player state captured in the same frame.
+            if (!rewardFlagReadFailureLogged)
+            {
+                rewardFlagReadFailureLogged = true;
+                BonusRunnerLog.Warning(
+                    $"Native reward flags unavailable: " +
+                    $"{exception.GetType().Name}: {exception.Message}. " +
+                    "These flags are diagnostic only; terrain control and " +
+                    "the independent typed reward-target scan continue.");
+            }
+        }
 
         if (player == null)
             return new(
@@ -101,6 +140,10 @@ internal sealed class BonusStageDetector
                 characterFellOff,
                 spiritBoostEnabled,
                 isTimerVisible,
+                rewardFlagsAvailable,
+                waitingForRewardZone,
+                rewardZoneEntered,
+                givingRewards,
                 isSupportedBonusMap);
 
         Rigidbody2D body = player.GetComponent<Rigidbody2D>();
@@ -121,6 +164,10 @@ internal sealed class BonusStageDetector
             characterFellOff,
             spiritBoostEnabled,
             isTimerVisible,
+            rewardFlagsAvailable,
+            waitingForRewardZone,
+            rewardZoneEntered,
+            givingRewards,
             isSupportedBonusMap);
     }
 }

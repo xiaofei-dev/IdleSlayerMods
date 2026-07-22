@@ -51,6 +51,8 @@ Available settings include:
 - `Toggle Key`: keyboard key used to toggle automation.
 - `Auto Retry Enabled`: continue after a failed run when enabled; automatically
   choose No and exit the challenge when disabled.
+- `Skip Start Slider`: wait one second and automatically confirm the
+  Ascending Heights start slider if another mod has not already handled it.
 - `Mode`: `Auto` plays the full route only for an incomplete Ascending Heights
   enemy quest, `Normal` always plays the full route, and `Skip` always uses
   the independent quick-skip path. Quick-skip runs do not affect route

@@ -74,23 +74,6 @@ internal sealed class AutomaticBoostService
 
             managerMissingLogged = false;
             Ability selected = manager.selectedAbility;
-            GameStates state = GameState.current;
-            bool minigameAbilityMode =
-                state != GameStates.RunnerMode &&
-                state != GameStates.RageMode &&
-                MainScreenGuard.IsMainAbilityIconVisible();
-
-            // Outside the central Runner/Rage scene, the real on-screen main
-            // ability icon is the authority. Supported minigames and reward
-            // sections expose Wind Dash only while it can actually be used.
-            // Normal Boost remains outside this minigame automation path.
-            if (minigameAbilityMode && !IsWindDash(selected))
-            {
-                immediateActivationRequested = false;
-                ResetAbilityStability();
-                return;
-            }
-
             bool immediate = immediateActivationRequested;
             if (immediate)
             {
@@ -170,8 +153,7 @@ internal sealed class AutomaticBoostService
     {
         GameStates state = GameState.current;
         if (state != GameStates.RunnerMode &&
-            state != GameStates.RageMode &&
-            !MainScreenGuard.IsMainAbilityIconVisible())
+            state != GameStates.RageMode)
         {
             runnerValidSince = -1f;
             ResetAbilityStability();

@@ -142,6 +142,40 @@ internal sealed class BonusPlatformScanner
         return continuation.Width > 0.05f;
     }
 
+    internal bool TryFindWallSurfaceAtFace(
+        float faceX,
+        float contactFeetY,
+        float playerHalfWidth,
+        out BonusBoardSegment wallSurface)
+    {
+        wallSurface = default;
+        if (mapRegistry.State != BonusMapPieceRegistryState.Ready ||
+            float.IsNaN(faceX))
+        {
+            return false;
+        }
+
+        BonusStaticWorldSurface? candidate = mapRegistry.GetWorldSurfaces(
+                faceX - 0.45f,
+                faceX + 3.0f)
+            .Where(surface =>
+                Mathf.Abs(surface.Left - faceX) <= 0.35f &&
+                surface.Top >= contactFeetY + 0.35f &&
+                surface.Top <= contactFeetY + MaximumWallClimbStepUp &&
+                surface.Right - surface.Left >= 0.75f)
+            .OrderBy(surface => Mathf.Abs(surface.Left - faceX))
+            .ThenBy(surface => surface.Top)
+            .Cast<BonusStaticWorldSurface?>()
+            .FirstOrDefault();
+        if (!candidate.HasValue)
+            return false;
+
+        wallSurface = BuildStaticSegment(
+            candidate.Value,
+            playerHalfWidth);
+        return wallSurface.Width > 0.05f;
+    }
+
     internal BonusBoardSegment[] GetWallExitLandingCandidates(
         BonusBoardSegment currentWall,
         float playerHalfWidth,

@@ -32,6 +32,7 @@ game's native Ascending Heights state.
 ```ini
 Mode = "Normal"
 "Target Enemies" = true
+"Skip Start Slider" = true
 ```
 
 ### Fast completion
@@ -45,6 +46,7 @@ Mode = "Skip"
 ```ini
 Mode = "Auto"
 "Target Enemies" = true
+"Skip Start Slider" = true
 ```
 
 Auto plays the full route only when a compatible unfinished Ascending Heights

@@ -2,9 +2,16 @@
 
 This document records the static Bonus Stage geometry currently known to the mod and representative world-coordinate observations from runtime logs. It is a debugging reference, not a hard-coded route script.
 
-Current source target is public `1.0.0`, internal `V0.31`, schema `4`. V0.31 does not change authored geometry; it corrects the executable interpretation of Ground 6 S1 -> S6 and speed-dependent Ground 7/8 wall exits. Completion traversal remains keyed directly to the live completed quota during `PreBonusMode`.
+Current source target is public `1.0.0`, internal `V0.45`, schema `7`. Authored geometry is unchanged. V0.44 adds a live-position narrow-support chain only after conservative safe launch intervals fail, treats a different exact wall face reached during `ExitFlight` as a new bounded climb target, and stops rewriting the native one-use Second Wind flag. V0.45 adds only scoped delayed start-slider confirmation and makes no map, route, jump, wall, reward, or physics change.
 
 Historical V0.30 deployment identity is length `380928`, SHA-256 `1A7607B4A4D639DA053AC52E69549A19FF40D9660F1C02A66C81E631B63021C2`. V0.31 is synchronized in all four DLL locations at length `394240`, SHA-256 `A1D575CB397EB60B75C9A019C4FBEA0AF27E620BC1B43FA3F2F3AD8270C72EE1`.
+
+Historical V0.35 deployment identity is length `435200`, SHA-256 `BD6F55DFC34D3B40563EAC1015072055A5F8BA686A58FBB272A9C581AA159495` for its checked build/deployment artifacts. `AutoBonusRunner-20260722-020550-519-V0.43.log` is a valid deployed V0.43 trace and is the evidence source for V0.44. V0.44 is synchronized across the build artifact and all three installed compatibility locations at length `563712`, SHA-256 `5BD44DC06248C6BA2886462D168770BA9740A84B1489B19A41B6DFD4FCF96ECC`; it still requires a fresh gameplay trace.
+
+V0.45 is synchronized across the build artifact and all three installed
+compatibility locations at length `565760`, SHA-256
+`2F490E7E7F461C93F6D586CC497E687172292EFD148D7BD6A66EB9A2DDC5B8C1`.
+Its slider helper changes no authored geometry or route contract.
 
 ## Coordinate conventions
 
@@ -16,6 +23,13 @@ Historical V0.30 deployment identity is length `380928`, SHA-256 `1A7607B4A4D639
 - Authored pieces normally have origins separated by `24.0` world units.
 - Pooling moves and reuses clones. Therefore, a world X value seen in one run is not a permanent piece ID or a safe hard-coded trigger.
 - `RegistryGeneration` changes when the section, active clone set, or clone transforms change. A change triggers revalidation but does not by itself invalidate an unchanged route, because recycling a remote pooled clone can advance the global generation. Validate the target by nonzero piece instance, piece origin, authored surface role, and current geometry; generation equality is diagnostic.
+
+## V0.36 runtime identity boundaries
+
+- A mutable controller section index is not a map-identity boundary during an inactive transition. The last section seen in real active gameplay remains authoritative only while its continuation epoch is valid.
+- Confirmed pit/death, player replacement or unavailability, loss of supported-map eligibility, and global position discontinuity revoke that epoch. Rearm requires two stable grounded physics steps after the delay, `|VY| <= 2.50`, a supported map/live player/remembered section, and forward-gameplay evidence: either active gameplay or `|VX| >= 1.0`. The VX path intentionally permits safe inactive-road recovery; stationary ground alone is not authority.
+- A typed reward target can take ownership only after the same eligible instance is observed on two distinct render frames. `BeginEpoch` retires pending, latched, previously qualified, and currently scannable IDs. A successful boundary snapshot plus one later complete inventory on a distinct render frame establishes the stabilization gate; if the snapshot is incomplete, two later complete inventories on distinct frames are required. Objects visible during those quarantined inventories are retired, including the scan that completes stabilization. After stabilization, a distinct non-retired ID may latch `2/2` without a global-empty gap. A retired ID becomes eligible only after two consecutive complete inventories omit it. Two consecutive complete scans with no physical candidate are the alternative baseline. Any partial scan fails closed for both positive and negative evidence; `OnlyRetiredEpochTargets` cannot prove emptiness.
+- Map/action evidence uses real physics ticks. MelonLoader automatically installs the attributed Harmony patches, so AutoBonusRunner does not call `PatchAll()`. `HarmonyAutoPatchInventory` must report one owned `Update` prefix, one `FixedUpdate` prefix, and one `FixedUpdate` postfix (`1/1/1`). Exact `Time.fixedTimeAsDouble` deduplication prevents a repeated callback from advancing a hold, `FixedStepSequence`, or learning, while preserving distinct background catch-up ticks.
 
 ## Authored section cycles
 
@@ -107,6 +121,7 @@ For a Ground 5 clone at origin `P`, the standable tops belong to pillars whose s
 | Pillar 1 | `[P-5, P-3] @ 0`, solid to Y `-10` | Establish physical leading-face contact and pulse |
 | Pillar 2 | `[P-1, P+1] @ 4`, solid to Y `-10` | Preserve chain ownership; contact and pulse again |
 | Pillar 3 | `[P+3, P+5] @ 7`, solid to Y `-10` | Final high pillar/contact or verified top landing |
+| Lowest S4 pickup | sphere centre near `(P+2, 3)`, trigger approximately `1 x 1` | While descending on the S4 face, feet must reach about `P.y+3.42`; release for at least one real physics step, then stop on pickup/band confirmation or a dynamically predicted `2..8`-step double-fixed-time deadline |
 | Exit road | `[P+7, P+14] @ -2` | Verified downstream landing/drop target |
 | Vertical lanes | around local X `-2` and `+2`, with authored spikes below | Traverse by bounded face-contact decisions, not direct long jumps |
 
@@ -115,6 +130,8 @@ Intended Ground 5 route graph:
 `incoming road -> passive gap entry -> pillar-1 contact/pulse -> pillar-2 contact/pulse -> pillar-3 contact or top -> explicit S4-to-downstream-exit transition -> verified exit road`
 
 These pillars are vertically deep enough for passive entry and sequential contact. Do not reuse Ground 3's finite floating-body approach or attached objective-descent rule here. Surface 4 is not terminal: its nearest authored forward continuation is the broad road `[P+7,P+14] @ -2`, nine units lower. That road must remain a named exit target through a surface-4 face-contact fallback.
+
+The S4 pickup sink is timed from `Time.fixedTimeAsDouble`, not render elapsed time and not the raw callback count. At arm time the runtime integrates live downward VY and gravity using the current clamped fixed delta, selects a `2..8`-step safety budget, and stores an absolute double fixed-time deadline. Later observations reconstruct real elapsed physics steps from the double-time delta. `RawSequenceDelta` is diagnostic only; `BackgroundCatchUpObserved=True` records that more than one real physics step elapsed between render observations without shortening the sink.
 
 ### Ground 6
 
@@ -170,6 +187,19 @@ These values came from runtime logs. They demonstrate repeating topology and pro
 | V0.30 Section 2 Ground 6 underpass failure | world route `[1073,1083] @ -2 -> [1085,1090] @ 6`; the bad `0.090 s` jump began near X `1077.480`, collided with the S4/S5 overlap (`VX=-1.281`), and relanded at X `1082.097`. This proves route topology was wrong even though requested and physical hold agreed. |
 | V0.30 Section 3 normal automatic Ground 7 exit | wall `[1823,1825] @ 0`, downstream exit `[1835,1842] @ -2`; a staged `0.075/0.076 s` press traveled `11.448` and fell at X `1833.649`, just before support. Manual native-cap examples from VX `0` after contact traveled about `9.713-15.137`. |
 | V0.30 Section 3 Spirit Ground 7 exit | one staged `0.075 s` wall press traveled `19.201` although the old model predicted `1.544`; the pre-contact boost speed decayed after lip clearance, so neither attached VX `0` nor a constant boosted speed is a valid whole-flight model. |
+| V0.33 Section 2 Ground 6 contact stall | S0 `[1020,1023] @ -2` to adjacent S3 `[1023,1025] @ 0`; the player stopped at X `1022.201`, live VX became `0`, and the old gate deferred repeatedly for about `23.88 s`. A manual `0.104 s` press using the retained `14.4` run speed moved `2.598` units and landed at X `1024.799`. |
+| V0.33 Section 2 Ground 7 short exit | wall `[1055.001,1057.000] @ 0`, downstream `[1067.000,1069.999] @ -2`; lookahead prepared `0.150 s` and X `1068.500`, but the contact handoff discarded it. The wall solver's `0.075 s` staged pulse predicted X `1064.141` and died before safe-left `1067.744`; a native-cap candidate predicted X `1066.767`, whose player footprint still overlaps the raw support. |
+| V0.33 Section 1 Ground 5 highest-pillar pickup | S4 world `[603,605] @ 7`, lowest remaining sphere Y `3.000`; contact feet Y `3.573` with VY `-11.657` was reset upward immediately, leaving the run at `5/6` route pickups. The authored correction target is feet Y about `3.420` before the next pulse. |
+| V0.34 human-level-2 one-frame contact losses | Automatic deaths near X `522.59` and `666.48` each exposed the intended face for one frame with `Detected=True`, `Touching=True`, and native wall contact while incoming VX was still above the old attachment gate. The next physics frame had VX `0` but no retained ray. This is an execution-order race, not missing map geometry. |
+| V0.34 human-level-2 late Ground 5 exits | Automatic deaths near X `640.68` and `616.68` followed a missed highest-pillar launch. Candidate face clearances around `3.10..3.38` were physically below the verified lip but rejected by the nominal `3.90..4.50` deep-pickup band. The late salvage keeps the same verified face/hazard contract but is not credited as the nominal objective route. |
+| V0.34 Ground 5 S4 -> S1 raw-fit evidence | Spirit exit target `[631,638] @ -2` had preferred safe-right `637.256`; the body landed stably near X `637.348`, only `0.092` beyond the extra safe inset. Raw-body authorization is therefore limited to the exact same-piece S4 -> S1 continuation and must be preserved in result scoring. |
+| V0.34 normal code Section 3 sphere shortage | The run ended `151/158`. Eleven ordinary arcs collected about `6` each, while five dense high-platform arcs collected `17/30` and left `13` each. Near X `1586.24`, active objectives around X `1587..1590` remained above the high support immediately before a verified lower landing; this is the regression case for `SphereSweepToLowerLanding`. |
+| V0.39 completion acceleration after mapped wall handoff | At the Section-0 completion face X `263`, the route latched `15.600` and selected `0.060 s` toward `[270,272] @ 2`, predicting X `270.914`. Actual speed rose through `19.100` and `22.800`; the player passed the target and died at X `279.463`. V0.40 treats positive completion acceleration plus the observed per-section speed ceiling as wall-exit target-selection evidence. |
+| V0.39 normal code Section 3 Ground 7 correction chain | From wall `[1703,1705] @ 0`, the maximum collection hold predicted X `1714.031`, `1.712` short of `[1715.744,1721.256]`, but the old `NativeCapUndershootEscape` called it a landing. Actual face contact occurred at X `1714.370`, feet about `-2.497`; the second generic `0.120 s` pulse landed at X `1721.401`. V0.41 preserves the first result as a distinct `CollectionFace` outcome and keeps the target owned until physical contact. A target-top landing is recoverable but explicitly recorded as a missed low-soul route. |
+| V0.40 normal code Section 2 Ground 7 regression | Wall `[1031,1033] @ 0` targeted lower support `[1043,1045.999] @ -2` at VX `14.4`. Strict landing rejected all holds and the staged fallback selected `0.075 s`; actual release near X `1030.778` died at X `1040.857` before the target. The retained V0.39 native-cap action reached the X `1043` face. V0.41 therefore commits `0.180 s` as a face/top outcome on this exact route, never as landing success. |
+| V0.40 normal code Section 3 Ground 7 regression | Wall near `[1535,1537] @ 0` targeted the lower face beginning X `1547` at VX `16.9`. A `0.075 s` staged pulse died near X `1545.694`; later repetitions physically touched the next wall but had already discarded the planned wall route. V0.41 caps this exact normal route at `0.135 s`, preserves ownership through flight, and validates the target-left face before climbing. |
+| V0.40 Section 0 completion narrow landing | Quota was `38/38`. The exit target was `[270,271.999] @ 2`; at X `271.585`, VX `24.4`, VY `1.484`, the static support was valid but confirmation remained `1/2`. The next fixed step left the top, reset support, and the watch expired. V0.41 captures that exact physics-step surface/position/body width. It may issue a verified prepared next action immediately; otherwise it preserves the landing as historical evidence and rearms grounded planning only while the live body is still supported. |
+| V0.40 committed-face lifecycle hazard | Ground 7 exit faces can start `10..12` units beyond the old wall, outside the runtime's `1.20`-unit wall ray. V0.40 could therefore accumulate two low-descent steps and declare a pit before the face became detectable. V0.41 treats the bounded committed target as recoverable evidence until its fixed-step deadline, finite-face bottom, or target overflight, validates the exact mapped face on fixed-physics cadence, and prevents render-time displacement/timeout rules from revoking it first. |
 | V0.26 Ground 3 at origin approximately `O=504` | incoming road `[487,494] @ -2`, floating tops `[498,502] @ 4` and `[505,510] @ 4`, downstream lower road `[514,521] @ -2`; physical leading faces were observed near X `498` and `505` |
 | V0.26 Ground 5 at origin approximately `P=576` | incoming road `[562,569] @ -2`, pillars `[571,573] @ 0`, `[575,577] @ 4`, `[579,581] @ 7`, exit road `[583,590] @ -2`; the contact chain reached the third top at X `579.910` |
 | V0.27 Ground 3 at `O=480` | `[474,478] @ 4 -> [481,486] @ 4 -> [490,497] @ -2`; face contact at player X `480.401` armed objective descent (line 2033), feet descended `2.183 -> 0.131` (line 2040), then an extra near-lip pulse landed at X `490.888` (line 2213) |
@@ -263,6 +293,8 @@ For attempts 19, 23, and 28, a short immediate follow-up jump from the raw suppo
 - V0.27 proves the complementary failure: having wall authority does not imply a new press is immediately correct. Ground 3 repeats ended at VY `+17.253` with only `0.338-0.566` rise remaining and still sent the minimum pulse. The correct scheduler must distinguish horizontal contact from vertical stall.
 - Ground 3 surface 2 -> surface 3 is now a route contract, not an optional watch. While lower-lane spheres remain, physical surface-3 face contact is mandatory; landing on its top is logged as `MandatoryWallFaceContactMissed` rather than success.
 - Ground 5 surface 4 -> exit road is the inverse height case. The static continuation search must retain the broad lower road even though it is nine units below the pillar top; otherwise contact fallback has no downstream target and repeats a blind pulse at the narrow high face.
+- For the exact same-piece Ground 5 S4 -> S1 exit, preferred safe bounds remain the first choice, but a solver-proven physical body overlap may be accepted and must carry its landing mode into outcome validation. No other five-unit drop inherits this exception.
+- Code Section 3 may replace a verified natural drop with a sphere-scored jump only when the predicted landing remains on that same lower support. This is an objective optimization over known-safe geometry, not a new hard-coded route coordinate.
 - The V0.20 Section 3 trace repeatedly classified an eight-unit wall correctly but rejected its action: player X `956.250 -> face 964.41`, `1004.255 -> 1012.41`, `1028.265 -> 1036.41`, `1081.150 -> 1084.41`, and `1100.265 -> 1108.41` all ended as `WallAcrossGapHasNoExecutableWallRoute`. The rejected clearance was `[0.12,1.65]` below an eight-unit lip. These are lower-face/multi-pulse routes, not direct upper-lip approaches.
 - The V0.20 manual Section 4 evidence proves deep trenches are playable: at `(1786.401,-3.653)` a `0.108 s` wall press rose `2.267`; at `(1882.401,-5.015)` a `0.123 s` press rose `2.235` and remained attached to face X `1883`; at `(1954.326,-3.437)` a `0.102 s` press rose `2.235`. Detected faces at X `1787`, `1883`, `1979`, and `2027` invalidate any global `Y < -3.5` death rule.
 - Section 2 entry `[538,545] @ -2 -> [547,549] @ 0` has source width `7`, target width `2`, gap `2`, and rise `2`. V0.20 labeled it `RaisedLanding`, found no safe direct jump, and fell to `(546.401,-3.506)` beside face X `547`. The correct route is wide-road-to-narrow-pillar trench entry followed by a contact-confirmed wall press.
@@ -277,6 +309,8 @@ For attempts 19, 23, and 28, a short immediate follow-up jump from the raw suppo
 - The current static registry records horizontal top intervals but not solid face bottoms, objective-lane semantics, or route roles. Ground 3 and Ground 5 metadata in this document must therefore remain explicit policy evidence until those attributes have a first-class source representation.
 - A downward route can be correct without jumping. The planner must distinguish continuous road, natural drop, trench entry, and lethal fall.
 - The screenshot supplied by the user confirms deep wall/trench geometry where upward progress must be generated by wall-contact jump phases.
+- Do not interpret a stationary grounded respawn as permission to reuse an inactive section map. Death, player loss/replacement, supported-map eligibility loss, or global position discontinuity invalidates the continuation epoch. Rearm requires two stable fixed steps plus active gameplay or reliable forward motion (`|VX| >= 1`); only the latter permits inactive-road recovery.
+- Do not interpret a reused reward object as a new epoch target. Retire old/current instance IDs at the boundary. Complete-inventory stabilization quarantines one scan after a successful snapshot, or two scans after an incomplete snapshot. A distinct ID may then latch normally, but a retired ID needs two consecutive complete observed absences before reuse. Two complete physical-empty scans are an alternate baseline; partial scans and `OnlyRetiredEpochTargets` do not count.
 
 ## Source of truth
 
@@ -286,6 +320,9 @@ For attempts 19, 23, and 28, a short immediate follow-up jump from the raw suppo
 - Wall contact probes: `Routing/BonusWallDetector.cs`
 - Action planning: `Routing/BonusJumpPlanner.cs`
 - Execution and wall phases: `Runtime/AutoBonusRunnerRuntime.cs`
+- Typed reward scan completeness: `Detection/BonusRewardTargetDetector.cs`
+- Harmony ownership and inventory: `Plugin.cs`, `Control/JumpHoldInputPatches.cs`
+- Logical fixed-step identity: `Control/JumpController.cs`, `Physics/JumpPhysicsFeedback.cs`
 
 ## V0.9 evidence capture
 
@@ -294,15 +331,23 @@ For wall regressions, retain the complete sequence from the first
 `AwaitingWallContact` through the final `JumpAttemptResult`. The fixed-step
 records include the unchanged wall target identity, contact/touching state,
 both DOWN/UP boundaries, native jump counters, lip-crossing boundary, live
-support scan, and actual landing. For post-completion failures, retain the
+support scan, and actual landing. For transition/reward failures, retain the
 preceding `ControlGate` plus all `ActionPhysicsFrame` and
-`CompletionRewardPulse` records. These records distinguish a blocked control
+`RewardTargetObservation`, `RewardObjectPhaseLatched`,
+`RewardTargetFreshEpochPending/Latched`,
+`RewardTargetRearmEmptyScan`, `RewardTargetRearmBaselineEstablished`,
+`TerrainContinuationEpochRevoked` and `PitDescentGuardReleased`,
+`RewardObjectOwnershipHandoff`, and
+`CompletionRewardAction` records. These records distinguish a blocked control
 gate, missing route, rejected input, lost wall contact, overshoot, and missing
-reward attack without requiring video.
+reward attack without requiring video. Preserve startup
+`HarmonyAutoPatchInventory` and any `FixedStepCallbackDeduplicated` record as
+well; the valid normal inventory is `1/1/1`, and a deduplication event indicates
+that an unexpected duplicate callback was suppressed.
 
 ## V0.10 observations from the V0.9 trace
 
-- At the `0 -> 1` section transition, Section 1 temporarily exposed `38/38` while still in `PreBonusMode`. V0.10 treated that as stale and required a later `BonusMode`; V0.30 superseded this interpretation after the real reward transition proved the live completed quota is authoritative. The next `0/N` quota ends completion traversal naturally.
+- At the `0 -> 1` section transition, Section 1 temporarily exposed `38/38` while still in `PreBonusMode`. V0.10 treated that as stale, V0.30 treated live equality as authoritative, and V0.35 required an incomplete-to-complete proof. V0.36 removes quota from control entirely: the last section observed in real active gameplay remains the routing identity until an eligible typed reward target latches or a different section becomes genuinely active, unless lifecycle loss first revokes the continuation epoch. A revoked epoch may resume on an inactive road only after two stable fixed steps with reliable forward VX.
 - The wall target `[474,478] @ 4` produced a safe target-aware candidate of `0.090 s`, but the generic lip rule raised the executed hold to `0.180 s`. The runner crossed the lip near `(474.591,5.190)` with velocity about `(11.9,11.759)` and overshot into the pit near X `481.115`. Target-aware and staged wall actions now retain their own hold.
 - Repeated landings beyond `[522,526]`, `[551,553]`, `[570,574]`, `[618,622]`, `[647,649]`, and `[666,670]` are consistent with the same excessive post-lip velocity. The V0.10 change addresses the shared execution override instead of adding map-specific exceptions.
 
@@ -318,3 +363,11 @@ The single successful two-pillar climb in the same general topology is evidence 
 - Ground 5 `S4 -> exit`: after `[P+3,P+5] @ 7`, require `WallChainTargetCaptured ... Role=MappedDownstreamExit` for `[P+7,P+14] @ -2`. At the V0.27 regression origin `P=648`, that means `[651,653] @ 7 -> [655,662] @ -2`.
 - Authority boundary: identify automatic, post-death-enabled, and U-disabled/manual intervals before using any coordinate as behavior evidence. The V0.27 reference boundaries are lines 3974, 4285, 4355, and 4391.
 - Deployment validity: accept a new test only if startup reports internal `V0.28`, schema `3`, runtime registration succeeds, and the build, Mod Manager source, root loader, and nested compatibility DLLs match. The deployed V0.28 SHA-256 is `1CD08E0F83441CB2539671F9DBB7FF59C4A56A4BBA77FDEC7CBEC81DDCDF2CAF`, length `367616`; `app_config.cfg` currently disables AutoBonusRunner, so re-enable it in Mod Manager and restart before treating any trace as valid.
+
+## V0.36 runtime/map validation targets
+
+- Patch cadence: startup must report `HarmonyAutoPatchInventory UpdatePrefixes=1, FixedPrefixes=1, FixedPostfixes=1`. MelonLoader owns automatic patch discovery; no explicit AutoBonusRunner `PatchAll()` is legal. A normal run should contain no `FixedStepCallbackDeduplicated`; if one appears, retain it as evidence of another duplicate installation path.
+- Logical physics time: fixed-limited DOWN records must advance once per unique exact `Time.fixedTimeAsDouble`, and feedback must increment `FixedStepSequence` once per real primary-player integration. Multiple distinct catch-up ticks within one render frame remain distinct.
+- Ground 5 S4 pickup: `Ground5HighestPillarSinkArmed` must record `FixedTime`, `DeadlineFixedTime`, and a simulated `Steps=2..8`. Completion must report double-time-derived `ElapsedPhysicsSteps`; `RawSequenceDelta` is diagnostic and may not own the deadline.
+- Reward epochs: retain the `EpochReset:...Retired=N:SnapshotComplete=...:StableInventory=X/2` observation. A successful snapshot requires one later quarantined complete inventory; `SnapshotComplete=False` requires two. Only after stabilization may a distinct non-retired ID log `RewardTargetFreshEpochPending` then `RewardTargetFreshEpochLatched` without empty scans. A retired ID must remain filtered as `OnlyRetiredEpochTargets` until two consecutive complete inventories omit it. The alternative baseline is `RewardTargetRearmEmptyScan ... 1/2` followed by `RewardTargetRearmBaselineEstablished ... 2/2`; incomplete scans and retired-only inventories cannot advance it. A persistent partial wrapper scan must emit rate-limited `RewardTargetScanIncomplete` and cannot authorize a target.
+- Continuation epoch: confirmed pit/death, player replacement/unavailability, supported-map eligibility loss, or global position discontinuity must block both map and reward ownership. Release requires two distinct stable-ground fixed steps after the delay with `|VY| <= 2.50` and forward gameplay (`IsActiveGameplay` or `|VX| >= 1`). Validate `PitDescentGuardReleased ... ForwardGameplayResumed=True,TerrainEpochRearmed=True`; when active gameplay is false, the remembered map section must remain authoritative rather than adopting a mutable controller index.

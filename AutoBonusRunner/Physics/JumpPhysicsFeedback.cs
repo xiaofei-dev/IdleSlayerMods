@@ -313,6 +313,10 @@ internal sealed class JumpPhysicsFeedback
     // calls can observe the same physics state. Wall actions use this sequence
     // to require an actual PlayerMovement.FixedUpdate after pointer UP.
     internal static long FixedStepSequence { get; private set; }
+    private static double lastCapturedFixedTime = double.NaN;
+    private static int lastCapturedPlayerInstanceId;
+    private static long duplicateFixedStepCallbacks;
+    private static float nextDuplicateFixedStepLogTime;
 
     internal static bool IsPrimaryPlayerInstance(PlayerMovement player)
     {
@@ -396,7 +400,14 @@ internal sealed class JumpPhysicsFeedback
     private bool sampleCeilingHit;
     private float nextFrameLogTime;
 
-    internal void Attach() => activeInstance = this;
+    internal void Attach()
+    {
+        activeInstance = this;
+        lastCapturedFixedTime = double.NaN;
+        lastCapturedPlayerInstanceId = 0;
+        duplicateFixedStepCallbacks = 0;
+        nextDuplicateFixedStepLogTime = 0f;
+    }
 
     internal void Detach()
     {
@@ -411,6 +422,44 @@ internal sealed class JumpPhysicsFeedback
         // contaminate the primary player's sampled trajectory.
         if (!IsPrimaryPlayerInstance(player))
             return;
+
+        int playerInstanceId;
+        try
+        {
+            playerInstanceId = player.GetInstanceID();
+        }
+        catch
+        {
+            return;
+        }
+
+        double fixedTime = Time.fixedTimeAsDouble;
+        if (playerInstanceId == lastCapturedPlayerInstanceId &&
+            !double.IsNaN(lastCapturedFixedTime) &&
+            fixedTime == lastCapturedFixedTime)
+        {
+            duplicateFixedStepCallbacks++;
+            if (duplicateFixedStepCallbacks == 1 ||
+                Time.unscaledTime >= nextDuplicateFixedStepLogTime)
+            {
+                nextDuplicateFixedStepLogTime =
+                    Time.unscaledTime + 5f;
+                string message =
+                    $"FixedStepCallbackDeduplicated Player=" +
+                    $"{playerInstanceId}, FixedTime={fixedTime:F4}, " +
+                    $"SuppressedTotal={duplicateFixedStepCallbacks}. " +
+                    "FixedStepSequence and physics learning advance once " +
+                    "per real Unity physics tick.";
+                if (duplicateFixedStepCallbacks == 1)
+                    BonusRunnerLog.Warning(message);
+                else
+                    BonusRunnerLog.Debug(message, "Physics");
+            }
+            return;
+        }
+
+        lastCapturedPlayerInstanceId = playerInstanceId;
+        lastCapturedFixedTime = fixedTime;
 
         FixedStepSequence++;
         JumpPhysicsFeedback instance = activeInstance;

@@ -13,10 +13,15 @@ internal sealed class JumpController
     internal float LastPressStartedAt { get; private set; } = -1f;
     internal float LastReleaseAt { get; private set; } = -1f;
     internal int LastReleaseHeldFixedSteps { get; private set; }
+    internal int LastReleaseDuplicateFixedCallbacks { get; private set; }
     private bool releasePulsePending;
     private float releaseAt;
     private int heldFixedSteps;
     private int maximumHeldFixedSteps;
+    private bool exactFixedStepRelease;
+    private double lastCountedFixedTime = double.NaN;
+    private float lastFixedRefreshAt = -1f;
+    private int duplicateFixedCallbacks;
     private float nextHoldStateLogTime;
     private PointerEventData pointerEventData;
     private JumpPanel pressedPanel;
@@ -28,6 +33,11 @@ internal sealed class JumpController
         string reason,
         int fixedStepHoldLimit = 0)
     {
+        if (BonusStageRetryBridge.BlocksTerrainControl)
+        {
+            Release();
+            return;
+        }
         if (player == null || IsHoldingJump) return;
         JumpPanel panel = JumpPanel.instance;
         EventSystem eventSystem = EventSystem.current;
@@ -39,6 +49,10 @@ internal sealed class JumpController
             releasePulsePending = false;
             heldFixedSteps = 0;
             maximumHeldFixedSteps = 0;
+            exactFixedStepRelease = false;
+            lastCountedFixedTime = double.NaN;
+            lastFixedRefreshAt = -1f;
+            duplicateFixedCallbacks = 0;
             pointerEventData = null;
             pressedPanel = null;
             pressedPlayerInstanceId = 0;
@@ -52,7 +66,20 @@ internal sealed class JumpController
         float clampedHold = Mathf.Clamp(holdSeconds, 0.02f, 0.18f);
         releaseAt = Time.unscaledTime + clampedHold;
         heldFixedSteps = 0;
-        maximumHeldFixedSteps = Mathf.Clamp(fixedStepHoldLimit, 0, 64);
+        float fixedDelta = Mathf.Clamp(Time.fixedDeltaTime, 0.005f, 0.05f);
+        int derivedFixedStepLimit = Mathf.Max(
+            1,
+            Mathf.CeilToInt(clampedHold / fixedDelta - 0.0001f));
+        maximumHeldFixedSteps = Mathf.Clamp(
+            fixedStepHoldLimit > 0
+                ? fixedStepHoldLimit
+                : derivedFixedStepLimit,
+            1,
+            64);
+        exactFixedStepRelease = fixedStepHoldLimit > 0;
+        lastCountedFixedTime = double.NaN;
+        lastFixedRefreshAt = -1f;
+        duplicateFixedCallbacks = 0;
         pressedPanel = panel;
         pressedPlayerInstanceId = player.GetInstanceID();
         pointerEventData = new PointerEventData(eventSystem)
@@ -62,6 +89,7 @@ internal sealed class JumpController
         LastPressStartedAt = Time.unscaledTime;
         LastReleaseAt = -1f;
         LastReleaseHeldFixedSteps = 0;
+        LastReleaseDuplicateFixedCallbacks = 0;
         nextHoldStateLogTime = Time.unscaledTime;
         activeController = this;
         try
@@ -74,6 +102,10 @@ internal sealed class JumpController
             releasePulsePending = false;
             heldFixedSteps = 0;
             maximumHeldFixedSteps = 0;
+            exactFixedStepRelease = false;
+            lastCountedFixedTime = double.NaN;
+            lastFixedRefreshAt = -1f;
+            duplicateFixedCallbacks = 0;
             pointerEventData = null;
             pressedPanel = null;
             pressedPlayerInstanceId = 0;
@@ -85,6 +117,8 @@ internal sealed class JumpController
             $"Automatic jump DOWN: Hold={holdSeconds:F3}s, " +
             $"FixedStepLimit=" +
             $"{(maximumHeldFixedSteps > 0 ? maximumHeldFixedSteps.ToString() : "TimeScheduled")}, " +
+            $"ReleasePolicy=" +
+            $"{(exactFixedStepRelease ? "ExactFixedStep" : "TimeWithFixedStepCeiling")}, " +
             $"Reason={reason}",
             "Control");
         BonusRunnerLog.Debug(
@@ -99,6 +133,8 @@ internal sealed class JumpController
         PlayerMovement player,
         string reason)
     {
+        if (BonusStageRetryBridge.BlocksTerrainControl)
+            return false;
         if (player == null || IsHoldingJump)
             return false;
 
@@ -177,28 +213,34 @@ internal sealed class JumpController
 
         if (IsHoldingJump)
         {
-            // Mandatory wall-face pulses are coupled to the planner's fixed
-            // step model. Their UP edge is delivered by the first authoritative
-            // PlayerMovement callback after the requested number of
-            // FixedUpdates, so render stalls/background throttling cannot
-            // silently turn a short request into additional powered ticks.
-            if (maximumHeldFixedSteps > 0)
+            // Ordinary ground plans retain their calibrated wall-clock release
+            // while the fixed-step count is only a background safety ceiling.
+            // Face solvers pass an explicit count and therefore use exact
+            // fixed-step delivery. If that Harmony callback is unavailable,
+            // a render-time fail-safe still prevents an indefinite pointer.
+            if (maximumHeldFixedSteps > 0 && exactFixedStepRelease)
+            {
+                float callbackGrace = Mathf.Max(
+                    0.10f,
+                    Mathf.Clamp(Time.fixedDeltaTime, 0.005f, 0.05f) * 3f);
+                float lastFixedActivity = lastFixedRefreshAt >= 0f
+                    ? lastFixedRefreshAt
+                    : LastPressStartedAt;
+                if (Time.unscaledTime >= releaseAt + callbackGrace &&
+                    Time.unscaledTime - lastFixedActivity >= callbackGrace)
+                {
+                    ReleaseAtWallClock(
+                        player,
+                        "FixedCallbackUnavailableFallback");
+                }
                 return;
+            }
             if (Time.unscaledTime < releaseAt)
             {
                 return;
             }
 
-            RecordReleaseTime();
-            IsHoldingJump = false;
-            if (activeController == this)
-                activeController = null;
-            releasePulsePending = true;
-            ReleasePointer();
-            BonusRunnerLog.Debug(
-                $"Automatic jump UP: Trigger=TimeSchedule, " +
-                $"HeldFixedSteps={heldFixedSteps}.",
-                "Control");
+            ReleaseAtWallClock(player, "TimeSchedule");
             return;
         }
 
@@ -214,12 +256,17 @@ internal sealed class JumpController
         if (IsHoldingJump)
             RecordReleaseTime();
         if (ownedInputActive)
+        {
             LastReleaseHeldFixedSteps = heldFixedSteps;
+            LastReleaseDuplicateFixedCallbacks =
+                duplicateFixedCallbacks;
+        }
         IsHoldingJump = false;
         if (activeController == this)
             activeController = null;
         releasePulsePending = false;
         maximumHeldFixedSteps = 0;
+        exactFixedStepRelease = false;
         try
         {
             ReleasePointer();
@@ -227,6 +274,9 @@ internal sealed class JumpController
         finally
         {
             heldFixedSteps = 0;
+            lastCountedFixedTime = double.NaN;
+            lastFixedRefreshAt = -1f;
+            duplicateFixedCallbacks = 0;
             pressedPlayerInstanceId = 0;
         }
     }
@@ -278,7 +328,10 @@ internal sealed class JumpController
                 controller.releasePulsePending = false;
                 controller.LastReleaseHeldFixedSteps =
                     controller.heldFixedSteps;
+                controller.LastReleaseDuplicateFixedCallbacks =
+                    controller.duplicateFixedCallbacks;
                 controller.maximumHeldFixedSteps = 0;
+                controller.exactFixedStepRelease = false;
                 try
                 {
                     controller.ReleasePointer();
@@ -289,6 +342,9 @@ internal sealed class JumpController
                     controller.pressedPanel = null;
                 }
                 controller.heldFixedSteps = 0;
+                controller.lastCountedFixedTime = double.NaN;
+                controller.lastFixedRefreshAt = -1f;
+                controller.duplicateFixedCallbacks = 0;
                 controller.pressedPlayerInstanceId = 0;
             }
 
@@ -309,11 +365,30 @@ internal sealed class JumpController
         }
     }
 
+    internal static void ReleaseOwnedInputForRetryModal()
+    {
+        try
+        {
+            activeController?.Release();
+        }
+        catch (System.Exception exception)
+        {
+            BonusRunnerLog.Warning(
+                $"Retry modal failed to release owned jump input safely: " +
+                $"{exception.GetType().Name}: {exception.Message}");
+        }
+    }
+
     private static void MaintainHeldJumpCore(
         PlayerMovement player,
         string phase)
     {
         JumpController controller = activeController;
+        if (BonusStageRetryBridge.BlocksTerrainControl)
+        {
+            controller?.Release();
+            return;
+        }
         if (controller == null ||
             !controller.IsHoldingJump ||
             player == null)
@@ -334,9 +409,32 @@ internal sealed class JumpController
             phase,
             "FixedUpdate",
             System.StringComparison.Ordinal);
+        bool newLogicalFixedStep = false;
+        bool duplicateFixedCallback = false;
+        if (fixedUpdatePhase &&
+            controller.maximumHeldFixedSteps > 0)
+        {
+            double fixedTime = Time.fixedTimeAsDouble;
+            duplicateFixedCallback =
+                !double.IsNaN(controller.lastCountedFixedTime) &&
+                fixedTime == controller.lastCountedFixedTime;
+            if (duplicateFixedCallback)
+            {
+                controller.duplicateFixedCallbacks++;
+            }
+            else
+            {
+                controller.lastCountedFixedTime = fixedTime;
+                controller.lastFixedRefreshAt = Time.unscaledTime;
+                newLogicalFixedStep = true;
+            }
+        }
+
         if (controller.maximumHeldFixedSteps > 0 &&
             controller.heldFixedSteps >=
-                controller.maximumHeldFixedSteps)
+                controller.maximumHeldFixedSteps &&
+            fixedUpdatePhase &&
+            newLogicalFixedStep)
         {
             controller.ReleaseAtFixedStepLimit(player);
             return;
@@ -347,7 +445,8 @@ internal sealed class JumpController
         // immediately before PlayerMovement consumes jump input.
         JumpPanel.jumpPressed = true;
         if (fixedUpdatePhase &&
-            controller.maximumHeldFixedSteps > 0)
+            controller.maximumHeldFixedSteps > 0 &&
+            newLogicalFixedStep)
         {
             controller.heldFixedSteps++;
         }
@@ -362,6 +461,9 @@ internal sealed class JumpController
             $"Elapsed={Time.unscaledTime - controller.LastPressStartedAt:F3}s, " +
             $"HeldFixedSteps={controller.heldFixedSteps}/" +
             $"{(controller.maximumHeldFixedSteps > 0 ? controller.maximumHeldFixedSteps.ToString() : "TimeScheduled")}, " +
+            $"DuplicateFixedCallback={duplicateFixedCallback}, " +
+            $"SuppressedFixedCallbacks=" +
+            $"{controller.duplicateFixedCallbacks}, " +
             $"Pressed={JumpPanel.jumpPressed}, Down={JumpPanel.jumpDown}, Up={JumpPanel.jumpUp}, " +
             $"IsJumping={player.isJumping}, Counter={player.jumpTimeCounter:F3}/{player.jumpTime:F3}, " +
             $"VY={(body != null ? body.velocity.y : 0f):F3}",
@@ -370,13 +472,16 @@ internal sealed class JumpController
 
     private void ReleaseAtFixedStepLimit(PlayerMovement player)
     {
+        bool usedExactFixedStepRelease = exactFixedStepRelease;
         RecordReleaseTime();
         LastReleaseHeldFixedSteps = heldFixedSteps;
+        LastReleaseDuplicateFixedCallbacks = duplicateFixedCallbacks;
         IsHoldingJump = false;
         if (activeController == this)
             activeController = null;
         releasePulsePending = true;
         maximumHeldFixedSteps = 0;
+        exactFixedStepRelease = false;
         try
         {
             ReleasePointer();
@@ -384,6 +489,9 @@ internal sealed class JumpController
         finally
         {
             heldFixedSteps = 0;
+            lastCountedFixedTime = double.NaN;
+            lastFixedRefreshAt = -1f;
+            duplicateFixedCallbacks = 0;
             pressedPlayerInstanceId = 0;
         }
         Rigidbody2D body = player != null
@@ -391,11 +499,55 @@ internal sealed class JumpController
             : null;
         BonusRunnerLog.Debug(
             $"Automatic jump UP: Trigger=FixedStepLimit, " +
+            $"ReleasePolicy=" +
+            $"{(usedExactFixedStepRelease ? "ExactFixedStep" : "BackgroundSafetyCeiling")}, " +
             $"HeldFixedSteps={LastReleaseHeldFixedSteps}, " +
+            $"SuppressedFixedCallbacks=" +
+            $"{LastReleaseDuplicateFixedCallbacks}, " +
             $"Elapsed={Time.unscaledTime - LastPressStartedAt:F3}s, " +
             $"VY={(body != null ? body.velocity.y : 0f):F3}. " +
-            "The actuator and mandatory wall solver used the same physics " +
-            "tick count.",
+            (usedExactFixedStepRelease
+                ? "The actuator and face solver used the same physics tick count."
+                : "The background safety ceiling prevented a time-scheduled " +
+                  "hold from gaining extra powered physics ticks."),
+            "Control");
+    }
+
+    private void ReleaseAtWallClock(
+        PlayerMovement player,
+        string trigger)
+    {
+        RecordReleaseTime();
+        LastReleaseHeldFixedSteps = heldFixedSteps;
+        LastReleaseDuplicateFixedCallbacks = duplicateFixedCallbacks;
+        IsHoldingJump = false;
+        if (activeController == this)
+            activeController = null;
+        releasePulsePending = true;
+        maximumHeldFixedSteps = 0;
+        exactFixedStepRelease = false;
+        try
+        {
+            ReleasePointer();
+        }
+        finally
+        {
+            heldFixedSteps = 0;
+            lastCountedFixedTime = double.NaN;
+            lastFixedRefreshAt = -1f;
+            duplicateFixedCallbacks = 0;
+            pressedPlayerInstanceId = 0;
+        }
+        Rigidbody2D body = player != null
+            ? player.GetComponent<Rigidbody2D>()
+            : null;
+        BonusRunnerLog.Debug(
+            $"Automatic jump UP: Trigger={trigger}, " +
+            $"HeldFixedSteps={LastReleaseHeldFixedSteps}, " +
+            $"SuppressedFixedCallbacks=" +
+            $"{LastReleaseDuplicateFixedCallbacks}, " +
+            $"Elapsed={Time.unscaledTime - LastPressStartedAt:F3}s, " +
+            $"VY={(body != null ? body.velocity.y : 0f):F3}.",
             "Control");
     }
 
@@ -405,6 +557,7 @@ internal sealed class JumpController
     {
         RecordReleaseTime();
         LastReleaseHeldFixedSteps = heldFixedSteps;
+        LastReleaseDuplicateFixedCallbacks = duplicateFixedCallbacks;
         int expectedPlayer = pressedPlayerInstanceId;
         int observedPlayerId = observedPlayer != null
             ? observedPlayer.GetInstanceID()
@@ -414,6 +567,7 @@ internal sealed class JumpController
             activeController = null;
         releasePulsePending = false;
         maximumHeldFixedSteps = 0;
+        exactFixedStepRelease = false;
         try
         {
             ReleasePointer();
@@ -421,13 +575,17 @@ internal sealed class JumpController
         finally
         {
             heldFixedSteps = 0;
+            lastCountedFixedTime = double.NaN;
+            lastFixedRefreshAt = -1f;
+            duplicateFixedCallbacks = 0;
             pressedPlayerInstanceId = 0;
         }
         BonusRunnerLog.Warning(
             $"Automatic jump input aborted: Trigger={trigger}, " +
             $"ExpectedPlayer={expectedPlayer}, ObservedPlayer=" +
             $"{observedPlayerId}, HeldFixedSteps=" +
-            $"{LastReleaseHeldFixedSteps}. The owned pointer was released " +
+            $"{LastReleaseHeldFixedSteps}, SuppressedFixedCallbacks=" +
+            $"{LastReleaseDuplicateFixedCallbacks}. The owned pointer was released " +
             "before input could reach a replacement player instance.");
     }
 }

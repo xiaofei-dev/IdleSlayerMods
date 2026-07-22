@@ -24,13 +24,14 @@ Mode is disabled. Debug output is automatically suppressed in Skip mode.
 | `Enabled On Startup` | `true` | Starts automation enabled. |
 | `Toggle Key` | `Y` | Keyboard key used to enable or disable AutoClimber. |
 | `Auto Retry Enabled` | `false` | Continues after failure when true; chooses No and exits when false. |
+| `Skip Start Slider` | `true` | Waits one second, then confirms an Ascending Heights start slider only if it remains visible. |
 | `Target Enemies` | `true` | Allows enemy detours only when route safety remains acceptable. |
 
 ## Default File
 
 ```ini
 [AutoClimber]
-"Configuration Version" = 9
+"Configuration Version" = 10
 "Debug Mode" = false
 
 [Automation]
@@ -38,6 +39,7 @@ Mode = "Normal"
 "Enabled On Startup" = true
 "Toggle Key" = "Y"
 "Auto Retry Enabled" = false
+"Skip Start Slider" = true
 "Target Enemies" = true
 ```
 

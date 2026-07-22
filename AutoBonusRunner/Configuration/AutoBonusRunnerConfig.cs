@@ -5,7 +5,7 @@ namespace AutoBonusRunner.Configuration;
 
 internal sealed class AutoBonusRunnerConfig(string configName) : BaseConfig(configName)
 {
-    internal const int CurrentConfigurationVersion = 4;
+    internal const int CurrentConfigurationVersion = 7;
     private const string MainSection = "AutoBonusRunner";
     // MelonPreferences category names are global across loaded mods. Keep this
     // category unique so AutoClimber's "Automation" entries cannot override us.
@@ -16,6 +16,8 @@ internal sealed class AutoBonusRunnerConfig(string configName) : BaseConfig(conf
     internal MelonPreferences_Entry<bool> EnabledOnStartup;
     internal MelonPreferences_Entry<string> ToggleKey;
     internal MelonPreferences_Entry<bool> AutomaticJumping;
+    internal MelonPreferences_Entry<bool> EnableAutoRetry;
+    internal MelonPreferences_Entry<bool> SkipStartSlider;
     internal MelonPreferences_Entry<bool> CompletionRewardActions;
     internal MelonPreferences_Entry<bool> CompletionWindDash;
 
@@ -35,12 +37,18 @@ internal sealed class AutoBonusRunnerConfig(string configName) : BaseConfig(conf
             "Keyboard key reserved for enabling or disabling automatic jump control only.");
         AutomaticJumping = Bind(AutomationSection, "Automatic Jumping", true,
             "Allow AutoBonusRunner to control jump press, hold, and release while a supported Bonus Stage route is active.");
+        EnableAutoRetry = Bind(AutomationSection,
+            "Auto Retry Enabled", false,
+            "When the native one-use Second Wind choice is offered and the runner's U-toggle is enabled, choose its real Continue button when enabled or its real No button when disabled. A successful Continue remains consumed exactly as the game intended; only failed UI dispatches may be retried up to three times. When the runner itself is disabled, the prompt remains manual.");
+        SkipStartSlider = Bind(AutomationSection,
+            "Skip Start Slider", true,
+            "Wait one second after the Bonus Stage start slider appears, then confirm it automatically if it is still visible.");
         CompletionRewardActions = Bind(AutomationSection,
             "Completion Reward Actions", true,
-            "After the current section's sphere quota is complete, keep normal route planning active and use a minimum jump/context pulse plus direct bow fire only when no downstream traversal route remains.");
+            "Keep normal terrain routing until the same active reward box, coin, or gem is confirmed on two frames, then use minimum jump/context pulses plus direct bow fire. Sphere quota and native reward flags are diagnostics only.");
         CompletionWindDash = Bind(AutomationSection,
             "Completion Wind Dash", true,
-            "During successful post-quota traversal, activate the selected Wind Dash only when its icon is visible, the ability is unlocked and ready, and the player is grounded or stably at ground height. No AutoAdventurer dependency is required.");
+            "After the typed reward-target latch, activate the selected Wind Dash only when its icon is visible, the ability is unlocked and ready, and the player is grounded or stably at ground height. No AutoAdventurer dependency is required.");
 
         if (previousVersion < 3)
         {

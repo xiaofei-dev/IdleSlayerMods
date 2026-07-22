@@ -8,10 +8,11 @@ using UnityEngine;
 namespace AutoBonusRunner.Control;
 
 /// <summary>
-/// Owns only post-quota Bonus Stage actions. Normal terrain navigation remains
-/// in AutoBonusRunnerRuntime; this controller supplies the terminal short
-/// JumpPanel action, direct bow fire, and an optional grounded Wind Dash.
-/// It has no dependency on AutoJumpMod or AutoAdventurer.
+/// Owns only a reward phase explicitly authorized by AutoBonusRunnerRuntime.
+/// Normal terrain navigation remains in the runtime; this controller supplies
+/// the short JumpPanel action, direct bow fire, and an optional grounded Wind
+/// Dash. Native reward flags are diagnostics here, not authorization. It has
+/// no dependency on AutoJumpMod or AutoAdventurer.
 /// </summary>
 internal sealed class CompletionRewardController
 {
@@ -43,7 +44,7 @@ internal sealed class CompletionRewardController
     private long rewardArrowCount;
     private long windDashCount;
 
-    internal bool IsTraversalActive => traversalActive;
+    internal bool IsRewardPhaseActive => traversalActive;
 
     internal void ObserveTraversal(
         bool active,
@@ -54,7 +55,7 @@ internal sealed class CompletionRewardController
             if (traversalActive)
             {
                 BonusRunnerLog.Debug(
-                    $"CompletionTraversalEnded Section={traversalSection}, " +
+                    $"NativeRewardPhaseEnded Section={traversalSection}, " +
                     $"Elapsed={Time.unscaledTime - traversalStartedAt:F3}s, " +
                     $"RewardJumps={rewardJumpCount}, " +
                     $"RewardArrows={rewardArrowCount}, " +
@@ -77,14 +78,17 @@ internal sealed class CompletionRewardController
         nextRewardArrowTime = Time.unscaledTime;
         nextWindDashCheckTime = Time.unscaledTime;
         BonusRunnerLog.Debug(
-            $"CompletionTraversalStarted Section={state.SectionIndex}, " +
+            $"NativeRewardPhaseStarted Section={state.SectionIndex}, " +
             $"Position=({state.PlayerPosition.x:F3}," +
             $"{state.PlayerPosition.y:F3}), Velocity=" +
             $"({state.PlayerVelocity.x:F3},{state.PlayerVelocity.y:F3}), " +
             $"Spheres={state.CollectedSpheres}/" +
             $"{Math.Ceiling(state.RequiredSpheres):F0}. " +
-            "Normal map scanning and route planning remain authoritative " +
-            "until no downstream traversal surface is available.",
+            $"RewardFlags[Available={state.RewardFlagsAvailable},Wait=" +
+            $"{state.WaitingForRewardZone},Trigger=" +
+            $"{state.RewardZoneEntered},Giving={state.GivingRewards}]. " +
+            "The runtime's confirmed typed reward-target latch authorizes " +
+            "reward input; native flags remain diagnostic only.",
             "Completion");
     }
 
@@ -201,7 +205,7 @@ internal sealed class CompletionRewardController
         }
     }
 
-    internal bool TryTerminalRewardActions(
+    internal bool TryRewardActions(
         BonusStageState state,
         PlayerMovement player,
         JumpController jumpController,
@@ -276,9 +280,13 @@ internal sealed class CompletionRewardController
                 "JumpMode=ImmediateDownUp, " +
                 $"ArrowDecision={arrowDecision}, Counts[Jump=" +
                 $"{rewardJumpCount},Arrow={rewardArrowCount},Dash=" +
-                $"{windDashCount}]. No downstream route was available; " +
-                "this is the terminal reward fallback, not a replacement " +
-                "for platform navigation.",
+                $"{windDashCount}], RewardFlags[Available=" +
+                $"{state.RewardFlagsAvailable},Wait=" +
+                $"{state.WaitingForRewardZone},Trigger=" +
+                $"{state.RewardZoneEntered},Giving=" +
+                $"{state.GivingRewards}]. The runtime's confirmed typed " +
+                "reward-target latch is the authorization; this action is " +
+                "never inferred from flags or missing terrain geometry.",
                 "Completion");
         }
 
@@ -290,7 +298,7 @@ internal sealed class CompletionRewardController
         if (traversalActive)
         {
             BonusRunnerLog.Debug(
-                $"CompletionTraversalReset Reason={reason}, " +
+                $"NativeRewardPhaseReset Reason={reason}, " +
                 $"Section={traversalSection}, RewardJumps=" +
                 $"{rewardJumpCount}, RewardArrows={rewardArrowCount}, " +
                 $"WindDashes={windDashCount}.",
@@ -415,8 +423,9 @@ internal sealed class CompletionRewardController
             $"Grounded={state.IsGrounded}, Position=" +
             $"({state.PlayerPosition.x:F3},{state.PlayerPosition.y:F3}), " +
             $"Velocity=({state.PlayerVelocity.x:F3}," +
-            $"{state.PlayerVelocity.y:F3}). Navigation and terminal reward " +
-            "actions remain active.",
+            $"{state.PlayerVelocity.y:F3}). Other typed-target reward " +
+            "actions remain available; terrain navigation no longer owns " +
+            "input.",
             "Completion");
     }
 

@@ -7,6 +7,7 @@ using AutoProgression.Quests;
 using AutoProgression.Minions;
 using AutoProgression.Armory;
 using AutoProgression.SilverBoxes;
+using AutoProgression.Casino;
 using UnityEngine;
 
 namespace AutoProgression.Runtime;
@@ -27,6 +28,7 @@ public sealed class AutoProgressionRuntime : MonoBehaviour
     private readonly TimedCraftableService timedCraftables = new();
     private readonly ShardsNecklaceService shardsNecklace = new();
     private readonly DragonScaleOverflowService dragonScaleOverflow = new();
+    private readonly AscendantBadgeBoostService ascendantBadgeBoost = new();
     private readonly QuestAssistCraftableService questAssistCraftables = new();
     private readonly EggOpeningService eggOpening = new();
     private readonly QuestAutomationService quests = new();
@@ -37,6 +39,7 @@ public sealed class AutoProgressionRuntime : MonoBehaviour
     private readonly EquipmentPurchaseService equipmentPurchases = new();
     private readonly ArmoryBoxOpeningService armoryBoxes = new();
     private readonly SilverBoxClaimService silverBoxes = new();
+    private readonly CrawlerEyePurchaseService crawlerEyes = new();
     private bool autoProgressionEnabled;
     private bool wasReady;
     private bool readyLogged;
@@ -50,6 +53,7 @@ public sealed class AutoProgressionRuntime : MonoBehaviour
     {
         // Manual Armory-box controls are intentionally independent from T.
         armoryBoxes.Tick();
+        crawlerEyes.Tick(Time.unscaledTime);
         silverBoxes.Tick(Time.unscaledTime);
 
         if (Input.GetKeyDown(KeyCode.T))
@@ -179,6 +183,7 @@ public sealed class AutoProgressionRuntime : MonoBehaviour
                      (questAssistCraftables.Tick(now) ||
                       timedCraftables.Tick(now) ||
                       shardsNecklace.Tick(now) ||
+                      ascendantBadgeBoost.Tick(now) ||
                       dragonScaleOverflow.Tick(now));
 
         if (!acted && Plugin.Config.EnableEggOpening.Value)
@@ -208,6 +213,7 @@ public sealed class AutoProgressionRuntime : MonoBehaviour
         timedCraftables.Reset();
         shardsNecklace.Reset();
         dragonScaleOverflow.Reset();
+        ascendantBadgeBoost.Reset();
         questAssistCraftables.Reset();
         eggOpening.Reset();
         quests.Reset();

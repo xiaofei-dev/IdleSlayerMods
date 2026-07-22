@@ -1,5 +1,6 @@
 using HarmonyLib;
 using AutoBonusRunner.Physics;
+using AutoBonusRunner.Runtime;
 using Il2Cpp;
 
 namespace AutoBonusRunner.Control;
@@ -26,6 +27,11 @@ internal static class PlayerMovementFixedUpdateJumpHoldPatch
         if (!JumpPhysicsFeedback.IsPrimaryPlayerInstance(__instance))
             return;
 
+        // Observe automatic flight, support, face contact, objective descent,
+        // and separated wall pulses on the physics cadence. In background or
+        // low-render mode several FixedUpdates can occur between Update calls;
+        // waiting for the next render frame can miss the only actionable step.
+        AutoBonusRunnerRuntime.ObserveCommittedFaceFixedStep(__instance);
         JumpController.MaintainHeldJump(__instance, "FixedUpdate");
     }
 

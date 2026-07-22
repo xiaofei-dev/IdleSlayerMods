@@ -1,6 +1,6 @@
 # Configuration Reference
 
-The configuration schema is version 23. Entries are grouped by purpose.
+The configuration schema is version 25. Entries are grouped by purpose.
 
 ## General and Ascension
 
@@ -35,12 +35,24 @@ disable it if normal Minion level progression should be preserved.
 
 | Setting | Default | Meaning |
 |---|---:|---|
-| Boxes Per Press | `10` | Maximum boxes opened by one trigger. |
-| Select Box Key | `I` | Records the highlighted one of the five Armory boxes. |
-| Open Boxes Key | `O` | Opens the selected box in the background; independent from `T`. |
+| Boxes Per Press | `10` | Maximum selected Armory boxes or eggs opened per trigger. |
+| Select Box Key | `B` | Records the highlighted Armory box, Dragon Egg, or Simurgh Egg. |
+| Open Boxes Key | `N` | Opens the selected box or egg in the background; independent from `T`. |
 
 The selection and opening keys must be different. Opening stops when materials
-or free Armory slots run out.
+or free Armory slots run out. Egg opening stops when the selected egg runs out.
+
+## Casino Crawler Eyes
+
+| Setting | Default | Meaning |
+|---|---:|---|
+| Enabled | `false` | Enables the manual bulk-purchase key; independent from `T`. This spends Jewels of Soul. |
+| Purchase Key | `M` | Starts one sequential purchase while the Crawler Eye cashier screen is open. |
+| Eyes Per Press | `1000` | Requested amount; rounded down to a multiple of 10. |
+
+The service uses the game's confirmed purchase action one 10-eye transaction
+at a time. It waits for each inventory increase before sending the next request
+and stops on insufficient Jewels, a closed screen, or a safety timeout.
 
 ## Silver Boxes
 

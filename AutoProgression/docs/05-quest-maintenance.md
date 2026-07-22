@@ -26,6 +26,7 @@ can be rerolled:
 
 - Goblin kills
 - material collection
+- temporary-craftable crafting
 - Chest Hunt chests
 - normal and Silver Random Boxes
 - normal Boost uses (Wind Dash kill objectives remain)

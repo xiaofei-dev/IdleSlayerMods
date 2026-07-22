@@ -399,18 +399,22 @@ public sealed partial class AutoClimberRuntime : MonoBehaviour
     private readonly ClimbRoutePlanner v5RoutePlanner =
         new ClimbRoutePlanner();
 
+    private readonly AscendingHeightsSliderSkip sliderSkip =
+        new AscendingHeightsSliderSkip();
+
     public void Start()
     {
         InitializeAutomationSettings();
 
         ClimberLog.User(
-            "AutoClimber route planner V6.4.1 initialized. " +
+            "AutoClimber route planner V6.4.2 initialized. " +
             "Generation-aware pooling, apex-retention tiers and center-return routing are active; " +
             "the runtime remains dormant outside Ascending Heights; " +
             "safe enemy-touch targeting is available. " +
             $"Enabled={automationEnabled}, " +
             $"ToggleKey={automationToggleKey}, " +
             $"Mode={AutoClimberQuestMode.ConfiguredMode}, " +
+            $"SkipStartSlider={AutoClimberPlugin.Config?.SkipStartSlider?.Value == true}, " +
             $"TargetEnemies={ClimberLog.IsEnemyTargetingEnabled}."
         );
 
@@ -431,6 +435,10 @@ public sealed partial class AutoClimberRuntime : MonoBehaviour
 
     public void Update()
     {
+        // Slider handling is a separately configured launch helper. It must
+        // keep observing the modal even when route control is toggled off.
+        sliderSkip.Tick(Time.unscaledTime);
+
         if (Input.GetKeyDown(automationToggleKey))
         {
             SetAutomationEnabled(

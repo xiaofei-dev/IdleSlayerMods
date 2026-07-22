@@ -19,6 +19,10 @@ internal readonly record struct BonusStageState(
     bool CharacterFellOff,
     bool SpiritBoostEnabled,
     bool IsTimerVisible,
+    bool RewardFlagsAvailable,
+    bool WaitingForRewardZone,
+    bool RewardZoneEntered,
+    bool GivingRewards,
     bool IsSupportedBonusMap)
 {
     internal static BonusStageState Outside(string gameStateName) =>
@@ -36,6 +40,10 @@ internal readonly record struct BonusStageState(
             double.NaN,
             float.NaN,
             float.NaN,
+            false,
+            false,
+            false,
+            false,
             false,
             false,
             false,

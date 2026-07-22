@@ -24,14 +24,16 @@ gameplay and quest objectives, while AutoClimber handles Ascending Heights.
 - Uses Dragon Scale overflow on Random Box Staff, Necklace of Collectables, CpS Compass, and Souls Compass while respecting the shared maximum effect duration.
 - Buys missing craftable materials with Jewels of Soul when allowed.
 - Crafts Shards Necklaces when Scrap reaches a configurable percentage of its current capacity.
+- Arms Ascendant Badge Boost whenever it is available and Dragon Scales are above 50% of current capacity.
 - Optionally opens Dragon Eggs and Simurgh Eggs in the background while preserving configurable reserves.
+- Provides a manual Village Casino shortcut for sequential bulk Crawler Eye purchases with Jewels of Soul.
 - Purchases available skills and unlocked normal equipment.
 - Performs normal Ascension at a configurable soul-bonus threshold and can buy skills afterward.
 - Claims completed Daily and Weekly Quests, regenerates exhausted quest sets, keeps rerolls available, and resets the normal Portal cooldown. Periodic automation requires the global `T` toggle; configured vertical-magnet skill blocking remains active independently.
 - Uses Specialization for active normal Goblin or Bonus Stage quests and Key Manifest for active normal Chest Hunt quests. Scrap, Simurgh Feathers, and Dragon Scales must already be available; other materials follow the global Jewel purchase settings. Each item has an independent configurable cooldown, and Daily and Weekly Quests are ignored.
 - Scrap- and Dragon Scale-percentage crafting respects the same maximum-duration setting as normal timed craftables, preventing overflow materials from stacking an effect beyond the configured target.
 - Successful background Weekly Quest rerolls suppress only the trailing native UI exception; genuine reroll failures continue to surface normally.
-- Newly generated Daily Quest sets can automatically reroll Goblin, material-collection, Chest Hunt, normal or Silver Random Box, normal Boost-use, Rage Mode-use, Bonus Stage entry/full completion/section, Ascending Heights, and Grapple Run objectives. Rage Mode kill and Wind Dash kill quests are retained. Existing quests and manual rerolls do not trigger the filter.
+- Newly generated Daily Quest sets can automatically reroll Goblin, material-collection, temporary-craftable crafting, Chest Hunt, normal or Silver Random Box, normal Boost-use, Rage Mode-use, Bonus Stage entry/full completion/section, Ascending Heights, and Grapple Run objectives. Rage Mode kill and Wind Dash kill quests are retained. Existing quests and manual rerolls do not trigger the filter.
 
 Ultra Ascension is never performed by this mod.
 

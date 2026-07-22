@@ -16,6 +16,11 @@ minimum interval. It may refresh Rage while Rage Mode is already active.
 
 ## Inventory-Overflow Craftables
 
+Ascendant Badge Boost is a one-use effect rather than a timed stack. It is
+crafted whenever its native condition permits use and Dragon Scales are above
+the fixed 50% capacity threshold. Dragon Scales are never purchased; other
+eligible missing materials follow the global Jewel purchase setting.
+
 - Shards Necklace consumes excess Scrap.
 - Random Box Staff, Necklace of Collectables, CpS Compass, and Souls Compass
   consume excess Dragon Scales as one group.

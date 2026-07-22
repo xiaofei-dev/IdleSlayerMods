@@ -13,14 +13,15 @@ internal static class BonusStageInspector
     {
         "bonus", "section", "sphere", "orb", "time", "spirit",
         "silver", "death", "map", "speed", "boost", "required",
-        "current", "complete", "ground", "jump"
+        "current", "complete", "ground", "jump", "reward", "giving",
+        "wait"
     };
 
     private static readonly string[] RelevantObjectTerms =
     {
         "bonus", "section", "sphere", "orb", "spirit", "silver",
         "death", "spike", "saw", "platform", "finish",
-        "player", "timer"
+        "player", "timer", "reward", "coin", "chest", "box"
     };
 
     internal static void LogControllerSnapshot(string reason)
@@ -184,6 +185,42 @@ internal static class BonusStageInspector
         }
     }
 
+    internal static string DescribeActiveRewardObjects(
+        float left,
+        float right)
+    {
+        try
+        {
+            GameObject[] matches = UnityEngine.Object
+                .FindObjectsOfType<GameObject>()
+                .Where(gameObject =>
+                    gameObject != null &&
+                    gameObject.activeInHierarchy &&
+                    gameObject.transform.position.x >= left &&
+                    gameObject.transform.position.x <= right &&
+                    IsRewardObject(gameObject.name))
+                .OrderBy(gameObject => gameObject.transform.position.x)
+                .ThenBy(gameObject => gameObject.name)
+                .Take(40)
+                .ToArray();
+            string descriptions = string.Join(
+                ";",
+                matches.Select(gameObject =>
+                {
+                    Vector3 position = gameObject.transform.position;
+                    return $"{GetPath(gameObject.transform)}@" +
+                        $"({position.x:F2},{position.y:F2})";
+                }));
+            return $"Active={matches.Length},Range=[{left:F2},{right:F2}]," +
+                $"Objects=[{descriptions}]" +
+                (matches.Length >= 40 ? ",Capped=True" : string.Empty);
+        }
+        catch (Exception exception)
+        {
+            return $"ScanFailed:{exception.GetType().Name}";
+        }
+    }
+
     private static bool IsActiveCurrentSectionBonusSphere(
         GameObject gameObject)
     {
@@ -344,4 +381,10 @@ internal static class BonusStageInspector
         name.Equals("Ground", StringComparison.OrdinalIgnoreCase) ||
         name.StartsWith("Ground ", StringComparison.OrdinalIgnoreCase) ||
         name.StartsWith("Ground(", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsRewardObject(string name) =>
+        name.Contains("coin", StringComparison.OrdinalIgnoreCase) ||
+        name.Contains("chest", StringComparison.OrdinalIgnoreCase) ||
+        name.Contains("box", StringComparison.OrdinalIgnoreCase) ||
+        name.Contains("reward", StringComparison.OrdinalIgnoreCase);
 }

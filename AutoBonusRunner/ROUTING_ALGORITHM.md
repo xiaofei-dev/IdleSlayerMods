@@ -4,15 +4,88 @@
 
 AutoBonusRunner must choose and execute jump actions from live game state. It must not replay a fixed timeline. Each decision must account for current X/Y position, velocity, section, Spirit Boost, live platform geometry, hazards, learned jump physics, wall contact, and the result of the previous action.
 
-Normal navigation controls jump press/release; press duration changes jump height. V0.29 additionally permits direct bow shots and a selected ground Wind Dash only during post-quota completion traversal. Horizontal motion is supplied by the game and can continue while the game is in the background.
+Normal navigation controls jump press/release; press duration changes jump height. Direct bow shots and a selected grounded Wind Dash are permitted only after the runtime confirms an active, interactable reward box, coin, or gem on two consecutive render frames. Horizontal motion is supplied by the game and can continue while the game is in the background.
 
 ## Current revision status
 
-The current source target is public `1.0.0`, internal `V0.31`, configuration schema `4`. V0.30 fixed the completion-entry gate: `PreBonusMode` plus `CollectedSpheres >= ceil(RequiredSpheres)` is sufficient even after a section change resets active-gameplay history. V0.31 changes route topology and phase-aware speed planning from the two-session V0.30 trace.
+The current source target is public `1.0.0`, internal `V0.45`, configuration schema `7`. V0.31 introduced phase-aware speed and wall-exit planning, V0.32 added isolated retry handling, V0.33 added run statistics, V0.34 added confirmed-contact escape planning plus the authored Ground 5 pickup sink, V0.35 added native reward diagnostics plus the Section-3 sphere sweep, and V0.36 introduced the typed reward-object latch and transition-road lifecycle. V0.37 closes four trace-proven execution gaps: immediate narrow-support chaining, an extra-light mandatory face setup pulse, static-wall recovery during inactive completion traversal, and a smaller normal Section-3 face-intercept transfer. V0.38 widens only the boosted high-pillar sink entry and makes an active Section-3 airborne wall collision a continuous climb handoff instead of a ground re-plan. V0.39 lets exact completion walls override a stale boosted landing target and makes an unexpected stable wall-exit landing replan from its real support. V0.40 adds a bounded reactive correction supervisor, removes false undershoot-as-landing success, shortens observed low-lip recovery, and applies completion acceleration evidence to wall-exit target selection. V0.41 separates a committed face/top outcome from landing success, preserves its complete flight ownership, and immediately hands narrow watched landings back to grounded planning. V0.42 introduced exact popup matching and native acknowledgement, but incorrectly rearmed the one-use native Second Wind. V0.43 added exact current-wall fallback and a later physics-step wall-impulse decision barrier. V0.44 restores native one-use retry semantics, admits a strictly verified live-position chain from a narrow support when safe launch intervals narrowly do not intersect, and rebases a newly touched forward face during wall `ExitFlight` without waiting for ground. V0.45 adds only scoped delayed start-slider confirmation and does not change routing.
 
 Historical V0.30 deployment identity is length `380928`, SHA-256 `1A7607B4A4D639DA053AC52E69549A19FF40D9660F1C02A66C81E631B63021C2`. V0.31 is synchronized at length `394240`, SHA-256 `A1D575CB397EB60B75C9A019C4FBEA0AF27E620BC1B43FA3F2F3AD8270C72EE1`.
 
 Section 0's map semantics and planner-specific routing policies remain unchanged because the V0.27 run completed it. V0.28 changes the shared wall continuation scheduler and two Section 1 route contracts, so the next trace must still regression-test Section 0 rather than assume source locality guarantees runtime equivalence.
+
+## V0.37 bounded correction rules
+
+1. After a prepared narrow landing is accepted on one physics step, recompute the next route from current position and live speed. Early promotion is legal only while current X has not passed the nominal launch. Recompute `liveLandingX = currentX + plannedHorizontalTravel`, require the wait to be less than `max(0.80, 1.75 * VX * fixedDelta)`, require that live landing inside `[SafeLeft-0.20, SafeRight+0.20]`, and rerun the hazard trajectory from the live launch. Otherwise retain the ordinary barrier/wait; urgency alone is not permission to jump.
+2. For the mandatory Ground 3 S2-to-S3 lower-objective route, try the direct finite-face intercept first. If it is unavailable, enumerate setup pulses from `0.060..0.135 s` and require the high-side fixed-step apex envelope to remain at least `0.30` below the current release height. Every other attached climb still starts at `0.075 s`.
+3. During an inactive but valid completion traversal, an airborne route-less collision can become a wall route only when `VY <= -1`, native/raycast evidence says touching, and static-map lookup finds a surface with `abs(surface.Left-faceX) <= 0.35`, top at least `0.35` above the feet, and rise no more than `12`. Arm that exact surface and run the ordinary bounded wall controller. This is not a generic death-wall retry.
+4. A post-death guard may also rearm after two stable grounded physics steps at an exact mapped wall even when collision has reduced VX to zero. The remembered terrain section remains authoritative until the next real active section frame.
+5. In normal active code Section 3 on authored Ground 7 S2, while required souls remain, solve a face intercept against the downstream platform using hold range `0.020..0.135 s` and feet band `[targetTop-4.15, targetTop-0.45]`, preferred `targetTop-2.00`. On physical contact the existing wall watch promotes that face and performs the climb. If no intercept is safe, retain the verified top-landing/static-alternate fallback. Boost and above-cruise exits never use this collection shortcut.
+
+## V0.38 bounded correction rules
+
+1. On code Section 1 Ground 5/S4 only, arm the low-pickup descent when feet Y is in `(minimumSphereY + 0.42, minimumSphereY + 1.25]` and VY is below `-2`. Predict up to eight fixed steps from live VY/gravity, stop as soon as pickup disappearance/count/minimum-Y proves collection or the feet band is reached, and retain the dynamic fixed-time deadline for background catch-up.
+2. Before generic wall recovery and grounded routing, code Section 3 may convert an owned, already-taken-off ordinary jump into a wall route when native wall detection proves `Detected && Touching`, VY is at most `+2`, and static lookup resolves the touched face to a platform whose top is more than `0.20` above the feet. Finish the old flight sample as `AirborneWallContactHandoff`, make that exact surface the target, and invoke the existing bounded wall solver in the same frame.
+3. Do not apply this promotion to Section 0-2, completion traversal, an unowned/manual flight, a wall maneuver, a route with any active wall/contact/descent owner, or a top at/below the current feet. A transient Grounded flag does not veto promotion because it is the collision pulse being handled.
+
+## V0.39 bounded correction rules
+
+1. During successful completion traversal, exact descending physical contact may override either no route or an owned, already-taken-off automatic non-wall flight. A passive approach, wall climb, exit watch, mandatory-face state, or attached descent cannot be overridden. Static face lookup and the existing climbability bounds remain mandatory.
+2. When overriding an active completion flight, finish its learning sample as `CompletionAirborneWallContactHandoff` before installing the touched static face. Log the prior route, attempt, plan, maneuver, and target so boosted overshoot is distinguishable from route-less completion recovery.
+3. If an armed wall-exit contact watch observes a verified stable landing on a support other than its exit target, the physical support is authoritative. Finish the old attempt as `Landed`, clear wall recovery and plan locks, set automatic ground planning ready immediately, and log `WallExitIntermediateLandingReplan`. Do not keep an obsolete face watch across that landing.
+
+## V0.40 reactive correction rules
+
+The nominal planner remains responsible for selecting the intended route. A separate, tightly gated supervisor owns only observations that prove the nominal contract false:
+
+1. `Unexpected mapped wall contact`: require an owned automatic flight or wall route, exact `Detected && Touching` evidence, and a static-map face whose top is still climbable from the observed feet Y. Finish the stale attempt, retain its prediction in the log, and rebuild the wall route from the observed face/feet/speed. Never apply this rebase to Ground 3's mandatory objective face.
+2. `Unexpected stable support`: use the V0.39 two-fixed-step landing replan. A real support clears all obsolete exit watches and predicted targets before grounded planning resumes.
+3. `Known undershoot`: a rejected landing candidate remains rejected. Do not turn maximum hold into a landing solely because every shorter hold is worse. If the same geometry intentionally reaches a vertical face, keep that face armed and wait for physical contact.
+4. `Low-lip contact`: when the current mapped top is wide, no downstream target exists, the actual contact is at most `1.25` below the release height, and landing prediction has no safe solution, choose the shortest vertical pulse that clears the lip (`0.020..0.075`). This is `ReactiveLipEscape`, not a predicted landing. The next real wall contact or stable support must replan again.
+5. `Acceleration discontinuity`: completion Spirit traversal stores recent positive `dVX/dt` and a per-section observed completion speed ceiling. While that evidence is active, wall-exit planning uses a bounded higher speed. A narrow nearest target that fails at that planning speed is replaced only by the first statically enumerated candidate with a valid strict landing.
+6. `Observed chained face`: when promotion is caused by current physical contact, require the observed face X to match the mapped successor and the feet to remain below its top. Promotion from the old lip may still arm a future face without pretending contact already occurred.
+
+Every recovery log must include the abandoned route/attempt/target, predicted landing, actual position/velocity/contact feet Y, selected recovery state, and the new mapped target. The recovery layer may prevent a death, but it must never retroactively report the failed nominal prediction as correct.
+
+## V0.41 committed face/top and completion-speed rules
+
+1. Run the strict target-top landing solver and every authorized alternate-support search first. Do not relax their safe interval or raw-body rules.
+2. If those searches fail on mapped `Ground 7/S2`, the lower target face is `5.25..15.50` units ahead, and top delta is in `[-3.25,+0.35]`, create a distinct `FaceOrTopPending` contract. Normal code Section 2 uses at most the native `0.180 s` cap and normal code Section 3 uses at most `0.135 s`; a fixed-step-proven hold is preferred. The solver evaluates exactly `ceil(hold/fixedDelta)` powered ticks because that is what the actuator now delivers, rather than rejecting completion routes with the obsolete timer uncertainty envelope. Before reward-object latch, successful post-quota terrain traversal may use a model-proven face intercept at its measured completion speed, but it may not reuse the empirical normal-speed cap. The retained cap is legal only on the two exact normal authored routes and is never labeled predicted landing success.
+3. Deliver every explicit face pulse with an exact fixed-step hold ceiling. Give its contact watch a fixed-step deadline derived from predicted flight plus a bounded margin. From DOWN onward, retain the exit target, sample, watch, and pit-recovery ownership. While the player remains above the finite face bottom, before target overflight, and inside that deadline, the committed target itself is recoverable-wall evidence even when the `1.20`-unit ray cannot see it. `WallBounceExitFlight` is a transition state, not a successful terminal result while this contract is pending.
+4. A face outcome requires actual `Detected && Touching` contact, left-facing normal, `abs(faceX - target.Left) <= 0.45`, player centre before the face, a live static-surface/collider identity and geometry match, and feet inside the route's planned face window. Check this at render cadence and immediately before the primary `PlayerMovement.FixedUpdate`; the latter may issue the attached DOWN for the same physics step. Atomically promote the mapped exit target and solve the next wall press from observed contact. Do not reuse the generic `gap <= 5.25` chained-wall promotion for this ten-unit flight.
+5. A top outcome requires an exact static-support scan whose top and body X overlap the stored target and non-rising `VY <= 2.5`. If the old pointer is still held in the FixedUpdate prefix, exact support closes that edge before native movement consumes the step. One fixed step is sufficient for a pending optional face/top contract, a successful completion-traversal target no wider than `2.25`, or the final top of an owned automatic wall climb; grounded negative VY does not invalidate physical support. Ground 3 mandatory-face top landing remains failure. The Section-3 low-soul `CollectionFace` contract is distinct: an exact face is success, while one real top-support step is logged `CollectionFaceTopLandingMissed` and never scored as collection success.
+6. A fixed-step support latch stores attempt/player/route identity, target and actual surface, position, velocity, body half-width, event time, and physics step. Render-time consumption must use that captured surface and translated historical body bounds; it must never combine historical coordinates with the current collider scan. Historical evidence may score the real landing but is excluded from wall-clock flight-time training. Ground planning is rearmed only if the live body is still supported; otherwise the log reports `HistoricalSupportOnly` and waits for current airborne state to resolve.
+7. Completion wall-exit speed uses only current-epoch evidence. `planningVX = max(observedVX + 0.25 * acceptedPositiveAcceleration, observedCompletionCeiling)` when the relevant evidence exists, with the gain bounded to `12`; there is no unconditional `+4`. Reset completion ceilings and acceleration on stage/section boundaries and every life/terrain revocation. Active Spirit routes retain their separate deceleration model.
+8. Explicit face pulses use an exact fixed-step release count shared by solver and actuator. Ordinary ground/wall plans retain their calibrated wall-clock release during normal rendering and also carry a derived fixed-step safety ceiling, so background batching cannot add unlimited powered ticks. A missing fixed callback has a logged wall-clock fail-safe. Keep wall-clock and delivered-step measurements separate in learning.
+9. The primary-player FixedUpdate prefix owns committed face contact, mandatory setup/intercept, attached-objective descent, passive wall approach, and every separated pulse of an active generic wall climb. It can release an old edge and issue the next DOWN before the same native FixedUpdate. This prevents background render throttling from losing a contact or leaving a multi-pulse climb waiting for LateUpdate.
+10. A prepared narrow-chain action runs before support latching. It releases any prior owned hold, closes the old sample, rescans from live position/speed/physics, validates target geometry and hazards, and issues the next DOWN in the same prefix. If no safe next action exists, the support latch owns the frame and generic wall recovery may not mutate that route.
+11. Lifecycle discontinuity envelopes use elapsed fixed steps, current/prior velocity, learned jump velocity, and gravity. A large render-to-render displacement inside that physical envelope is background catch-up, not teleport. While a face contract exists, the generic four-second wall-clock sample timeout is subordinate to its fixed-step watch deadline.
+
+Required diagnostics are `CommittedExitFaceInterceptSelected`, `CommittedExitFaceContactHandoff`, `CommittedExitFaceFixedStepHandoff`, `CommittedExitFaceContactRejected`, `CommittedExitFaceFlightPending`, `UrgentNarrowLandingFixedStepChained`, `UrgentNarrowLandingFixedStepRejected`, `WatchedExitSupportForcedRelease`, `WatchedExitSupportFixedStepLatched`, `WatchedExitSupportFixedStepConsumed`, `AuthoritativeWatchedExitLandingConfirmed`, `AuthoritativeCollectionTopSupportObserved`, `WallTargetLandingFixedStepHandoff`, `WallExitLandingOwnershipHandedOff`, `CollectionFaceTopLandingMissed`, `CompletionWallExitSpeedProjection`, and `CompletionSpeedEpochReset`. Every one-step landing log must state the exact mode, fixed step, captured support/target, captured and current positions, VX/VY, release state, evidence source, and whether the live body is still supported.
+
+## V0.42 retry lifecycle rules
+
+1. `SecondWindSuggest()` proves only that the native coroutine was created. Preserve that intent across Bonus/non-Bonus transition frames; never use a fixed delay as popup readiness and never clear it merely because `GameState.IsBonus()` is temporarily false.
+2. Claim only a newly presented `Popup.Show(PopupData,bool)` whose data has both actions and whose sprite is the exact `secondWindIcon` from the pending `SecondWind`. On the following render frame, revalidate the same popup identity, visibility, displayed sprite, and active/interactable requested button.
+3. Dispatch Continue through `confirmButton.onClick.Invoke()` and No through `PressCancelButton()`. Compiler-generated `_b__7_x` methods are implementation details and are not called directly. `OnClose()` is not the No action.
+4. A Continue click is only a request. Native retry acknowledgement is the matching `SecondWind.RewardForShowing()` postfix. The callback reads but never writes `secondWindUsed`; the game's one-use choice remains consumed. Keep terrain blocked after that acknowledgement until the matched popup is no longer visible and two distinct frames satisfy `IsBonusStage && IsActiveGameplay && HasPlayer`. `CharacterFellOff` is logged but cannot veto resume because the native flag may remain sticky for the rest of the protected run.
+5. Release owned input immediately when the prompt is observed, suppress every new `Press`/`Pulse`, and fail closed in both PlayerMovement Update and FixedUpdate hold refresh while retry owns the modal. Clear stale completion-speed, quota-road, and reward-target ownership without changing the authored terrain map or any jump/wall parameter. Keep the existing run-tracking epoch across the transient outside-stage boundary and resume from a fresh route decision only after the two-frame active-gameplay acknowledgement.
+6. Retry native errors, thrown UI invocation, or `OnClose` without reward/error acknowledgement at most three Continue attempts, always against the same revalidated popup. The close callback has a `3 s` grace interval for callback ordering. Exhaustion or the `120 s` reward timeout arms one verified native No fallback; if fallback cannot be invoked or acknowledged, modal ownership remains fail-closed. Other timeouts are prompt `30 s`, popup readiness `30 s`, gameplay resume `15 s`, and exit acknowledgement `20 s`. Lack of reward acknowledgement must not change `secondWindUsed`.
+7. Startup inventory must show exactly one each of `RetryPromptPostfixes`, `RetryPopupPrefixes`, `RetryPopupPostfixes`, `RetryRewardPostfixes`, `RetryErrorPostfixes`, and `RetryClosePostfixes`, in addition to movement patch inventory `1/1/1`. This exact inventory gates automatic retry dispatch.
+
+Required retry evidence is `RetryPromptObserved -> RetryPopupMatched -> RetryModalOwnershipHandoff -> Auto retry request dispatching -> Continue acknowledged by RewardForShowing` with `NativeUsedAfterAcknowledgement=True, Rearmed=False`, then `RetryResumeEvidence 1/2 -> RetryResumeEvidence 2/2 -> Auto retry outcome -> RetryModalOwnershipReleased`. Later deaths must not produce another prompt merely because of this mod; a new sequence is legal only when the game itself calls `SecondWindSuggest` again. Error exhaustion must instead show `RetryFallbackCancelArmed`, a validated No dispatch, and popup-close plus exit acknowledgement; no terrain action may appear while any retry gate is active.
+
+## V0.43 exact-contact and impulse-ordering rules
+
+1. Ground 3's mandatory downstream-face solver first evaluates the existing robust `+/-1` horizontal fixed-step envelope. Only if it has no valid candidate, while the runtime already owns exact mapped current-wall contact, evaluate the zero-offset horizontal step. The powered-step count remains exact and the complete finite feet-Y/contact-velocity checks still apply. The next face must be physically observed; this fallback cannot report a landing or route success by prediction alone.
+2. A fixed-step wall pulse that has just released cannot be rejected on the same `FixedStepSequence`. Record the release observation and wait for a strictly later physics step. This lets the second upward observation arrive after a one-step click while preventing render callbacks from consuming a retry slot between physics ticks.
+3. Impulse success and failure are terminal alternatives for one attempt. Once failure has been logged, later residual rise cannot confirm that attempt. Required ordering is `WallClimbImpulseDecisionDeferred -> WallClimbImpulseConfirmed` or `WallClimbImpulseDecisionDeferred -> WallClimbImpulseRejected`, never rejection followed by confirmation.
+
+## V0.44 one-use retry, narrow-support chain, and new-face handoff
+
+1. `RewardForShowing` is acknowledgement only. Read `secondWindUsed` after the callback and never modify it. A successful native Continue remains consumed. The existing limit of three dispatch attempts applies only to failures while invoking the same verified popup; it is not a number of gameplay retries. With Auto Retry enabled, choose Continue when the one native choice is offered; with it disabled, choose No. A later prompt is handled only if the game itself legitimately offers one.
+2. When a current and next support are both no wider than `2.25`, the gap is real, the live grounded centre remains within the raw current support tolerance, and a hold predicts a safe-centre landing on the next support with a hazard-cleared full trajectory, `NarrowSupportImmediateChain` may execute from the live centre even if conservative safe-source/safe-target launch intervals have no `0.02` intersection. Any ordinary conservative candidate remains preferred. This is a source-edge recovery, not a global landing-tolerance expansion.
+3. While a prior wall pulse is in `ExitFlight`, exact `Detected && Touching` contact with a forward face more than one body-width beyond the prior pulse contact is a new wall. Mandatory objective-face, setup/intercept, and attached-descent ownership cannot be replaced. Otherwise, resolve the new face to a climbable static surface, reset the per-face pulse budget, and invoke the existing bounded wall solver immediately. Required evidence is `ReactiveWallRouteRebased -> ChainedExitFlightWallContact -> WallRecoveryPlan/WallJumpDown` without an intervening grounded `RouteEval`.
 
 ## V0.31 speed-phase and Section 2 route corrections
 
@@ -27,16 +100,71 @@ Section 0's map semantics and planner-specific routing policies remain unchanged
 
 Required V0.31 evidence includes `MappedGround6UnderpassWallDrop`, `WallDropRouteArmed`, `HorizontalSpeedObservation`, `SectionCruiseSpeedEstablished`, `JumpPlanningDeferred`, `CompletionWindDashDeferred` or `CompletionWindDashPlanningBarrier`, `WallExitKinematics`, `LipVX`, `WallExitHoldPreserved`, and, when needed, `WallExitTargetSpeedPromoted`.
 
-## V0.29 post-quota completion state machine
+## V0.34 collision escape and wall-exit contract
 
-`BonusMode observed -> current quota complete -> PreBonusMode -> normal terrain planner continues -> optional grounded Wind Dash -> terminal route confirmed -> immediate minimum jump pulse plus direct bow fire`
+The V0.33 trace separates three previously conflated values: live collision VX, pre-contact route VX, and post-lip VX. A live value of zero is not a useful jump-distance input when the player is physically flush against the intended face.
 
-- Navigation remains authoritative while any next surface is available; reward actions cannot replace a valid route or intentional drop.
-- A valid scan with `HasNext=false` confirms the terminal route immediately. An invalid scan must remain grounded across three distinct fixed steps before fallback actions are allowed, preventing a one-frame perception failure from causing an early pulse.
+1. A direct grounded contact escape is legal only for the observed Ground 6 S0 -> S3 raised lip, when the current plan is `EnterTrenchThenWallJump`, the classifier reports `AdjacentWall`, gap is at most `0.10`, the player reached the planned face, and the wall detector confirms both `IsDetected` and `IsTouching` at the exact next-surface face. Other mapped adjacent walls enter the normal contact-confirmed wall executor instead of either waiting forever or skipping their trench/objective route. A velocity transition or completion-dash fixed-step barrier still has priority.
+2. Enumerate supports beyond the immediate raised body plus the body itself. Predict every supported hold with the latched pre-contact VX; do not substitute live collision VX `0`. Check vertical clearance and hazards before scoring the landing.
+3. In normal-speed mode, preferred safe bounds remain best, but a predicted player footprint must overlap a verified raw top by at least `max(0.15, speed * fixedDeltaTime)` to be executable. If model uncertainty rejects every ordinary candidate, a native-cap press toward the widest downstream verified support is preferable to permanent zero-input contact. This direct fail-open rule is restricted to confirmed zero-gap Ground 6 S0 -> S3 contact.
+4. In Spirit Boost mode, require the conservative safe interval with only `0.02` tolerance. For a confirmed grounded Ground 6 contact, if no strict interval exists, execute the hazard-cleared candidate with the smallest physical-support miss; if no ballistic candidate survives, transfer ownership to the confirmed-wall climbing executor instead of waiting at VX `0`. For an attached Ground 7 exit, if the nearest support is unsafe at current post-lip speed, enumerate ordered static supports and promote the first strictly safe target. Never apply normal raw-body-fit or native-cap undershoot acceptance to that boosted wall-exit transfer.
+   Section cruise sampling is disabled whenever `SpiritBoostEnabled=true`; a boost plateau may never become the section's base-speed floor. A latched speed more than `max(1.0, 10%)` above an established cruise is also treated as boosted even if the flag has just changed.
+5. When lookahead from an expected wall-top support produces a valid downstream action, retain its target, hold, predicted landing, and planning speed across the wall-contact handoff. At compatible normal speed, the prepared hold becomes the wall-exit solver's lower bound; the wall-specific attached/lip/post-lip calculation still chooses and validates the final hold. Ground 7 uses the observed post-gravity held velocity plus the measured flight-time scale. If every allowed hold is still predicted left of the target, the landing solver returns failure. While Section-3 objectives remain, the target stays armed as a planned physical face; it is not converted to undershoot success.
+6. Ground 7 S2 static fallback and speed promotion are selected by authored piece/surface identity, not by section index, because the same piece occurs in Sections 2 and 3.
+7. Ground 5 S4 has one narrowly scoped pickup correction. If a lower sphere remains, the player is descending faster than `-2`, and feet Y lies in `(minimumSphereY + 0.42, minimumSphereY + 1.25]`, release through at least one distinct fixed step. Resume when the pickup count/minimum-Y proves collection or feet reach the pickup band; use the live fixed-step/gravity deadline (up to eight predicted steps) and log if background catch-up advanced more than one step between control frames. No other wall reuses this rule.
+
+Required V0.34 evidence includes `GroundedContactEscapeDecision`, `WallExitPreparedContractCaptured`, the wall-exit `Policy[...]` and `RawBodyFit` candidate result, `WallExitTargetSpeedPromoted` for boosted alternate selection, and `Ground5HighestPillarSinkArmed/Complete`.
+
+## V0.36 typed reward, transition-road, and precision contracts
+
+The two retained V0.35 runs both completed, but all seven deaths occurred after quota equality while the actual reward object was still absent. The controller had already advanced its mutable section index and the runner accelerated on a narrow transition road. This separates a lifecycle/reset error from normal active-section routing.
+
+1. Sphere equality, `waitForRewardZone`, `rewardZone`, and `givingRewards` are diagnostics only. They never authorize reward input and never select a terrain section.
+2. The last section observed in real active gameplay remains the routing/map/physics section during inactive transition frames only while its terrain-continuation epoch remains valid. A mutable controller index change does not clear a committed jump, wall target, speed latch, route calibration, or second-stage preview. Section-scoped reset occurs only when the next section produces a real active-gameplay frame.
+3. Reward mode requires the same qualified native component on two distinct render frames: either an active, enabled, unhit `RandomBox`, or an active, enabled, unpicked `CollectableGameObject` whose exact reward type is Coin, Ruby, Sapphire, Emerald, Diamond, or Zynium. The object must have an enabled active collider and an enabled active SpriteRenderer with a sprite and nonzero alpha, and must lie in the player corridor `X=[-4,+45]`, `|Y|<=18`. `Renderer.isVisible` and object names are forbidden because background rendering and pooled names are unreliable.
+4. A typed target latch persists after hit/despawn through its current reward interval. Its rising edge atomically releases terrain/wall input before minimum contextual jump pulses, arrows, and optional grounded Wind Dash begin. A typed target may latch even if the mutable active-gameplay flag changes late; confirmed object identity dominates native phase flags.
+5. `BeginEpoch` retires every pending, latched, previously qualified, and currently scannable typed-target instance ID at a real section boundary or lifecycle revocation. A successful boundary snapshot plus one later complete inventory on a distinct render frame establishes the short stabilization gate; an unavailable/partial snapshot requires two later complete inventories on distinct frames. Every typed target visible during those quarantined inventories is retired, including the inventory that completes stabilization. After stabilization, a distinct non-retired ID may start its own two-frame `1/2 -> 2/2` latch without a global-empty gap. A retired ID becomes eligible again only after two consecutive complete inventories observe that ID absent.
+6. Two consecutive successful complete scans whose reason is exactly `NoQualifiedActiveRewardTarget` remain an alternative global rearm proof. `OnlyRetiredEpochTargets` is not physically empty. A partial/failed scan cannot authorize positive evidence, prove absence, remove a retired ID, or advance the two-empty count. It clears the pending `1/2` proof and emits a rate-limited warning while terrain/lifecycle ownership remains fail-closed.
+7. Confirmed pit/death, player replacement or unavailability, loss of supported-map eligibility, and global position discontinuity revoke the terrain-continuation epoch and stale reward ownership. Rearm requires the restart delay plus two distinct stable-ground physics steps with `|VY| <= 2.50`, a supported map, live player, remembered terrain section, and forward-gameplay evidence: `IsActiveGameplay=true` or `|VX| >= 1.0`. The VX alternative safely resumes an inactive post-quota road; stationary ground alone does not. Active gameplay adopts the current section, while inactive recovery retains the last active terrain section.
+8. A first stable fixed-step contact may complete a landing only for an already prepared two-stage route onto a verified authored support no wider than `2.25`. The next plan is rescanned from live position and Rigidbody speed in the same control cycle. If a speed discontinuity barrier would consume the entire narrow support, the freshly recomputed plan may bypass that one-step wait; every target, hazard, and launch-window check remains required.
+9. Ground 5 authored pillar surfaces S2/S3/S4 do not use V0.35's current-frame planned-face bypass. Their stable V0.34 behavior requires body-contact/VX-collapse readiness, preventing a wall pulse from firing while excessive upward velocity remains. The S4 lower-pickup sink arm window is measured from its target feet height, and its release deadline is simulated from live downward VY, gravity, and fixed delta (bounded to `2..8` steps). Authoritative elapsed steps and the deadline are derived from exact `Time.fixedTimeAsDouble`; raw `FixedStepSequence` delta is diagnostic only, so background render catch-up cannot shorten the sink.
+10. `SphereSweepToLowerLanding` uses strict lexicographic selection: maximum predicted sphere hits, minimum hold, minimum flight time, then maximum landing margin. A blended margin score may not turn an equal-pickup candidate into a heavier jump. Normal active Section 3 Ground 7 collection exits cap the attached transfer at `0.165 s`; Spirit/high-speed transition exits retain the full `0.180 s` safety range.
+11. MelonLoader automatically discovers the attributed Harmony patches; AutoBonusRunner must not call `PatchAll()` manually. The V0.35 audit confirmed that doing both installed duplicate callbacks, so one real `PlayerMovement.FixedUpdate` advanced the hold counter and feedback twice. The startup inventory must be exactly one owned `Update` prefix, one owned `FixedUpdate` prefix, and one owned `FixedUpdate` postfix (`1/1/1`). `JumpController` and `JumpPhysicsFeedback` also deduplicate exact `Time.fixedTimeAsDouble` values, without epsilon: each distinct catch-up physics tick counts, while duplicate callbacks at the same fixed time cannot advance a limit, release before the original integration, increment `FixedStepSequence`, or add a learning sample.
+12. Fixed-step wall pulses report and learn their delivered physics duration as `held steps * fixedDeltaTime`, not shorter wall-clock time observed during render catch-up. A truncation warning is legal only when both clocks prove the delivered action was short.
+
+Required V0.36 evidence includes `HarmonyAutoPatchInventory` with `1/1/1`, `RewardTargetObservation` with epoch/snapshot/retired-ID reasons, `RewardTargetFreshEpochPending/Latched`, `RewardTargetRearmEmptyScan` and `RewardTargetRearmBaselineEstablished` when the empty alternative is used, `TerrainContinuationEpochRevoked` where emitted, `PitDescentGuardReleased` with `ForwardGameplayResumed` and `TerrainEpochRearmed`, `RewardObjectPhaseLatched`, `RewardObjectOwnershipHandoff`, `RewardObjectGateMismatch` when native flags disagree, `UrgentNarrowLandingConfirmed`, `UrgentNarrowLandingBarrierBypass` when used, `Ground5NarrowPillarBodyGate=True`, the Ground 5 sink's fixed-time/deadline fields, the Section-3 sweep candidate list and selected hold, and wall-exit policy fields `NormalSection3CollectionExit`/`MaximumHold`. `FixedStepCallbackDeduplicated` should be absent with a correct `1/1/1` patch inventory; if present, it proves the defense-in-depth guard suppressed another callback installation defect.
+
+## Historical V0.35 wall, pickup, and native-reward contracts
+
+1. Probe the wall before applying the incoming-horizontal-speed return. A current-frame `Detected && Touching` hit may bypass speed/stall confirmation only when it belongs to the already planned wall or the currently armed downstream exit face. A predicted centre position or wide forward ray is never equivalent to physical contact.
+2. Keep the nominal deep-entry clearance band for an on-time trench launch. After that launch window is irreversibly missed, re-solve from live X and allow a hazard-cleared below-lip physical-face contact with a relaxed minimum clearance. Label it `LateDeepTrenchPhysicalFaceSalvage`; it is a survival route and does not claim that the nominal deep pickup lane was preserved.
+3. Restrict the Ground 5 raw-body exception to the exact same-piece S4 -> S1 exit. Carry the selected safe tolerance and `RawBodyFit` authorization through wall release into landing outcome scoring, then recompute actual player-footprint overlap with the planner's same minimum-width rule. Coincident raw bounds/top on the composite collider override a pooled prefab annotation mismatch, but do not override geometry checks.
+4. `SphereSweepToLowerLanding` is eligible only in code Section 3 and only when a verified natural drop already exists. Enumerate holds using current VX and the current physics snapshot; require the predicted landing to remain within the same lower support and the trajectory to clear the current hazard. Score only spheres more than `1.15` units above source feet (passive body-overlap pickups do not count). Maximize pickup count, then prefer shorter flight/hold and greater landing margin.
+5. A post-quota road latch requires current-run evidence that one specific section was first below quota and later reached quota. A native wait transition may corroborate unavailable quota data only when a readable `waitForRewardZone=false` baseline was captured after that incomplete proof and a later readable sample becomes `true`; a sticky level or an edge hidden inside an unreadable interval is insufficient. The completed section is always that proven incomplete section, never `previousSectionIndex`. A new-run section wrap and the first active frame of the next section form hard reset barriers, preventing stale totals from re-arming the latch.
+6. While the proven road latch is active and neither `rewardZone` nor `givingRewards` has appeared, normal terrain routing continues using the completed section's map identity. `rewardZone` ends terrain ownership. Readable `givingRewards=true` directly authorizes reward control on the supported map even if quota data is temporarily unavailable.
+7. On the `givingRewards` rising edge, release and clear any terrain jump/wall owner atomically. Then minimum contextual jump pulses, direct bow fire, and optional grounded Wind Dash may run. Reward flag read failures are fail-closed and rate-limited in the log. Coin/chest GameObject names are diagnostic corroboration only because pooled object presence is not authoritative.
+
+Required V0.35 evidence includes `IncompleteQuotaObserved`, `RewardWaitFalseBaselineObserved`, `PostQuotaRoadArmed`, `RewardPhaseObservation`, `NativeRewardOwnershipHandoff`, `NativeRewardPhaseStarted`, `CompletionRewardAction`, `RewardObjects`, `ObservedPlannedFaceContact` or `ObservedWatchedExitFaceContact`, `LateDeepTrenchPhysicalFaceSalvage`, `SphereSweepToLowerLanding`, and the attempt result's expected/actual sphere counts and `LandingAcceptance[...]` fields.
+
+## Historical V0.32 retry isolation (superseded by V0.42)
+
+V0.33 leaves this retry isolation and every routing decision unchanged. Its run-level statistics use confirmed lifecycle and completion events only; statistics never feed back into control.
+
+- `Auto Retry Enabled=false` is the default and selects the real popup No/cancel action after a failed Bonus Stage.
+- `Auto Retry Enabled=true` historically selected the native Continue callback after a fixed one-second wait. V0.42 replaces that unsafe timing and direct callback with exact popup/UI/acknowledgement handling.
+- The retry bridge remains outside route planning. The runtime now deliberately releases any stale jump/wall/reward input while the native modal owns control; it does not alter route parameters.
+- Turning AutoBonusRunner off clears the pending prompt and leaves it available for manual interaction.
+
+## Historical V0.29 post-quota completion state machine (superseded by V0.36)
+
+V0.29 used `BonusMode observed -> current quota complete -> PreBonusMode -> normal terrain planner -> inferred terminal route -> reward actions`. V0.36 retains the useful terrain continuation but removes both terminal-route and native-flag authorization; only the confirmed typed reward-object latch moves Wind Dash, small jumps, and arrows into reward control.
+
+- Navigation remains authoritative until the typed reward-object gate latches; missing terrain is never reward evidence.
+- The old `HasNext=false`/three-invalid-fixed-step terminal inference is no longer executable behavior.
 - The minimum pulse calls `JumpPanel.OnPointerDown` and `OnPointerUp` in the same frame, matching AutoJump's contextual short-jump behavior without referencing that mod.
 - Bow fire calls `PlayerMovement.ShootArrow()` at a 0.10 second cadence only when the Sacred Book of Projectiles is unlocked and bow use is not disabled.
-- Wind Dash is attempted only when the main ability UI is visible, the selected ability is Wind Dash, it is unlocked and ready, no trajectory owns input, and ground contact has near-zero VY for two distinct physics steps (with the stable-Y fallback retained). Failure is non-fatal and navigation continues.
-- Evidence records include `CompletionTraversalStarted`, `CompletionTraversalNavigation`, `CompletionTerminalCandidate`, `CompletionRewardAction`, `CompletionWindDashActivated`, `CompletionWindDashUnavailable`, `CompletionTraversalEnded`, and `CompletionTraversalReset`.
+- Wind Dash is attempted only after the typed reward latch, when the main ability UI is visible, the selected ability is Wind Dash, it is unlocked and ready, and ground contact is stable. Failure is non-fatal; jump/arrow reward actions remain available.
+- Current evidence records are listed in the V0.36 contract above; historical `CompletionTerminalCandidate` is obsolete.
 
 The deployed V0.29 DLL is length `380928`, SHA-256 `B92D6661A02BC41EBB0432629C0AD78AC9736294417CE8B07952789E69BF63C4`, identical in the build output, Mod Manager source, authoritative root loader, and nested compatibility loader.
 
@@ -56,6 +184,10 @@ The deployed V0.29 DLL is length `380928`, SHA-256 `B92D6661A02BC41EBB0432629C0A
 10. Keep calibration domains separate by section and action context. Ground takeoff, wall reset, and collision-speed samples are not interchangeable.
 11. Physical wall contact is not the same as vertical stall. After UP, never reset a still-positive wall impulse merely because the body remains attached below the lip; observe release height or a real apex/descent first.
 12. Authored route success may require an intermediate face contact. A safe top landing is not success when it skips a still-active Ground 3 objective lane, and a high Ground 5 pillar is not terminal while its mapped lower exit remains ahead.
+13. Missing terrain, quota equality, native reward flags, and untyped pooled-object presence are never permission to send reward input. Only the two-frame qualified typed reward-target latch authorizes it.
+14. The last section observed in real active gameplay remains authoritative through the inactive transition road even if the controller publishes the next section index early, but only while the current continuation epoch remains valid. Death, player replacement/loss, supported-map eligibility loss, or global position discontinuity revokes that authority. Rearm requires two stable fixed steps plus forward gameplay (`IsActiveGameplay` or `|VX| >= 1`), so safe moving inactive continuation is possible but a stationary respawn is not sufficient.
+15. Epoch separation is instance-based. `BeginEpoch` retires old/current typed IDs; after complete-inventory stabilization, a distinct ID may latch `2/2` without a global-empty gap. A retired ID must first be absent from two consecutive complete inventories. A successful boundary snapshot requires one later quarantined complete inventory, while an incomplete snapshot requires two. Two complete physical-empty scans are the fallback global baseline. Partial scans cannot provide positive or negative proof.
+16. One logical fixed step means one unique exact `Time.fixedTimeAsDouble` for the bound primary player, not one Harmony callback or one render frame.
 
 ## Inputs observed each control cycle
 
@@ -68,6 +200,7 @@ The deployed V0.29 DLL is length `380928`, SHA-256 `B92D6661A02BC41EBB0432629C0A
 - Remaining section timer.
 - Fell-off/death state.
 - Spirit Boost state.
+- Native reward flags (`waitForRewardZone`, `rewardZone`, `givingRewards`) and whether all three were read successfully.
 - Live static-map registry generation and piece instances.
 - Nearby standable surfaces, hazards, spheres, and forward wall contact.
 - Current jump-physics snapshot and calibration confidence.
@@ -137,7 +270,7 @@ Ordinary ground takeoff velocity near `18.627` and wall reset velocity near `20`
 
 Duration-grid ownership is stricter than general feedback eligibility: only an observed input-DOWN-to-confirmed-stable-landing interval writes a duration cell. Neither horizontal travel nor launch/start-speed is a proxy for elapsed flight time, so those observations update only their dedicated travel or speed estimators. This prevents one physical sample from contaminating the duration curve through multiple incompatible units.
 
-The Harmony input/feedback bridge runs only for the primary `PlayerMovement.instance`. V0.26 allowed duplicate instances to advance fixed-step capture roughly twice per real physics step, which made observed released gravity appear near half the real value and contaminated timing barriers.
+The Harmony input/feedback bridge runs only for the primary `PlayerMovement.instance`. V0.26 allowed secondary player instances to contaminate capture. A separate V0.35 audit confirmed a second doubling mechanism: MelonLoader automatically installed the attributed patches, and AutoBonusRunner manually called `PatchAll()` again. The explicit call is removed; startup inventory must be `UpdatePrefixes/FixedPrefixes/FixedPostfixes = 1/1/1`. Exact per-player `Time.fixedTimeAsDouble` deduplication remains in the actuator and feedback bridge so one real integration advances `FixedStepSequence`, held-step limits, and learning exactly once.
 
 Horizontal distance must never be computed from hold duration alone. It depends on live horizontal velocity, predicted flight duration, game movement behavior, Spirit Boost, section speed, contact offsets, and learned travel scale/bias.
 
@@ -313,18 +446,25 @@ This prevents the previous failure where the mod kept jumping randomly after dea
 
 `Application.runInBackground` is enabled. Jump state is injected through the native player jump path using `JumpController` and Harmony input patches. The mod must not depend on a foreground-only mouse click simulator. Manual left-click input remains available when automation is disabled, and manual jumps should still be observed for calibration.
 
+Harmony patch ownership is automatic under MelonLoader. AutoBonusRunner never calls `PatchAll()` itself. Do not use `Time.frameCount` as the physics identity: background catch-up can execute several legitimate fixed ticks in one render frame. Exact double fixed time suppresses only repeated callbacks for the same tick and preserves every distinct catch-up integration.
+
 AutoBonusRunner does not inspect, patch, configure, or suppress AutoJumpMod. The user owns input exclusivity and must turn AutoJumpMod off before testing this planner.
 
 ## Successful section continuation
 
-`PreBonusMode` is not always a death state. When sphere quota is complete,
-V0.8 keeps using the normal route planner so post-finish walls and reward
-approaches remain executable. It deliberately does not gate this state on
-`characterFellOff`, because that field can remain true after an earlier revive
-even though the current section has completed successfully. If no route action
-is currently required, it sends a short shared jump/attack pulse to fire the
-bow or claim the reward. An incomplete/failed `PreBonusMode` remains
-input-blocked because its remaining sphere quota is still positive.
+`PreBonusMode` is not by itself a death or reward state. In current V0.36,
+sphere quota and native reward flags are diagnostics only. The normal terrain
+planner continues with `lastActiveTerrainSection` while the continuation epoch
+is valid and no typed reward target has latched. It never sends a fallback
+reward pulse merely because terrain is missing. Confirmed death, player
+replacement/unavailability, or supported-map eligibility loss revokes this
+epoch. Rearm requires two stable-ground fixed steps plus either active gameplay
+or reliable forward motion (`|VX| >= 1`), allowing a moving inactive post-quota
+road to resume without authorizing a stationary respawn. Reward jump/arrow/dash
+ownership begins only after one eligible typed instance is confirmed on two
+distinct render frames. `BeginEpoch` retires prior IDs, so a distinct ID may
+latch without global emptiness; a retired ID requires a complete observed
+absence, and two complete physical-empty scans remain the fallback baseline.
 
 ## Per-frame decision outline
 
@@ -336,11 +476,30 @@ if automation is disabled:
     return
 
 if not in a supported Bonus Stage:
+    revoke any terrain-continuation/reward epoch
     reset transient route state
     return
 
-if death, pit, respawn, instance change, or position discontinuity is active:
+observe typed reward targets only when a terrain/reward epoch is authorized
+on an epoch boundary, retire known and currently scannable target instance IDs
+if the boundary inventory was incomplete:
+    retire the first later complete inventory before qualifying its IDs
+    quarantine one complete inventory after a successful boundary snapshot,
+        or two after an incomplete snapshot; retire every visible ID there
+    ignore retired IDs until two consecutive complete inventories observe each ID absent
+    allow a distinct non-retired ID to qualify on two distinct frames only after stabilization
+alternatively, accept two consecutive complete physical-empty scans as baseline
+never use a partial scan to prove absence or advance the empty baseline
+
+if death, pit, player loss/replacement, respawn, or position discontinuity is active:
+    revoke continuation authority
     release input and run lifecycle stabilization
+    require two stable fixed steps and (active gameplay or |VX| >= 1) to rearm
+    return
+
+if the same qualified reward target has been observed on two distinct frames:
+    release terrain/wall ownership atomically
+    run contextual reward jump, arrow, and optional stable-ground Wind Dash
     return
 
 refresh live map registry
@@ -349,7 +508,7 @@ accept feedback only from the primary PlayerMovement instance
 update free-running speed, rejecting collision slowdown; accept verified boost increases
 
 if an action is already executing:
-    advance its fixed-step state machine
+    advance its fixed-step state machine once per unique fixedTimeAsDouble
     after wall UP, keep input released while observed VY remains positive
     if release height is reached, continue exit/contact handling without another DOWN
     else at apex/descent, revalidate contact before solving a continuation pulse
@@ -539,16 +698,19 @@ V0.28 changes six contracts:
 
 ## Current unresolved problems
 
-- V0.31 is not gameplay-tested. Its first validation must prove Section 0/1 did not regress before interpreting the new Section 2/3 behavior.
+- V0.43 is deployed and gameplay-tested. Its latest trace proves the fixed-step impulse barrier and the exact popup/acknowledgement chain, while also proving that repeatable native rearm, narrow-support route rejection, and unowned new-face `ExitFlight` contact require V0.44. V0.44 is now disk-deployed at length `563712`, SHA-256 `5BD44DC06248C6BA2886462D168770BA9740A84B1489B19A41B6DFD4FCF96ECC`, but still needs a fresh gameplay trace.
 - Ground 6 S1 -> S6 must remain input-free until physical contact; both an early DOWN and an `InputNotAcceptedByGame` passive-route reset are failures.
 - Section 3 Ground 7 S2 must validate the two-phase solver at normal `16.9` speed and during Spirit Boost. The trace must compare selected `LipVX`, predicted landing, actual support, and residual.
+- Ground 5 S2/S3/S4 must not report `ObservedPlannedFaceContact`; require `Ground5NarrowPillarBodyGate=True` followed by `TriggerMode=BodyContact`. Other retained one-frame wall sites may still use `ObservedWatchedExitFaceContact` or late physical-face salvage when their mapped contract permits it.
+- Code Section 3 must compare every `SphereSweepToLowerLanding` expected hit count with the actual sphere delta and verify the same lower support. A pickup increase that changes the landing target is failure.
 - A boost acquired after input DOWN is not knowable at planning time. Log it as a discontinuity/outcome residual and do not convert it into a permanent section cruise floor.
 - Farther wall-exit candidates are statically ordered but do not yet carry a general intervening-solid occlusion proof. The known Section 3 corridor is the bounded use case.
-- Completion Wind Dash stable-ground/ownership gating needs a post-quota runtime trace.
+- The typed reward state machine needs a trace showing terrain continuation while no eligible target qualifies, one `RewardTargetObservation` candidate, a two-frame `RewardObjectPhaseLatched`, atomic `RewardObjectOwnershipHandoff`, and jump/arrow/dash actions. Its next-epoch tests must distinguish identity from emptiness: the `StableInventory=X/2` gate quarantines one complete inventory after a successful snapshot or two after an incomplete snapshot; only then may a distinct non-retired ID log `RewardTargetFreshEpochPending/Latched` without a global-empty gap. An old ID remains `OnlyRetiredEpochTargets` until two consecutive complete inventories omit it, and two consecutive complete physical-empty scans may establish the alternative baseline. Any partial scan must clear pending positive proof, must not prove absence, and should emit `RewardTargetScanIncomplete`. Confirmed death, player replacement/loss, or supported-map eligibility loss must block continuation/reward ownership until two stable fixed steps plus active gameplay or `|VX| >= 1`; release must return without a same-frame route and let the next `Update` refresh map identity. Native flags may disagree without changing control.
+- Fixed-time validation must show `HarmonyAutoPatchInventory` at `1/1/1`, approximately one `FixedStepSequence` increment per real `fixedDeltaTime`, and no normal `FixedStepCallbackDeduplicated` records. Ground 5 sink elapsed steps and deadlines must follow `Time.fixedTimeAsDouble` even when multiple physics ticks occur between render observations.
 - Later sections remain less thoroughly demonstrated, and the large runtime still needs eventual subsystem separation.
 
 ## Deployment validity gate
 
-A V0.31 gameplay trace is valid only when its startup block explicitly loads `AutoBonusRunner.dll` and reports public `1.0.0`, internal `V0.31`, schema `4`, followed by successful registration of `AutoBonusRunnerRuntime`. The build artifact, Mod Manager source DLL, authoritative root loader DLL `ModLoader/Mods/AutoBonusRunner.dll`, and nested compatibility mirror are synchronized at length `394240`, SHA-256 `A1D575CB397EB60B75C9A019C4FBEA0AF27E620BC1B43FA3F2F3AD8270C72EE1`. `app_config.cfg` does not disable AutoBonusRunner. Historical enabled logs load `./Mods/AutoBonusRunner.dll`, so the root loader copy is authoritative. Matching hashes prove deployment only; gameplay claims require a new V0.31 trace. `AutoBonusRunner-20260720-155045-894-V0.30.log` remains the causal regression baseline.
+A V0.44 gameplay trace is valid only when its startup block explicitly loads `AutoBonusRunner.dll` and reports public `1.0.0`, internal `V0.44`, schema `6`, followed by successful registration of `AutoBonusRunnerRuntime` and exact inventory `UpdatePrefixes=1, FixedPrefixes=1, FixedPostfixes=1, RetryPromptPostfixes=1, RetryPopupPrefixes=1, RetryPopupPostfixes=1, RetryRewardPostfixes=1, RetryErrorPostfixes=1, RetryClosePostfixes=1`. Historical enabled logs load `./Mods/AutoBonusRunner.dll`, so the root loader copy is authoritative. Matching hashes prove deployment only; V0.44 gameplay claims require a new trace after this deployment. The build artifact and all three installed DLLs currently match at length `563712`, SHA-256 `5BD44DC06248C6BA2886462D168770BA9740A84B1489B19A41B6DFD4FCF96ECC`.
 
 See `MAP_REFERENCE.md` for full static geometry and concrete logged examples.

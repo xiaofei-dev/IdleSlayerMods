@@ -26,6 +26,7 @@ internal enum WallActionPhase
 
 public sealed class AutoBonusRunnerRuntime : MonoBehaviour
 {
+    private static AutoBonusRunnerRuntime activeRuntime;
     private const float DiagnosticIntervalSeconds = 0.35f;
     private const float WallStallConfirmationSeconds = 0.01f;
     private const float FallbackWallRecoveryHoldSeconds = 0.115f;
@@ -50,6 +51,24 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
     // 0.115s is the lower bound currently supported by manual evidence.
     private const float MinimumAttachedWallPulseHoldSeconds = 0.075f;
     private const float MaximumAttachedWallPulseHoldSeconds = 0.135f;
+    // Ground 7's narrow S2 top is followed by a lower finite face roughly
+    // ten units away.  A strict top-landing solution is not always available,
+    // but retained V0.39 traces prove that a native-cap press reaches that
+    // face and lets the normal wall controller finish the route.  Keep the
+    // face window bounded so this liveness path cannot become a blind long
+    // jump on unrelated geometry.
+    private const float CommittedExitFaceDepth = 4.50f;
+    private const float CommittedExitFaceBottomClearance = 0.35f;
+    private const float CommittedExitFaceTopClearance = 0.25f;
+    private const float CommittedExitFacePreferredDepth = 2.00f;
+    private const float CommittedExitFaceMaximumGap = 15.50f;
+    // The first Ground 3 face in the latest trace was contacted 0.37 units
+    // higher than the later successful face. At that height even the regular
+    // 0.075s attached pulse crossed the setup ceiling, so the planner rejected
+    // every candidate and deliberately dropped the player. This extra-light
+    // pulse is restricted to the mandatory face setup phase; proven attached
+    // climb and exit pulses retain their existing lower bound.
+    private const float MinimumMandatoryFaceSetupHoldSeconds = 0.060f;
     private const float StagedWallTopMaximumWidth = 4.25f;
     // A released wall pulse is still a live vertical impulse.  The V0.27
     // trace repeatedly re-pressed at VY=+17.253 while only 0.31-0.57 units
@@ -89,6 +108,7 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
     private const int PitDescentConfirmationFixedSteps = 2;
     private const float RecoverableWallProbeDistance = 1.20f;
     private readonly BonusStageDetector detector = new();
+    private readonly BonusRewardTargetDetector rewardTargetDetector = new();
     private readonly JumpController jumpController = new();
     private readonly CompletionRewardController completionRewardController =
         new();
@@ -110,6 +130,7 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
     private bool movementInitialized;
     private Vector3 previousMovementPosition;
     private float previousMovementObservedAt;
+    private long previousMovementObservedFixedStep = -1;
     private bool bonusGameplayStarted;
     private bool previousGrounded;
     private float previousVelocityY;
@@ -121,11 +142,25 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
     private bool automaticJumpVelocityConfirmed;
     private float nextAutomaticAttemptTime;
     private bool pitDescentGuardActive;
+    private bool terrainContinuationEpochBlocked;
     private long pitRespawnLastFixedStep = -1;
     private int pitRespawnStableFixedSteps;
     private long pitDescentCandidateLastFixedStep = -1;
     private int pitDescentCandidateFixedSteps;
     private float nextPitDescentEvidenceTime;
+    private bool runTrackingActive;
+    private float runStartedAtRealtime;
+    private int runDeaths;
+    private int runHighestSection;
+    private bool runSpiritBoostObserved;
+    private bool runFinalCompletionReached;
+    private int sessionRunCount;
+    private int sessionSuccessCount;
+    private int sessionFailureCount;
+    private int sessionDeathlessSuccessCount;
+    private int sessionDeathCount;
+    private float sessionSuccessfulDurationTotal;
+    private float sessionBestSuccessfulDuration = float.PositiveInfinity;
     private float wallStallStartedAt = -1f;
     private float nextWallRecoveryTime;
     private float nextWallProbeLogTime;
@@ -142,19 +177,56 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
     private int wallRecoveryUpwardPhysicsSteps;
     private bool wallRecoveryImpulseConfirmed;
     private bool wallRecoveryImpulseFailureLogged;
+    private long wallRecoveryImpulseReleaseObservedFixedStep = -1;
     private bool wallRecoveryPrematureReleaseLogged;
     private bool wallRecoveryLipCrossed;
     private float wallRecoveryRequiredReleaseY;
     private bool wallExitTargetActive;
     private BonusBoardSegment wallExitTarget;
+    private bool wallExitPreparedPlanActive;
+    private BonusJumpPlan wallExitPreparedPlan;
+    private float wallExitPreparedSpeed;
+    private BonusBoardSegment wallExitPreparedTarget;
     private float wallExitPredictedLandingX;
     private float wallExitPredictedTravel;
     private float wallExitPredictedFlightSeconds;
+    private bool wallExitTransferAcceptedRawBodyFit;
+    private float wallExitTransferSafeTolerance;
     private string wallExitPlanSummary = string.Empty;
     private bool wallExitTransferCommitted;
     private bool wallLandingFlightCommitted;
     private bool wallTopLandingSequenceCommitted;
     private bool wallExitContactWatchActive;
+    private long wallExitContactWatchDeadlineFixedStep = -1;
+    // This is deliberately separate from wallExitFaceContactRequired.  The
+    // latter is a mandatory lower-objective contract where a top landing is a
+    // failure.  Here the planner intentionally aims at a downstream face only
+    // after strict landing failed, and either real face contact or a verified
+    // landing on that same target is success.
+    private bool wallExitFaceInterceptCommitted;
+    // Section 3's low-soul lane also deliberately aims at a downstream face,
+    // but it is not interchangeable with the optional FaceOrTop fallback.
+    // Landing on top is physically recoverable, yet it means the collection
+    // route missed its objective and must be reported/replanned as such.
+    private bool wallExitCollectionFaceInterceptCommitted;
+    // A narrow target top can be occupied for exactly one physics step.  In
+    // background mode several FixedUpdates may run before the next render
+    // Update, so retain that physical support as route evidence until the
+    // normal learning/lifecycle code consumes it.
+    private bool wallExitSupportFixedStepLatched;
+    private long wallExitSupportLatchedAttemptId;
+    private long wallExitSupportLatchedFixedStep = -1;
+    private int wallExitSupportLatchedPlayerInstanceId;
+    private BonusBoardSegment wallExitSupportLatchedTarget;
+    private BonusBoardSegment wallExitSupportLatchedSurface;
+    private Vector3 wallExitSupportLatchedPosition;
+    private Vector2 wallExitSupportLatchedVelocity;
+    private float wallExitSupportLatchedPlayerHalfWidth;
+    private float wallExitSupportLatchedAt;
+    private bool wallExitSupportLatchedFaceOrTop;
+    private bool wallExitSupportLatchedCollectionFace;
+    private bool wallExitSupportLatchedCompletionNarrow;
+    private bool wallExitSupportLatchedAutomaticTarget;
     private bool wallResidualRiseWaitActive;
     private float wallResidualRiseWaitStartedAt;
     private float wallResidualRiseWaitStartFeetY;
@@ -195,6 +267,10 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
     private int sectionCruiseCandidateFixedSteps;
     private bool wallRouteSpeedLatched;
     private float wallRouteHorizontalSpeed;
+    private float positiveHorizontalAccelerationEnvelope;
+    private float lastAcceptedHorizontalSpeedAt = -1f;
+    private readonly float[] completionTraversalSpeedCeilingBySection =
+        new float[4];
     private float nextSpeedObservationLogTime;
     private string lastSpeedObservationDecision = string.Empty;
     private long speedPlanningResumeFixedStep = -1;
@@ -207,6 +283,16 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
     private float attachedObjectiveDescentTargetFeetY;
     private int attachedObjectiveDescentSphereCount;
     private float nextAttachedObjectiveDescentLogTime;
+    private bool ground5HighestPillarSinkActive;
+    private long ground5HighestPillarSinkArmedFixedStep = -1;
+    private double ground5HighestPillarSinkArmedFixedTime = -1d;
+    private double ground5HighestPillarSinkDeadlineFixedTime = -1d;
+    private float ground5HighestPillarSinkFixedDelta = 0.02f;
+    private double ground5HighestPillarSinkLastObservedFixedTime = -1d;
+    private bool ground5HighestPillarSinkBackgroundCatchUpObserved;
+    private float ground5HighestPillarSinkStartFeetY;
+    private float ground5HighestPillarSinkTargetFeetY;
+    private int ground5HighestPillarSinkSphereCount;
     private float nextRouteLogTime;
     private float noSupportStallStartedAt = -1f;
     private float nextNoSupportStallLogTime;
@@ -244,6 +330,7 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
     private float learningPreviousVelocityY;
     private Vector3 learningLastObservedPosition;
     private float learningLastObservedAt;
+    private long learningLastObservedFixedStep = -1;
     private bool learningTookOff;
     private bool learningFirstApexCaptured;
     private bool learningInputReleased;
@@ -251,6 +338,16 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
     private int landingCandidateStableFixedSteps;
     private float landingCandidateTop;
     private int landingCandidateColliderId;
+    // A support captured in PlayerMovement.FixedUpdate can be several physics
+    // ticks old by the time the render loop closes the learning sample. Keep
+    // that physical surface and body width as one-shot scoring authority so a
+    // current collider scan is never mixed with a historical position.
+    private bool authoritativeLandingEvidenceActive;
+    private bool authoritativeLandingEvidenceHistorical;
+    private BonusBoardSegment authoritativeLandingEvidenceSurface;
+    private float authoritativeLandingEvidencePlayerHalfWidth;
+    private float authoritativeLandingEvidenceAt;
+    private long authoritativeLandingEvidenceFixedStep = -1;
     private bool automaticPredictionActive;
     private float automaticPredictedLandingX;
     private float automaticPredictedFlightSeconds;
@@ -263,6 +360,8 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
     private int automaticPhysicsRevision;
     private float automaticTargetSafeLeft;
     private float automaticTargetSafeRight;
+    private bool automaticLandingAllowsRawBodyFit;
+    private float automaticLandingSafeTolerance;
     private float automaticTargetLeft;
     private float automaticTargetRight;
     private float automaticTargetTop;
@@ -330,11 +429,35 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
     private string lastEvidenceSignature = string.Empty;
     private float nextGeneralEvidenceTime;
     private float nextCompletionNavigationLogTime;
-    private long completionInvalidRouteLastFixedStep = -1;
-    private int completionInvalidRouteStableFixedSteps;
+    private bool postQuotaRoadActive;
+    private int postQuotaCompletedSection = -1;
+    private bool incompleteQuotaObserved;
+    private int incompleteQuotaSection = -1;
+    private int quotaEvidencePlayerInstanceId;
+    private int lastQuotaObserverSection = -1;
+    private bool waitFalseObservedAfterIncompleteQuota;
+    private bool postQuotaRewardTriggerObserved;
+    private bool postQuotaGivingRewardsObserved;
+    private bool previousRewardFlagsAvailable;
+    private bool previousNativeWaitingForRewardZone;
+    private bool previousNativeRewardZone;
+    private bool previousNativeGivingRewards;
+    private string lastRewardPhaseSignature = string.Empty;
+    private BonusRewardTargetObservation rewardTargetObservation;
+    private int lastActiveTerrainSection = -1;
+    private string lastRewardTargetObservationSignature = string.Empty;
+    private bool rewardLatchObservedDuringInactiveFrame;
+    private bool rewardTargetEmptyBaselineRequired;
+    private bool rewardTargetRearmDeferralLogged;
+    private int rewardTargetConsecutiveEmptyScans;
+    private int rewardTargetLastEmptyScanFrame = -1;
+    private float nextRewardTargetScanWarningTime;
+    private bool retryModalControlSuspended;
+    private readonly BonusStageSliderSkip sliderSkip = new();
 
     public void Start()
     {
+        activeRuntime = this;
         jumpPhysicsFeedback.Attach();
         automationEnabled = Plugin.Config?.EnabledOnStartup?.Value == true;
         string configuredKey = Plugin.Config?.ToggleKey?.Value;
@@ -352,6 +475,8 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
         BonusRunnerLog.User(
             $"AutoBonusRunner runtime ready; automation is {(automationEnabled ? "enabled" : "disabled")}. " +
             $"Press {toggleKey} to toggle automatic control. Detection and manual-jump learning stay active. " +
+            $"AutoRetry={Plugin.Config?.EnableAutoRetry?.Value == true}, " +
+            $"SkipStartSlider={Plugin.Config?.SkipStartSlider?.Value == true}, " +
             $"CompletionRewardActions={Plugin.Config?.CompletionRewardActions?.Value == true}, " +
             $"CompletionWindDash={Plugin.Config?.CompletionWindDash?.Value == true}.");
     }
@@ -360,6 +485,10 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
     {
         try
         {
+            // The slider helper is independently configured and remains
+            // active when U disables terrain control.
+            sliderSkip.Tick(Time.unscaledTime);
+
             if (Input.GetKeyDown(toggleKey))
             {
                 automationEnabled = !automationEnabled;
@@ -383,6 +512,11 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
                         latestState,
                         "AutomationEnabled");
                 }
+                else
+                {
+                    BonusStageRetryBridge.Reset("AutomationDisabled");
+                    retryModalControlSuspended = false;
+                }
                 string message = automationEnabled
                     ? "Auto Bonus Runner Enabled!"
                     : "Auto Bonus Runner Disabled!";
@@ -392,11 +526,35 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
 
             BonusStageState state = detector.Capture();
             latestState = state;
+            TryAutoRetry(state);
+            if (state.IsBonusStage && !previousBonusState)
+            {
+                rewardTargetDetector.Reset("BonusStageEntry");
+                rewardTargetObservation = default;
+                lastRewardTargetObservationSignature = string.Empty;
+                rewardLatchObservedDuringInactiveFrame = false;
+                rewardTargetEmptyBaselineRequired = false;
+                rewardTargetRearmDeferralLogged = false;
+                rewardTargetConsecutiveEmptyScans = 0;
+                rewardTargetLastEmptyScanFrame = -1;
+                lastActiveTerrainSection = -1;
+                bonusGameplayStarted = false;
+                terrainContinuationEpochBlocked = false;
+                ResetQuotaTransitionEvidence("BonusStageEntry");
+            }
+            ObserveRewardObjectPhase(state);
             RefreshMapRegistry(state);
-            ObserveReliableHorizontalSpeed(state);
-            if (state.IsBonusStage != previousBonusState)
+            if (!BonusStageRetryBridge.BlocksTerrainControl)
+                ObserveReliableHorizontalSpeed(state);
+            bool retryBoundaryPending =
+                !state.IsBonusStage &&
+                BonusStageRetryBridge.BlocksTerrainControl;
+            if (state.IsBonusStage != previousBonusState &&
+                !retryBoundaryPending)
             {
                 previousBonusState = state.IsBonusStage;
+                if (!state.IsBonusStage)
+                    FinishRunTracking();
                 BonusRunnerLog.User(state.IsBonusStage
                     ? $"Bonus Stage detected: Map={state.MapName}, Section={state.SectionIndex}."
                     : "Bonus Stage ended.");
@@ -428,16 +586,26 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
                 jumpPhysicsFeedback.ResetTransient("StageEnded");
                 ResetAutomaticControlState();
                 completionRewardController.Reset("StageEnded");
+                ResetPostQuotaRoadPhase("StageEnded");
+                rewardTargetDetector.Reset("StageEnded");
+                rewardTargetObservation = default;
+                lastRewardTargetObservationSignature = string.Empty;
+                rewardLatchObservedDuringInactiveFrame = false;
+                rewardTargetEmptyBaselineRequired = false;
+                rewardTargetRearmDeferralLogged = false;
+                rewardTargetConsecutiveEmptyScans = 0;
+                rewardTargetLastEmptyScanFrame = -1;
+                lastActiveTerrainSection = -1;
                 movementInitialized = false;
                 bonusGameplayStarted = false;
+                terrainContinuationEpochBlocked = false;
                 ResetSectionCruiseSpeed();
                 speedPlanningResumeFixedStep = -1;
                 completionDashPlanningResumeFixedStep = -1;
                 return;
             }
 
-            if (state.IsActiveGameplay)
-                bonusGameplayStarted = true;
+            UpdateRunTracking(state);
 
             PlayerMovement observedPlayer = PlayerMovement.instance;
             if (state.HasPlayer && observedPlayer != null)
@@ -446,16 +614,16 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
                     observedPlayer);
             }
 
-            if (state.SectionIndex != previousSectionIndex)
+            if (state.IsActiveGameplay &&
+                state.SectionIndex != previousSectionIndex)
             {
                 EndManualDemonstration(state, "SectionChanged");
                 BonusRunnerLog.User($"Bonus Stage section changed: {previousSectionIndex} -> {state.SectionIndex}.");
-                // Active-play bookkeeping is section-scoped. Completion
-                // traversal is deliberately not gated by this flag: during
-                // the real reward road the section index advances first while
-                // the completed quota remains visible (for example 38/38).
-                // The new section's 0/N quota naturally ends completion mode.
-                bonusGameplayStarted = false;
+                // BonusMapController advances its mutable section index while
+                // the runner is still traversing the completed section's
+                // terrain.  Only a real active-gameplay frame makes the new
+                // section authoritative and permits section-scoped state to
+                // be cleared.
                 FinishLearningSample(state, "SectionChanged");
                 jumpController.Release();
                 jumpPhysicsFeedback.ResetTransient("SectionChanged");
@@ -465,9 +633,12 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
                 completionRewardController.Reset("SectionChanged");
                 nextAutomaticAttemptTime = 0f;
                 movementInitialized = false;
-                pitDescentGuardActive = false;
-                pitRespawnLastFixedStep = -1;
-                pitRespawnStableFixedSteps = 0;
+                if (!terrainContinuationEpochBlocked)
+                {
+                    pitDescentGuardActive = false;
+                    pitRespawnLastFixedStep = -1;
+                    pitRespawnStableFixedSteps = 0;
+                }
                 ResetSectionCruiseSpeed();
                 speedPlanningResumeFixedStep = -1;
                 completionDashPlanningResumeFixedStep = -1;
@@ -485,8 +656,34 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
                 jumpController.Release();
                 jumpPhysicsFeedback.ResetTransient("PlayerInstanceChanged");
                 ResetAutomaticControlState();
+                ResetCompletionTraversalSpeedEvidence(
+                    "PlayerInstanceChanged");
                 completionRewardController.Reset("PlayerInstanceChanged");
-                nextAutomaticAttemptTime = 0f;
+                rewardTargetDetector.BeginEpoch(
+                    state,
+                    "PlayerInstanceChanged");
+                rewardTargetObservation =
+                    rewardTargetDetector.LastObservation;
+                lastRewardTargetObservationSignature = string.Empty;
+                rewardLatchObservedDuringInactiveFrame = false;
+                rewardTargetEmptyBaselineRequired =
+                    state.IsBonusStage &&
+                    state.IsSupportedBonusMap;
+                rewardTargetRearmDeferralLogged = false;
+                rewardTargetConsecutiveEmptyScans = 0;
+                rewardTargetLastEmptyScanFrame = -1;
+                // A replacement player is a new life epoch. Even when the
+                // controller is temporarily non-active, old terrain and
+                // reward ownership must not resume until the respawn guard
+                // sees stable gameplay motion (or real active gameplay).
+                bonusGameplayStarted = false;
+                terrainContinuationEpochBlocked = true;
+                pitDescentGuardActive = true;
+                pitRespawnLastFixedStep = -1;
+                pitRespawnStableFixedSteps = 0;
+                nextAutomaticAttemptTime = Math.Max(
+                    nextAutomaticAttemptTime,
+                    Time.unscaledTime + 0.45f);
                 previousPlayerInstanceId = state.PlayerInstanceId;
                 movementInitialized = false;
                 lastRouteSignature = string.Empty;
@@ -509,7 +706,14 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
                     $"Remaining={state.RemainingRequiredSpheres}, Timer={state.CurrentTime:F2}/{state.MaximumTime:F2}, " +
                     $"TimerVisible={state.IsTimerVisible}, SupportedMap={state.IsSupportedBonusMap}, " +
                     $"ActiveGameplay={state.IsActiveGameplay}, FellOff={state.CharacterFellOff}, " +
-                    $"SpiritBoost={state.SpiritBoostEnabled}",
+                    $"SpiritBoost={state.SpiritBoostEnabled}, RewardFlags[Available=" +
+                    $"{state.RewardFlagsAvailable},Wait=" +
+                    $"{state.WaitingForRewardZone},Trigger=" +
+                    $"{state.RewardZoneEntered},Giving=" +
+                    $"{state.GivingRewards}], TerrainLifecycle[LastActive=" +
+                    $"{lastActiveTerrainSection},Continuation=" +
+                    $"{IsSuccessfulCompletionTraversal(state)}], " +
+                    $"RewardTarget[{rewardTargetDetector.Describe()}]",
                     "Detection");
             }
         }
@@ -527,27 +731,785 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
         }
     }
 
-    public void OnEnable() => jumpPhysicsFeedback.Attach();
+    public void OnEnable()
+    {
+        activeRuntime = this;
+        jumpPhysicsFeedback.Attach();
+    }
 
     public void OnDisable()
     {
+        if (activeRuntime == this)
+            activeRuntime = null;
+        BonusStageRetryBridge.Reset("RuntimeDisabled");
+        retryModalControlSuspended = false;
         jumpController.Release();
+        ResetAutomaticControlState();
         completionRewardController.Reset("RuntimeDisabled");
+        rewardTargetDetector.Reset("RuntimeDisabled");
+        rewardLatchObservedDuringInactiveFrame = false;
+        rewardTargetEmptyBaselineRequired = false;
+        rewardTargetRearmDeferralLogged = false;
+        rewardTargetConsecutiveEmptyScans = 0;
+        rewardTargetLastEmptyScanFrame = -1;
+        rewardTargetObservation = default;
+        lastRewardTargetObservationSignature = string.Empty;
+        bonusGameplayStarted = false;
+        lastActiveTerrainSection = -1;
+        terrainContinuationEpochBlocked = false;
         jumpPhysicsFeedback.ResetTransient("RuntimeDisabled");
         jumpPhysicsFeedback.Detach();
     }
 
     public void OnDestroy()
     {
+        if (activeRuntime == this)
+            activeRuntime = null;
+        BonusStageRetryBridge.Reset("RuntimeDestroyed");
+        retryModalControlSuspended = false;
         jumpController.Release();
+        ResetAutomaticControlState();
         completionRewardController.Reset("RuntimeDestroyed");
+        rewardTargetDetector.Reset("RuntimeDestroyed");
+        rewardLatchObservedDuringInactiveFrame = false;
+        rewardTargetEmptyBaselineRequired = false;
+        rewardTargetRearmDeferralLogged = false;
+        rewardTargetConsecutiveEmptyScans = 0;
+        rewardTargetLastEmptyScanFrame = -1;
+        rewardTargetObservation = default;
+        lastRewardTargetObservationSignature = string.Empty;
+        bonusGameplayStarted = false;
+        lastActiveTerrainSection = -1;
+        terrainContinuationEpochBlocked = false;
         jumpPhysicsFeedback.ResetTransient("RuntimeDestroyed");
         jumpPhysicsFeedback.Detach();
     }
 
+    private void TryAutoRetry(BonusStageState state)
+    {
+        BonusStageRetryBridge.ObserveStageState(
+            state.IsBonusStage,
+            state.IsActiveGameplay,
+            state.HasPlayer,
+            state.CharacterFellOff,
+            state.GameStateName);
+
+        if (BonusStageRetryBridge.TryTakeOutcome(
+                out bool succeeded,
+                out bool warning,
+                out string outcome))
+        {
+            string message = $"Auto retry outcome: {outcome}";
+            if (!succeeded || warning)
+                BonusRunnerLog.Warning(message);
+            else
+                BonusRunnerLog.User(message);
+        }
+
+        if (!automationEnabled)
+        {
+            BonusStageRetryBridge.Reset(
+                "AutomationDisabledBeforeRetryAction");
+            return;
+        }
+
+        if (BonusStageRetryBridge.BlocksTerrainControl)
+            SuspendTerrainControlForRetry(state);
+
+        bool continueRequested =
+            Plugin.Config?.EnableAutoRetry?.Value == true;
+        if (!BonusStageRetryBridge.TryBeginInvocation(
+                continueRequested,
+                out Popup popup,
+                out long sequence,
+                out int attempt,
+                out bool actualContinueRequested,
+                out string evidence))
+        {
+            return;
+        }
+
+        BonusRunnerLog.User(
+            $"Auto retry request dispatching: Action=" +
+            $"{(actualContinueRequested ? "Continue" : "No")}, " +
+            $"Sequence={sequence}, Attempt={attempt}, Evidence=" +
+            $"[{evidence}]. Native acknowledgement is still pending.");
+        try
+        {
+            if (actualContinueRequested)
+            {
+                if (popup.confirmButton == null)
+                {
+                    throw new InvalidOperationException(
+                        "Validated Continue button became unavailable.");
+                }
+                popup.confirmButton.onClick.Invoke();
+            }
+            else
+            {
+                popup.PressCancelButton();
+            }
+
+            BonusRunnerLog.Debug(
+                $"AutoRetryUiInvocationReturned Action=" +
+                $"{(actualContinueRequested ? "Continue" : "No")}, " +
+                $"Sequence={sequence}, Attempt={attempt}. Awaiting native " +
+                (actualContinueRequested
+                    ? "RewardForShowing and gameplay-resume acknowledgement."
+                    : "popup-close and Bonus Stage exit acknowledgement."),
+                "Retry");
+        }
+        catch (System.Exception exception)
+        {
+            BonusStageRetryBridge.ReportInvocationFailure(
+                sequence,
+                $"{exception.GetType().Name}:{exception.Message}",
+                out bool willRetry);
+            BonusRunnerLog.Warning(
+                $"Auto retry invocation failed: Sequence={sequence}, " +
+                $"Attempt={attempt}, WillRetry={willRetry}, Error=" +
+                $"{exception.GetType().Name}:{exception.Message}.");
+        }
+    }
+
+    private void SuspendTerrainControlForRetry(BonusStageState state)
+    {
+        jumpController.Release();
+        if (retryModalControlSuspended)
+            return;
+
+        if (learningSampleActive &&
+            learningSource == "Automatic" &&
+            state.HasPlayer)
+        {
+            FinishLearningSample(state, "RetryModalOwnershipHandoff");
+        }
+        jumpPhysicsFeedback.ResetTransient("RetryModalOwnershipHandoff");
+        ResetAutomaticControlState();
+        completionRewardController.Reset("RetryModalOwnershipHandoff");
+        bonusGameplayStarted = false;
+        rewardTargetDetector.BeginEpoch(
+            state,
+            "RetryModalOwnershipHandoff");
+        rewardTargetObservation = rewardTargetDetector.LastObservation;
+        lastRewardTargetObservationSignature = string.Empty;
+        rewardLatchObservedDuringInactiveFrame = false;
+        rewardTargetEmptyBaselineRequired = true;
+        rewardTargetRearmDeferralLogged = false;
+        rewardTargetConsecutiveEmptyScans = 0;
+        rewardTargetLastEmptyScanFrame = -1;
+        ResetPostQuotaRoadPhase("RetryModalOwnershipHandoff");
+        ResetQuotaTransitionEvidence("RetryModalOwnershipHandoff");
+        ResetCompletionTraversalSpeedEvidence(
+            "RetryModalOwnershipHandoff");
+        retryModalControlSuspended = true;
+        BonusRunnerLog.Debug(
+            $"RetryModalOwnershipHandoff Frame={Time.frameCount}, " +
+            $"State=[{BonusStageRetryBridge.ControlGateSummary}]. Terrain, " +
+            "wall, and completion input were released while the native " +
+            "failure dialog owns control.",
+            "Retry");
+    }
+
+    /// <summary>
+    /// Keeps terrain ownership until a concrete, interactable reward object
+    /// has been observed twice. Sphere quota and BonusMapController reward
+    /// flags remain diagnostics only: they can change several seconds before
+    /// the completed section's road has actually ended.
+    /// </summary>
+    private void ObserveRewardObjectPhase(BonusStageState state)
+    {
+        if (!state.IsBonusStage)
+        {
+            if (rewardTargetDetector.IsLatched)
+                rewardTargetDetector.Reset("OutsideBonusStage");
+            rewardTargetObservation = default;
+            lastActiveTerrainSection = -1;
+            lastRewardTargetObservationSignature = string.Empty;
+            rewardLatchObservedDuringInactiveFrame = false;
+            rewardTargetEmptyBaselineRequired = false;
+            rewardTargetRearmDeferralLogged = false;
+            rewardTargetConsecutiveEmptyScans = 0;
+            rewardTargetLastEmptyScanFrame = -1;
+            return;
+        }
+
+        bool rewardLifecycleUnavailable =
+            !state.IsSupportedBonusMap ||
+            !state.HasPlayer;
+        if (rewardLifecycleUnavailable && bonusGameplayStarted)
+        {
+            BonusRunnerLog.Debug(
+                $"TerrainContinuationEpochRevoked Reason=" +
+                $"{(!state.IsSupportedBonusMap ? "UnsupportedMap" : "PlayerUnavailable")}, " +
+                $"ControllerSection={state.SectionIndex}, LastActive=" +
+                $"{lastActiveTerrainSection}, Target=" +
+                $"[{rewardTargetDetector.Describe()}]. A fresh real " +
+                "active-gameplay frame is required before terrain or " +
+                "reward ownership can resume.",
+                "Lifecycle");
+            rewardTargetDetector.BeginEpoch(
+                state,
+                !state.IsSupportedBonusMap
+                    ? "UnsupportedMapEpoch"
+                    : "PlayerUnavailableEpoch");
+            rewardTargetObservation =
+                rewardTargetDetector.LastObservation;
+            lastRewardTargetObservationSignature = string.Empty;
+            rewardLatchObservedDuringInactiveFrame = false;
+            rewardTargetEmptyBaselineRequired = true;
+            rewardTargetRearmDeferralLogged = false;
+            rewardTargetConsecutiveEmptyScans = 0;
+            rewardTargetLastEmptyScanFrame = -1;
+            if (learningSampleActive &&
+                string.Equals(
+                    learningSource,
+                    "Automatic",
+                    StringComparison.Ordinal))
+            {
+                FinishLearningSample(
+                    state,
+                    "TerrainContinuationEpochRevoked");
+            }
+            jumpController.Release();
+            ResetAutomaticControlState();
+            ResetCompletionTraversalSpeedEvidence(
+                "TerrainContinuationEpochRevoked");
+            bonusGameplayStarted = false;
+            terrainContinuationEpochBlocked = true;
+            pitDescentGuardActive = true;
+            pitRespawnLastFixedStep = -1;
+            pitRespawnStableFixedSteps = 0;
+            nextAutomaticAttemptTime = Math.Max(
+                nextAutomaticAttemptTime,
+                Time.unscaledTime + 0.45f);
+        }
+
+        if (state.IsActiveGameplay &&
+            state.IsSupportedBonusMap &&
+            state.HasPlayer &&
+            !terrainContinuationEpochBlocked)
+        {
+            if (!bonusGameplayStarted &&
+                lastActiveTerrainSection >= 0)
+            {
+                BonusRunnerLog.Debug(
+                    $"TerrainContinuationEpochRearmed Section=" +
+                    $"{state.SectionIndex}, Player=" +
+                    $"{state.PlayerInstanceId}. Real active gameplay is " +
+                    "authoritative again.",
+                    "Lifecycle");
+            }
+            bool realSectionBoundary =
+                lastActiveTerrainSection >= 0 &&
+                state.SectionIndex != lastActiveTerrainSection;
+            bool completedRewardInterval =
+                rewardLatchObservedDuringInactiveFrame;
+            if (realSectionBoundary || completedRewardInterval)
+            {
+                BonusRunnerLog.Debug(
+                    $"RewardObjectPhaseReset Reason=NextActiveSection, " +
+                    $"ControllerSection={state.SectionIndex}, Previous=" +
+                    $"[{rewardTargetDetector.Describe()}]. The next real " +
+                    "section has begun and terrain control is authoritative. " +
+                    $"SectionBoundary={realSectionBoundary}, " +
+                    $"InactiveRewardFrameObserved=" +
+                    $"{completedRewardInterval}.",
+                    "Completion");
+                rewardTargetDetector.BeginEpoch(
+                    state,
+                    $"NextActiveSection{state.SectionIndex}");
+                rewardLatchObservedDuringInactiveFrame = false;
+                rewardTargetEmptyBaselineRequired = true;
+                rewardTargetRearmDeferralLogged = false;
+                rewardTargetConsecutiveEmptyScans = 0;
+                rewardTargetLastEmptyScanFrame = -1;
+            }
+
+            if (!rewardTargetDetector.IsLatched)
+                rewardLatchObservedDuringInactiveFrame = false;
+
+            bonusGameplayStarted = true;
+            lastActiveTerrainSection = state.SectionIndex;
+        }
+
+        bool observationAllowed =
+            bonusGameplayStarted &&
+            state.IsSupportedBonusMap &&
+            state.HasPlayer;
+        rewardTargetObservation = rewardTargetDetector.Observe(
+            state,
+            observationAllowed);
+        if (observationAllowed &&
+            rewardTargetObservation.ScanPerformed &&
+            !rewardTargetObservation.ScanSucceeded &&
+            Time.unscaledTime >= nextRewardTargetScanWarningTime)
+        {
+            nextRewardTargetScanWarningTime = Time.unscaledTime + 5f;
+            BonusRunnerLog.Warning(
+                $"RewardTargetScanIncomplete Target=" +
+                $"[{rewardTargetObservation.Describe()}], " +
+                $"EpochInventoryIncomplete=" +
+                $"{rewardTargetDetector.IsEpochInventoryIncomplete}. " +
+                "Reward ownership remains fail-closed; terrain/lifecycle " +
+                "control continues and no timeout can authorize rewards.");
+        }
+        if (rewardTargetEmptyBaselineRequired &&
+            (!observationAllowed ||
+             rewardTargetObservation.ScanPerformed &&
+             !rewardTargetObservation.ScanSucceeded))
+        {
+            rewardTargetConsecutiveEmptyScans = 0;
+            rewardTargetLastEmptyScanFrame = -1;
+        }
+        else if (rewardTargetEmptyBaselineRequired &&
+                 observationAllowed &&
+                 rewardTargetObservation.ScanPerformed &&
+                 rewardTargetObservation.ScanSucceeded)
+        {
+            if (rewardTargetObservation.CandidateQualified)
+            {
+                rewardTargetConsecutiveEmptyScans = 0;
+                rewardTargetLastEmptyScanFrame = -1;
+                if (rewardTargetObservation.IsLatched)
+                {
+                    rewardTargetEmptyBaselineRequired = false;
+                    rewardTargetRearmDeferralLogged = false;
+                    BonusRunnerLog.Debug(
+                        $"RewardTargetFreshEpochLatched Target=" +
+                        $"[{rewardTargetObservation.Describe()}]. The " +
+                        "instance was not in the retired prior-epoch set, " +
+                        "so it may establish reward ownership without a " +
+                        "global-empty gap.",
+                        "Completion");
+                }
+                else if (!rewardTargetRearmDeferralLogged)
+                {
+                    rewardTargetRearmDeferralLogged = true;
+                    BonusRunnerLog.Debug(
+                        $"RewardTargetFreshEpochPending Target=" +
+                        $"[{rewardTargetObservation.Describe()}]. Waiting " +
+                        "for the second observation of this distinct, " +
+                        "non-retired instance.",
+                        "Completion");
+                }
+            }
+            else
+            {
+                bool completePhysicalEmpty = string.Equals(
+                    rewardTargetObservation.Reason,
+                    "NoQualifiedActiveRewardTarget",
+                    StringComparison.Ordinal);
+                if (!completePhysicalEmpty)
+                {
+                    rewardTargetConsecutiveEmptyScans = 0;
+                    rewardTargetLastEmptyScanFrame = -1;
+                }
+                else if (Time.frameCount !=
+                         rewardTargetLastEmptyScanFrame)
+                {
+                    rewardTargetLastEmptyScanFrame = Time.frameCount;
+                    rewardTargetConsecutiveEmptyScans++;
+                }
+
+                if (completePhysicalEmpty &&
+                    rewardTargetConsecutiveEmptyScans >= 2)
+                {
+                    rewardTargetEmptyBaselineRequired = false;
+                    rewardTargetRearmDeferralLogged = false;
+                    BonusRunnerLog.Debug(
+                        $"RewardTargetRearmBaselineEstablished Section=" +
+                        $"{state.SectionIndex}, EmptyScans=" +
+                        $"{rewardTargetConsecutiveEmptyScans}/2, " +
+                        $"TargetScan=[{rewardTargetObservation.Describe()}]. " +
+                        "Future typed targets belong to the new section epoch.",
+                        "Completion");
+                }
+                else if (completePhysicalEmpty)
+                {
+                    BonusRunnerLog.Debug(
+                        $"RewardTargetRearmEmptyScan Section=" +
+                        $"{state.SectionIndex}, EmptyScans=" +
+                        $"{rewardTargetConsecutiveEmptyScans}/2, " +
+                        $"TargetScan=[{rewardTargetObservation.Describe()}].",
+                        "Completion");
+                }
+            }
+        }
+        if (rewardTargetObservation.IsLatched &&
+            !state.IsActiveGameplay)
+        {
+            rewardLatchObservedDuringInactiveFrame = true;
+        }
+
+        string signature =
+            $"{rewardTargetObservation.ScanSucceeded}:" +
+            $"{rewardTargetObservation.CandidateQualified}:" +
+            $"{rewardTargetObservation.IsLatched}:" +
+            $"{rewardTargetObservation.InstanceId}:" +
+            $"{rewardTargetObservation.ConsecutiveObservations}:" +
+            $"{rewardTargetObservation.Reason}:" +
+            $"{state.RewardFlagsAvailable}:" +
+            $"{state.WaitingForRewardZone}:" +
+            $"{state.RewardZoneEntered}:{state.GivingRewards}";
+        bool observationChanged = !string.Equals(
+                signature,
+                lastRewardTargetObservationSignature,
+                StringComparison.Ordinal);
+        if (observationChanged)
+        {
+            lastRewardTargetObservationSignature = signature;
+            BonusRunnerLog.Debug(
+                $"RewardTargetObservation Allowed={observationAllowed}, " +
+                $"ControllerSection={state.SectionIndex}, TerrainSection=" +
+                $"{lastActiveTerrainSection}, GameState=" +
+                $"{state.GameStateName}, Position=" +
+                $"({state.PlayerPosition.x:F3},{state.PlayerPosition.y:F3}), " +
+                $"Target[{rewardTargetObservation.Describe()}], NativeFlags" +
+                $"[Available={state.RewardFlagsAvailable},Wait=" +
+                $"{state.WaitingForRewardZone},Trigger=" +
+                $"{state.RewardZoneEntered},Giving={state.GivingRewards}].",
+                "Completion");
+        }
+
+        if (rewardTargetObservation.LatchStarted)
+        {
+            BonusRunnerLog.Debug(
+                $"RewardObjectPhaseLatched TerrainSection=" +
+                $"{lastActiveTerrainSection}, ControllerSection=" +
+                $"{state.SectionIndex}, Target=" +
+                $"[{rewardTargetObservation.Describe()}]. Terrain input " +
+                "will be released atomically before minimum jumps, arrows, " +
+                "and optional grounded Wind Dash begin.",
+                "Completion");
+        }
+        else if (state.GivingRewards &&
+                 !rewardTargetObservation.IsLatched &&
+                 observationChanged)
+        {
+            BonusRunnerLog.Debug(
+                $"RewardObjectGateMismatch NativeGiving=True, TypedLatch=" +
+                $"False, Target[{rewardTargetObservation.Describe()}]. " +
+                "Terrain navigation remains authoritative until an actual " +
+                "box or reward collectable is confirmed.",
+                "Completion");
+        }
+    }
+
+    private void ObservePostQuotaRoadPhase(BonusStageState state)
+    {
+        if (!state.IsBonusStage)
+        {
+            ResetPostQuotaRoadPhase("OutsideBonusStage");
+            ResetQuotaTransitionEvidence("OutsideBonusStage");
+            previousRewardFlagsAvailable = false;
+            previousNativeWaitingForRewardZone = false;
+            previousNativeRewardZone = false;
+            previousNativeGivingRewards = false;
+            return;
+        }
+
+        // A supported Bonus Stage advances section indexes monotonically.
+        // Seeing the controller wrap from a late section back to the opening
+        // section is therefore a new run even if no non-bonus render frame
+        // was captured between the two sessions. Clear old 158/158-style
+        // evidence before it can authorize the new run.
+        if (lastQuotaObserverSection >= 3 &&
+            state.SectionIndex >= 0 &&
+            state.SectionIndex <= 1 &&
+            state.SectionIndex < lastQuotaObserverSection)
+        {
+            BonusRunnerLog.Debug(
+                $"QuotaEvidenceEpochChanged Section=" +
+                $"{lastQuotaObserverSection}->{state.SectionIndex}. " +
+                "A controller-index wrap starts a fresh Bonus Stage; stale " +
+                "quota/reward-road evidence was discarded.",
+                "Completion");
+            ResetPostQuotaRoadPhase("ControllerSectionWrapped");
+            ResetQuotaTransitionEvidence("ControllerSectionWrapped");
+        }
+        lastQuotaObserverSection = state.SectionIndex;
+        if (quotaEvidencePlayerInstanceId == 0 && state.PlayerInstanceId != 0)
+            quotaEvidencePlayerInstanceId = state.PlayerInstanceId;
+
+        bool quotaMet =
+            state.HasSphereProgress &&
+            state.CollectedSpheres >=
+                (int)Math.Ceiling(state.RequiredSpheres);
+        bool quotaIncomplete =
+            state.HasSphereProgress &&
+            state.RequiredSpheres > 0d &&
+            state.CollectedSpheres <
+                (int)Math.Ceiling(state.RequiredSpheres);
+        bool incompleteQuotaProvenBeforeFrame =
+            incompleteQuotaObserved;
+
+        // Any real active-gameplay frame for a different section proves that
+        // the prior road/reward phase is over. Stop here after recording a
+        // fresh incomplete quota; falling through and re-arming on a stale
+        // collected value was the old cross-section race.
+        if (postQuotaRoadActive &&
+            state.IsActiveGameplay &&
+            state.SectionIndex != postQuotaCompletedSection)
+        {
+            int completedSection = postQuotaCompletedSection;
+            ResetPostQuotaRoadPhase(
+                $"NextSectionGameplay:{completedSection}->" +
+                $"{state.SectionIndex}");
+            ResetQuotaTransitionEvidence(
+                $"NextSectionGameplay:{completedSection}->" +
+                $"{state.SectionIndex}");
+            lastQuotaObserverSection = state.SectionIndex;
+            quotaEvidencePlayerInstanceId = state.PlayerInstanceId;
+            if (quotaIncomplete)
+            {
+                incompleteQuotaObserved = true;
+                incompleteQuotaSection = state.SectionIndex;
+                quotaEvidencePlayerInstanceId = state.PlayerInstanceId;
+                BonusRunnerLog.Debug(
+                    $"IncompleteQuotaObserved Section=" +
+                    $"{incompleteQuotaSection}, Spheres=" +
+                    $"{state.CollectedSpheres}/" +
+                    $"{Math.Ceiling(state.RequiredSpheres):F0}, " +
+                    "Source=NextSectionGameplayBarrier.",
+                    "Completion");
+            }
+            ObserveRewardWaitBaseline(
+                state,
+                "NextSectionGameplayBarrier");
+            previousRewardFlagsAvailable =
+                state.RewardFlagsAvailable;
+            if (state.RewardFlagsAvailable)
+            {
+                previousNativeWaitingForRewardZone =
+                    state.WaitingForRewardZone;
+                previousNativeRewardZone = state.RewardZoneEntered;
+                previousNativeGivingRewards = state.GivingRewards;
+            }
+            return;
+        }
+
+        // The completed section identity comes only from a current-run frame
+        // where that same section was genuinely below quota. Neither
+        // runTrackingActive nor mutable previousSectionIndex is sufficient:
+        // both can coexist with a pooled controller's stale totals.
+        if (state.IsActiveGameplay &&
+            incompleteQuotaObserved &&
+            state.SectionIndex != incompleteQuotaSection)
+        {
+            ResetQuotaTransitionEvidence(
+                $"FreshActiveSection:{incompleteQuotaSection}->" +
+                $"{state.SectionIndex}");
+            incompleteQuotaProvenBeforeFrame = false;
+            lastQuotaObserverSection = state.SectionIndex;
+            quotaEvidencePlayerInstanceId = state.PlayerInstanceId;
+        }
+        if (state.IsActiveGameplay && quotaIncomplete &&
+            (!incompleteQuotaObserved ||
+             incompleteQuotaSection != state.SectionIndex))
+        {
+            incompleteQuotaObserved = true;
+            incompleteQuotaSection = state.SectionIndex;
+            quotaEvidencePlayerInstanceId = state.PlayerInstanceId;
+            BonusRunnerLog.Debug(
+                $"IncompleteQuotaObserved Section=" +
+                $"{incompleteQuotaSection}, Spheres=" +
+                $"{state.CollectedSpheres}/" +
+                $"{Math.Ceiling(state.RequiredSpheres):F0}, " +
+                $"GameState={state.GameStateName}, Player=" +
+                $"{quotaEvidencePlayerInstanceId}.",
+                "Completion");
+        }
+        ObserveRewardWaitBaseline(state, "CurrentSectionGameplay");
+
+        bool waitForRewardRising =
+            state.RewardFlagsAvailable &&
+            previousRewardFlagsAvailable &&
+            state.WaitingForRewardZone &&
+            !previousNativeWaitingForRewardZone;
+        bool waitTransitionObserved =
+            state.RewardFlagsAvailable &&
+            waitFalseObservedAfterIncompleteQuota &&
+            state.WaitingForRewardZone;
+        bool quotaCompletionObserved =
+            quotaMet &&
+            (state.SectionIndex == incompleteQuotaSection ||
+             !state.IsActiveGameplay);
+        bool nativeWaitCompletionObserved =
+            waitTransitionObserved &&
+            incompleteQuotaProvenBeforeFrame &&
+            !state.IsActiveGameplay &&
+            state.SectionIndex != incompleteQuotaSection;
+        bool completionTransitionObserved =
+            incompleteQuotaObserved &&
+            (quotaCompletionObserved ||
+             nativeWaitCompletionObserved);
+        if (!postQuotaRoadActive && completionTransitionObserved)
+        {
+            postQuotaRoadActive = true;
+            postQuotaCompletedSection = incompleteQuotaSection;
+            postQuotaRewardTriggerObserved = state.RewardZoneEntered;
+            postQuotaGivingRewardsObserved = state.GivingRewards;
+            lastRewardPhaseSignature = string.Empty;
+            BonusRunnerLog.Debug(
+                $"PostQuotaRoadArmed CompletedSection=" +
+                $"{postQuotaCompletedSection}, ControllerSection=" +
+                $"{state.SectionIndex}, GameState={state.GameStateName}, " +
+                $"Position=({state.PlayerPosition.x:F3}," +
+                $"{state.PlayerPosition.y:F3}), Spheres=" +
+                $"{state.CollectedSpheres}/" +
+                $"{Math.Ceiling(state.RequiredSpheres):F0}, " +
+                $"RewardFlags[Wait={state.WaitingForRewardZone}," +
+                $"Trigger={state.RewardZoneEntered},Giving=" +
+                $"{state.GivingRewards},Available=" +
+                $"{state.RewardFlagsAvailable}], Proof=" +
+                $"IncompleteSection{incompleteQuotaSection}/Player" +
+                $"{quotaEvidencePlayerInstanceId}, Transition=" +
+                $"{(quotaCompletionObserved ? "QuotaMet" : "NativeWaitAfterFalseBaselineAndSectionAdvance")}. " +
+                "The completed section's map " +
+                "identity remains authoritative until the native reward " +
+                "detector/giving phase is observed.",
+                "Completion");
+        }
+
+        bool rewardTriggerRising =
+            state.RewardFlagsAvailable &&
+            previousRewardFlagsAvailable &&
+            state.RewardZoneEntered && !previousNativeRewardZone;
+        bool givingRewardsRising =
+            state.RewardFlagsAvailable &&
+            previousRewardFlagsAvailable &&
+            state.GivingRewards && !previousNativeGivingRewards;
+        if (postQuotaRoadActive)
+        {
+            postQuotaRewardTriggerObserved |= state.RewardZoneEntered;
+            postQuotaGivingRewardsObserved |= state.GivingRewards;
+        }
+
+        string signature =
+            $"{postQuotaRoadActive}:{postQuotaCompletedSection}:" +
+            $"{postQuotaRewardTriggerObserved}:" +
+            $"{postQuotaGivingRewardsObserved}:" +
+            $"{state.RewardFlagsAvailable}:" +
+            $"{state.WaitingForRewardZone}:{state.RewardZoneEntered}:" +
+            $"{state.GivingRewards}:{state.SectionIndex}:" +
+            $"{state.GameStateName}";
+        if (!string.Equals(
+                signature,
+                lastRewardPhaseSignature,
+                StringComparison.Ordinal))
+        {
+            lastRewardPhaseSignature = signature;
+            BonusRunnerLog.Debug(
+                $"RewardPhaseObservation RoadActive=" +
+                $"{postQuotaRoadActive}, CompletedSection=" +
+                $"{postQuotaCompletedSection}, ControllerSection=" +
+                $"{state.SectionIndex}, Available=" +
+                $"{state.RewardFlagsAvailable}, Wait=" +
+                $"{state.WaitingForRewardZone}, " +
+                $"Trigger={state.RewardZoneEntered}, Giving=" +
+                $"{state.GivingRewards}, TriggerRising=" +
+                $"{rewardTriggerRising}, WaitRising=" +
+                $"{waitForRewardRising}, GivingRising=" +
+                $"{givingRewardsRising}, Navigation=" +
+                $"{IsSuccessfulCompletionTraversal(state)}, " +
+                $"RewardActions={IsNativeRewardActionPhase(state)}.",
+                "Completion");
+        }
+
+        previousRewardFlagsAvailable =
+            state.RewardFlagsAvailable;
+        if (state.RewardFlagsAvailable)
+        {
+            previousNativeWaitingForRewardZone =
+                state.WaitingForRewardZone;
+            previousNativeRewardZone = state.RewardZoneEntered;
+            previousNativeGivingRewards = state.GivingRewards;
+        }
+    }
+
+    private void ResetQuotaTransitionEvidence(string reason)
+    {
+        if (incompleteQuotaObserved)
+        {
+            BonusRunnerLog.Debug(
+                $"QuotaTransitionEvidenceReset Reason={reason}, " +
+                $"IncompleteSection={incompleteQuotaSection}, Player=" +
+                $"{quotaEvidencePlayerInstanceId}.",
+                "Completion");
+        }
+        incompleteQuotaObserved = false;
+        incompleteQuotaSection = -1;
+        quotaEvidencePlayerInstanceId = 0;
+        lastQuotaObserverSection = -1;
+        waitFalseObservedAfterIncompleteQuota = false;
+    }
+
+    private void ObserveRewardWaitBaseline(
+        BonusStageState state,
+        string source)
+    {
+        if (waitFalseObservedAfterIncompleteQuota ||
+            !incompleteQuotaObserved ||
+            !state.IsActiveGameplay ||
+            state.SectionIndex != incompleteQuotaSection ||
+            !state.HasSphereProgress ||
+            state.RemainingRequiredSpheres <= 0 ||
+            !state.RewardFlagsAvailable ||
+            state.WaitingForRewardZone)
+        {
+            return;
+        }
+
+        waitFalseObservedAfterIncompleteQuota = true;
+        BonusRunnerLog.Debug(
+            $"RewardWaitFalseBaselineObserved Section=" +
+            $"{incompleteQuotaSection}, ControllerSection=" +
+            $"{state.SectionIndex}, Source={source}. A later readable " +
+            "Wait=true may corroborate quota completion; a sticky level " +
+            "without this current-section false baseline cannot arm the " +
+            "reward road.",
+            "Completion");
+    }
+
+    private void ResetPostQuotaRoadPhase(string reason)
+    {
+        if (postQuotaRoadActive)
+        {
+            BonusRunnerLog.Debug(
+                $"PostQuotaRoadReset Reason={reason}, CompletedSection=" +
+                $"{postQuotaCompletedSection}, TriggerObserved=" +
+                $"{postQuotaRewardTriggerObserved}, GivingObserved=" +
+                $"{postQuotaGivingRewardsObserved}.",
+                "Completion");
+        }
+        postQuotaRoadActive = false;
+        postQuotaCompletedSection = -1;
+        postQuotaRewardTriggerObserved = false;
+        postQuotaGivingRewardsObserved = false;
+        lastRewardPhaseSignature = string.Empty;
+    }
+
+    private BonusStageState GetRoutingState(BonusStageState state)
+    {
+        if (!IsSuccessfulCompletionTraversal(state) ||
+            lastActiveTerrainSection < 0 ||
+            state.SectionIndex == lastActiveTerrainSection)
+        {
+            return state;
+        }
+
+        return state with
+        {
+            SectionIndex = lastActiveTerrainSection
+        };
+    }
+
     private void RefreshMapRegistry(BonusStageState state)
     {
-        if (!state.IsBonusStage || state.SectionIndex < 0)
+        BonusStageState routingState = GetRoutingState(state);
+        int routingSection = routingState.SectionIndex;
+        if (!state.IsBonusStage || routingSection < 0)
         {
             if (lastMapRegistryGeneration >= 0)
                 platformScanner.ResetStaticMap("OutsideBonusStage");
@@ -558,13 +1520,13 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
         }
 
         BonusMapPieceRegistry registry = platformScanner.MapRegistry;
-        bool sectionChanged = registry.SectionIndex != state.SectionIndex;
+        bool sectionChanged = registry.SectionIndex != routingSection;
         if (!sectionChanged &&
             registry.State == BonusMapPieceRegistryState.Ready &&
             Time.unscaledTime < nextMapRegistryRefreshTime)
             return;
 
-        bool ready = platformScanner.RefreshStaticMap(state.SectionIndex);
+        bool ready = platformScanner.RefreshStaticMap(routingSection);
         nextMapRegistryRefreshTime = Time.unscaledTime + (ready ? 0.25f : 0.05f);
         string status = $"{registry.State}:{registry.StatusReason}:" +
                         $"Section={registry.SectionIndex}:Pieces={registry.PieceCount}";
@@ -579,7 +1541,9 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
             registry.Generation != lastMapRegistryGeneration;
         BonusRunnerLog.Debug(
             $"StaticMapRegistry State={registry.State}, " +
-            $"Section={registry.SectionIndex}, Generation={registry.Generation}, " +
+            $"Section={registry.SectionIndex}, ControllerSection=" +
+            $"{state.SectionIndex}, LastActiveTerrainSection=" +
+            $"{lastActiveTerrainSection}, Generation={registry.Generation}, " +
             $"Pieces={registry.PieceCount}, Reason={registry.StatusReason}, " +
             $"GenerationChanged={generationChanged}. " +
             (ready
@@ -622,6 +1586,20 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
             observed > wallRouteHorizontalSpeed + 1.0f &&
             observed > lastReliableHorizontalSpeed + 1.0f;
         bool completionTraversal = IsSuccessfulCompletionTraversal(state);
+        if (completionTraversal && inRange)
+        {
+            int completionTerrainSection = Mathf.Clamp(
+                lastActiveTerrainSection >= 0
+                    ? lastActiveTerrainSection
+                    : state.SectionIndex,
+                0,
+                completionTraversalSpeedCeilingBySection.Length - 1);
+            completionTraversalSpeedCeilingBySection[completionTerrainSection] =
+                Mathf.Max(
+                    completionTraversalSpeedCeilingBySection[
+                        completionTerrainSection],
+                    observed);
+        }
         bool routeMotionActive =
             state.IsActiveGameplay || completionTraversal;
         bool accepted =
@@ -652,6 +1630,34 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
         float prior = lastReliableHorizontalSpeed;
         if (accepted)
         {
+            float acceptedSampleGap = lastAcceptedHorizontalSpeedAt >= 0f
+                ? Time.unscaledTime - lastAcceptedHorizontalSpeedAt
+                : float.NaN;
+            bool accelerationSampleEligible =
+                !float.IsNaN(acceptedSampleGap) &&
+                acceptedSampleGap >= 0.008f &&
+                acceptedSampleGap <= 0.50f &&
+                observed > prior + 0.05f &&
+                (state.SpiritBoostEnabled || completionTraversal);
+            if (accelerationSampleEligible)
+            {
+                float accelerationSample = Mathf.Clamp(
+                    (observed - prior) / acceptedSampleGap,
+                    0f,
+                    120f);
+                positiveHorizontalAccelerationEnvelope = Mathf.Max(
+                    positiveHorizontalAccelerationEnvelope * 0.90f,
+                    accelerationSample);
+            }
+            else if (!state.SpiritBoostEnabled && !completionTraversal)
+            {
+                positiveHorizontalAccelerationEnvelope *= 0.80f;
+            }
+            else
+            {
+                positiveHorizontalAccelerationEnvelope *= 0.97f;
+            }
+            lastAcceptedHorizontalSpeedAt = Time.unscaledTime;
             lastReliableHorizontalSpeed = observed;
             if (legitimateWallBoostIncrease)
                 wallRouteHorizontalSpeed = observed;
@@ -694,6 +1700,8 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
                 $"{(sectionCruiseHorizontalSpeed > 1f ? sectionCruiseHorizontalSpeed.ToString("F3") : "Unresolved")}, " +
                 $"CruiseCandidate={sectionCruiseCandidateSpeed:F3}/" +
                 $"{sectionCruiseCandidateFixedSteps}, " +
+                $"PositiveAccelerationEnvelope=" +
+                $"{positiveHorizontalAccelerationEnvelope:F3}, " +
                 $"SpeedUpdateAccepted={accepted}, Decision={decision}, " +
                 $"RouteMotionActive={routeMotionActive}, " +
                 $"JumpResumeFixedStep={speedPlanningResumeFixedStep}, " +
@@ -711,6 +1719,7 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
         bool eligible =
             acceptedStableRun &&
             state.IsActiveGameplay &&
+            !state.SpiritBoostEnabled &&
             state.IsGrounded &&
             Mathf.Abs(state.PlayerVelocity.y) <= 2.5f &&
             observed > 1f && observed < 80f;
@@ -782,12 +1791,50 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
         }
     }
 
+    private void ResetCompletionTraversalSpeedEvidence(string reason)
+    {
+        float priorEnvelope = positiveHorizontalAccelerationEnvelope;
+        float priorMaximumCeiling = 0f;
+        for (int index = 0;
+             index < completionTraversalSpeedCeilingBySection.Length;
+             index++)
+        {
+            priorMaximumCeiling = Mathf.Max(
+                priorMaximumCeiling,
+                completionTraversalSpeedCeilingBySection[index]);
+        }
+
+        positiveHorizontalAccelerationEnvelope = 0f;
+        lastAcceptedHorizontalSpeedAt = -1f;
+        System.Array.Clear(
+            completionTraversalSpeedCeilingBySection,
+            0,
+            completionTraversalSpeedCeilingBySection.Length);
+
+        if (BonusRunnerLog.IsDebugMode &&
+            (priorEnvelope > 0.01f || priorMaximumCeiling > 0.01f))
+        {
+            BonusRunnerLog.Debug(
+                $"CompletionSpeedEpochReset Reason={reason}, " +
+                $"PriorAccelerationEnvelope={priorEnvelope:F3}, " +
+                $"PriorMaximumSectionCeiling={priorMaximumCeiling:F3}. " +
+                "No speed evidence from the previous life/terrain epoch " +
+                "may influence a new route.",
+                "Physics");
+        }
+    }
+
     private void ResetSectionCruiseSpeed()
     {
         sectionCruiseHorizontalSpeed = 0f;
         sectionCruiseCandidateSpeed = 0f;
         sectionCruiseCandidateLastFixedStep = -1;
         sectionCruiseCandidateFixedSteps = 0;
+        // Completion acceleration is learned only inside the current terrain
+        // epoch.  Carrying a prior section/run ceiling into a fresh normal run
+        // would make the planner invent speed that the current character has
+        // not demonstrated.
+        ResetCompletionTraversalSpeedEvidence("SectionCruiseReset");
     }
 
     private void LatchWallRouteSpeed(BonusStageState state, string source)
@@ -814,6 +1861,89 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
     private float GetWallRouteSpeed() => wallRouteSpeedLatched
         ? Mathf.Max(1f, wallRouteHorizontalSpeed)
         : Mathf.Max(1f, lastReliableHorizontalSpeed);
+
+    private float GetCompletionTraversalSpeedCeiling(
+        BonusStageState state)
+    {
+        int section = Mathf.Clamp(
+            lastActiveTerrainSection >= 0
+                ? lastActiveTerrainSection
+                : state.SectionIndex,
+            0,
+            completionTraversalSpeedCeilingBySection.Length - 1);
+        return completionTraversalSpeedCeilingBySection[section];
+    }
+
+    private float GetWallExitPlanningSpeed(
+        BonusStageState state,
+        float observedPostLipSpeed,
+        out bool accelerationEnvelopeApplied)
+    {
+        accelerationEnvelopeApplied = false;
+        float observed = Mathf.Clamp(
+            Mathf.Max(1f, observedPostLipSpeed),
+            1f,
+            80f);
+        float observedCompletionCeiling =
+            GetCompletionTraversalSpeedCeiling(state);
+        bool completionTraversal = IsSuccessfulCompletionTraversal(state);
+        bool accelerationEvidence =
+            positiveHorizontalAccelerationEnvelope >= 4f;
+        bool ceilingEvidence =
+            observedCompletionCeiling > observed + 1f;
+        bool acceleratingCompletionTraversal =
+            completionTraversal &&
+            (accelerationEvidence || ceilingEvidence);
+        if (!acceleratingCompletionTraversal)
+        {
+            if (completionTraversal)
+            {
+                BonusRunnerLog.Debug(
+                    $"CompletionWallExitSpeedProjection Observed=" +
+                    $"{observed:F3}, Ceiling=" +
+                    $"{observedCompletionCeiling:F3}, Envelope=" +
+                    $"{positiveHorizontalAccelerationEnvelope:F3}, " +
+                    $"Planning={observed:F3}, Spirit=" +
+                    $"{state.SpiritBoostEnabled}, " +
+                    "ProjectionMode=ObservedOnly; no current-epoch " +
+                    "acceleration evidence exceeds the safety threshold.",
+                    "Physics");
+            }
+            return observed;
+        }
+
+        // The retained V0.39 completion trace accelerated from 15.6 to 22.8
+        // immediately after a wall lip. Treat recent accepted positive dVX/dt
+        // as a bounded half-flight average-speed envelope. This is deliberately
+        // restricted to post-quota traversal: active Spirit routes have
+        // separate evidence showing decay rather than acceleration.  Do not
+        // impose the old synthetic +4 floor on a normal run; use only the
+        // measured current-epoch ceiling and an actually observed dVX/dt
+        // envelope.
+        float projectedGain = accelerationEvidence
+            ? Mathf.Clamp(
+                positiveHorizontalAccelerationEnvelope * 0.25f,
+                0f,
+                12f)
+            : 0f;
+        float planningSpeed = Mathf.Clamp(
+            Mathf.Max(
+                observed + projectedGain,
+                observedCompletionCeiling),
+            observed,
+            80f);
+        accelerationEnvelopeApplied = planningSpeed > observed + 0.25f;
+        BonusRunnerLog.Debug(
+            $"CompletionWallExitSpeedProjection Observed={observed:F3}, " +
+            $"Ceiling={observedCompletionCeiling:F3}, Envelope=" +
+            $"{positiveHorizontalAccelerationEnvelope:F3}, ProjectedGain=" +
+            $"{projectedGain:F3}, Planning={planningSpeed:F3}, Spirit=" +
+            $"{state.SpiritBoostEnabled}, ProjectionMode=" +
+            $"{(accelerationEvidence && ceilingEvidence ? "EnvelopeAndEpochCeiling" : accelerationEvidence ? "Envelope" : "EpochCeiling")}. " +
+            "Only evidence collected in the current terrain epoch is used.",
+            "Physics");
+        return planningSpeed;
+    }
 
     [HideFromIl2Cpp]
     private static JumpPhysicsSnapshot BuildPlanningPhysics(
@@ -929,6 +2059,27 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
     {
         try
         {
+            if (BonusStageRetryBridge.BlocksTerrainControl)
+            {
+                SuspendTerrainControlForRetry(latestState);
+                LogControlGateEvidence(latestState, "RetryModalOwnsControl");
+                return;
+            }
+
+            if (retryModalControlSuspended)
+            {
+                retryModalControlSuspended = false;
+                nextAutomaticAttemptTime = Math.Max(
+                    nextAutomaticAttemptTime,
+                    Time.unscaledTime + 0.10f);
+                BonusRunnerLog.Debug(
+                    $"RetryModalOwnershipReleased Frame={Time.frameCount}, " +
+                    $"GameState={latestState.GameStateName}, IsBonus=" +
+                    $"{latestState.IsBonusStage}. A fresh routing decision " +
+                    "is required before terrain input resumes.",
+                    "Retry");
+            }
+
             if (!automationEnabled || !latestState.IsBonusStage)
             {
                 LogControlGateEvidence(
@@ -951,9 +2102,10 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
                 return;
             }
 
-            LogControlGateEvidence(latestState, "ControlEligible");
-            UpdateAutomaticJump(latestState);
-            LogActionEvidence(latestState, PlayerMovement.instance);
+            BonusStageState routingState = GetRoutingState(latestState);
+            LogControlGateEvidence(routingState, "ControlEligible");
+            UpdateAutomaticJump(routingState);
+            LogActionEvidence(routingState, PlayerMovement.instance);
         }
         catch (System.Exception exception)
         {
@@ -980,10 +2132,15 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
         string signature =
             $"{gate}:{state.GameStateName}:{state.SectionIndex}:" +
             $"{state.RemainingRequiredSpheres}:{automationEnabled}:" +
+            $"{state.RewardFlagsAvailable}:" +
+            $"{state.WaitingForRewardZone}:" +
+            $"{state.RewardZoneEntered}:{state.GivingRewards}:" +
+            $"{rewardTargetDetector.IsLatched}:" +
             $"{Plugin.Config?.AutomaticJumping?.Value == true}:" +
-            $"{completionRewardController.IsTraversalActive}:" +
+            $"{completionRewardController.IsRewardPhaseActive}:" +
             $"{Plugin.Config?.CompletionRewardActions?.Value == true}:" +
-            $"{Plugin.Config?.CompletionWindDash?.Value == true}";
+            $"{Plugin.Config?.CompletionWindDash?.Value == true}:" +
+            $"{BonusStageRetryBridge.ControlGateSummary}";
         if (string.Equals(
                 signature,
                 lastControlGateSignature,
@@ -998,21 +2155,30 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
             $"FixedStep={JumpPhysicsFeedback.FixedStepSequence}, " +
             $"AutomationEnabled={automationEnabled}, " +
             $"AutomaticJumping={Plugin.Config?.AutomaticJumping?.Value == true}, " +
-            $"CompletionTraversal={completionRewardController.IsTraversalActive}, " +
+            $"NativeRewardPhase=" +
+            $"{completionRewardController.IsRewardPhaseActive}, " +
             $"CompletionRewardActions={Plugin.Config?.CompletionRewardActions?.Value == true}, " +
             $"CompletionWindDash={Plugin.Config?.CompletionWindDash?.Value == true}, " +
             $"GameState={state.GameStateName}, Map={state.MapName}, " +
-            $"Section={state.SectionIndex}, HasPlayer={state.HasPlayer}, " +
+            $"RoutingSection={state.SectionIndex}, ControllerSection=" +
+            $"{latestState.SectionIndex}, LastActiveTerrainSection=" +
+            $"{lastActiveTerrainSection}, HasPlayer={state.HasPlayer}, " +
             $"BonusGameplayStarted={bonusGameplayStarted}, " +
             $"Spheres={(state.HasSphereProgress ? $"{state.CollectedSpheres}/{Math.Ceiling(state.RequiredSpheres):F0}" : "Unavailable")}, " +
             $"Remaining={state.RemainingRequiredSpheres}, " +
+            $"RewardFlags[Available={state.RewardFlagsAvailable},Wait=" +
+            $"{state.WaitingForRewardZone}," +
+            $"Trigger={state.RewardZoneEntered},Giving=" +
+            $"{state.GivingRewards}], RewardTarget=" +
+            $"[{rewardTargetDetector.Describe()}], " +
             $"FellOff={state.CharacterFellOff}, " +
             $"ManualCooldownRemaining={Mathf.Max(0f, 0.40f - (Time.unscaledTime - lastManualInputTime)):F3}s, " +
             $"Holding={jumpController.IsHoldingJump}, " +
             $"LearningActive={learningSampleActive}, " +
             $"LearningSource={learningSource ?? "None"}, " +
             $"PredictionActive={automaticPredictionActive}, " +
-            $"WallPhase={wallActionPhase}.",
+            $"WallPhase={wallActionPhase}, RetryState=" +
+            $"[{BonusStageRetryBridge.ControlGateSummary}].",
             "Evidence");
     }
 
@@ -1024,12 +2190,13 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
             return;
 
         bool completionTraversal = IsSuccessfulCompletionTraversal(state);
+        bool nativeRewardPhase = IsNativeRewardActionPhase(state);
         bool wallActionActive =
             wallActionPhase != WallActionPhase.None &&
             wallActionPhase != WallActionPhase.Completed &&
             wallActionPhase != WallActionPhase.Failed;
         bool actionActive =
-            wallActionActive || completionTraversal ||
+            wallActionActive || completionTraversal || nativeRewardPhase ||
             automaticPredictionActive || jumpController.IsHoldingJump ||
             (learningSampleActive && learningSource == "Automatic");
         if (!actionActive)
@@ -1044,11 +2211,14 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
             $"{jumpController.IsHoldingJump}:{state.IsGrounded}:" +
             $"{wall.IsDetected}:{wall.IsTouching}:" +
             $"{wallRecoveryLipCrossed}:{wallResidualRiseWaitActive}:" +
+            $"{wallExitFaceInterceptCommitted}:" +
+            $"{wallExitCollectionFaceInterceptCommitted}:" +
             $"{wallExitFaceContactRequired}:" +
             $"{wallMandatoryFaceSetupActive}:" +
             $"{wallMandatoryFaceInterceptCommitted}:" +
             $"{automaticAttemptId}:" +
-            $"{state.GameStateName}:{state.RemainingRequiredSpheres}";
+            $"{state.GameStateName}:{state.RemainingRequiredSpheres}:" +
+            $"{state.RewardZoneEntered}:{state.GivingRewards}";
         bool eventChanged = !string.Equals(
             signature,
             lastEvidenceSignature,
@@ -1122,9 +2292,14 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
             $"LearningId={learningSampleId}, GameState={state.GameStateName}, " +
             $"Map={state.MapName}, Section={state.SectionIndex}, " +
             $"CompletionTraversal={completionTraversal}, " +
+            $"NativeRewardPhase={nativeRewardPhase}, " +
             $"BonusGameplayStarted={bonusGameplayStarted}, " +
             $"Spheres={(state.HasSphereProgress ? $"{state.CollectedSpheres}/{Math.Ceiling(state.RequiredSpheres):F0}" : "Unavailable")}, " +
-            $"Remaining={state.RemainingRequiredSpheres}, FellOff={state.CharacterFellOff}, " +
+            $"Remaining={state.RemainingRequiredSpheres}, RewardFlags[Available=" +
+            $"{state.RewardFlagsAvailable},Wait=" +
+            $"{state.WaitingForRewardZone},Trigger=" +
+            $"{state.RewardZoneEntered},Giving={state.GivingRewards}], " +
+            $"FellOff={state.CharacterFellOff}, " +
             $"SpiritBoost={state.SpiritBoostEnabled}, Timer={state.CurrentTime:F3}/{state.MaximumTime:F3}, " +
             $"Position=({state.PlayerPosition.x:F3},{state.PlayerPosition.y:F3}), " +
             $"Velocity=({state.PlayerVelocity.x:F3},{state.PlayerVelocity.y:F3}), " +
@@ -1155,6 +2330,12 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
             $"DetachedConfirmSteps={wallDetachedConfirmationSteps}," +
             $"TopSequenceCommitted={wallTopLandingSequenceCommitted}," +
             $"ExitContactWatch={wallExitContactWatchActive}," +
+            $"ExitContactDeadlineFixedStep=" +
+            $"{wallExitContactWatchDeadlineFixedStep}," +
+            $"ExitFaceInterceptCommitted=" +
+            $"{wallExitFaceInterceptCommitted}," +
+            $"ExitCollectionFaceInterceptCommitted=" +
+            $"{wallExitCollectionFaceInterceptCommitted}," +
             $"ResidualRiseWait={wallResidualRiseWaitActive}," +
             $"ExitFaceContactRequired={wallExitFaceContactRequired}," +
             $"ExitObjectiveCount={wallExitObjectiveCountAtCapture}," +
@@ -1343,6 +2524,8 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
             movementInitialized = true;
             previousMovementPosition = state.PlayerPosition;
             previousMovementObservedAt = Time.unscaledTime;
+            previousMovementObservedFixedStep =
+                JumpPhysicsFeedback.FixedStepSequence;
             previousGrounded = state.IsGrounded;
             previousVelocityY = state.PlayerVelocity.y;
             return;
@@ -1353,14 +2536,45 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
             Time.unscaledTime - previousMovementObservedAt);
         Vector3 movementDelta =
             state.PlayerPosition - previousMovementPosition;
+        long currentMovementFixedStep =
+            JumpPhysicsFeedback.FixedStepSequence;
+        long elapsedMovementFixedSteps =
+            previousMovementObservedFixedStep >= 0
+                ? Math.Max(
+                    0L,
+                    currentMovementFixedStep -
+                    previousMovementObservedFixedStep)
+                : 0L;
+        float movementFixedDelta = Mathf.Clamp(
+            latestPhysicsSnapshot.FixedDeltaTime > 0f
+                ? latestPhysicsSnapshot.FixedDeltaTime
+                : Time.fixedDeltaTime,
+            0.005f,
+            0.05f);
+        float movementPhysicsDelta =
+            elapsedMovementFixedSteps > 0
+                ? elapsedMovementFixedSteps * movementFixedDelta
+                : Mathf.Min(movementDeltaSeconds, movementFixedDelta);
         float expectedHorizontalDelta = Mathf.Max(
                 Mathf.Abs(state.PlayerVelocity.x),
                 lastReliableHorizontalSpeed) *
-            movementDeltaSeconds + 1.50f;
-        float expectedVerticalDelta = Mathf.Max(
+            movementPhysicsDelta + 1.50f;
+        float movementVerticalVelocityEnvelope = Mathf.Max(
+            Mathf.Max(
                 Mathf.Abs(state.PlayerVelocity.y),
-                Mathf.Abs(previousVelocityY)) *
-            movementDeltaSeconds + 0.75f;
+                Mathf.Abs(previousVelocityY)),
+            Mathf.Max(
+                5f,
+                Mathf.Abs(latestPhysicsSnapshot.JumpVelocity)));
+        float movementGravityEnvelope = Mathf.Clamp(
+            Mathf.Abs(latestPhysicsSnapshot.GravityMagnitude),
+            1f,
+            120f);
+        float expectedVerticalDelta =
+            movementVerticalVelocityEnvelope * movementPhysicsDelta +
+            0.5f * movementGravityEnvelope *
+                movementPhysicsDelta * movementPhysicsDelta +
+            1.25f;
         bool globalPositionDiscontinuity =
             automationEnabled &&
             bonusGameplayStarted &&
@@ -1368,12 +2582,18 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
              Mathf.Abs(movementDelta.y) > Mathf.Max(1.25f, expectedVerticalDelta));
         previousMovementPosition = state.PlayerPosition;
         previousMovementObservedAt = Time.unscaledTime;
+        previousMovementObservedFixedStep =
+            currentMovementFixedStep;
         if (globalPositionDiscontinuity)
         {
             BonusRunnerLog.Warning(
                 $"GlobalPositionDiscontinuity Delta=" +
                 $"({movementDelta.x:F3},{movementDelta.y:F3}), " +
-                $"Dt={movementDeltaSeconds:F3}s, Position=" +
+                $"WallDt={movementDeltaSeconds:F3}s, PhysicsDt=" +
+                $"{movementPhysicsDelta:F3}s, FixedSteps=" +
+                $"{elapsedMovementFixedSteps}, Limits=" +
+                $"[X={expectedHorizontalDelta:F3}," +
+                $"Y={expectedVerticalDelta:F3}], Position=" +
                 $"({state.PlayerPosition.x:F3},{state.PlayerPosition.y:F3}), " +
                 $"Velocity=({state.PlayerVelocity.x:F3}," +
                 $"{state.PlayerVelocity.y:F3}), LearningActive=" +
@@ -1383,7 +2603,24 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
             if (learningSampleActive && learningSource == "Automatic")
                 FinishLearningSample(state, "PositionDiscontinuity");
             ResetAutomaticControlState();
+            ResetCompletionTraversalSpeedEvidence(
+                "GlobalPositionDiscontinuity");
             pitDescentGuardActive = true;
+            terrainContinuationEpochBlocked = true;
+            bonusGameplayStarted = false;
+            rewardTargetDetector.BeginEpoch(
+                state,
+                "PositionDiscontinuity");
+            rewardTargetObservation =
+                rewardTargetDetector.LastObservation;
+            lastRewardTargetObservationSignature = string.Empty;
+            rewardLatchObservedDuringInactiveFrame = false;
+            rewardTargetEmptyBaselineRequired = true;
+            rewardTargetRearmDeferralLogged = false;
+            rewardTargetConsecutiveEmptyScans = 0;
+            rewardTargetLastEmptyScanFrame = -1;
+            completionRewardController.Reset(
+                "PositionDiscontinuity");
             pitRespawnLastFixedStep = -1;
             pitRespawnStableFixedSteps = 0;
             nextAutomaticAttemptTime = Time.unscaledTime + 0.45f;
@@ -1730,8 +2967,51 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
         PlayerMovement player = PlayerMovement.instance;
         bool successfulCompletionTraversal =
             IsSuccessfulCompletionTraversal(state);
+        bool nativeRewardActionPhase =
+            IsNativeRewardActionPhase(state);
+        bool lifecycleRecoveryPhase =
+            terrainContinuationEpochBlocked ||
+            pitDescentGuardActive;
+        bool completionControlPhase =
+            successfulCompletionTraversal ||
+            nativeRewardActionPhase ||
+            lifecycleRecoveryPhase;
         bool automaticJumpingEnabled =
             Plugin.Config?.AutomaticJumping?.Value == true;
+        bool nativeRewardPhaseStarting =
+            automaticJumpingEnabled &&
+            nativeRewardActionPhase &&
+            !completionRewardController.IsRewardPhaseActive;
+        if (nativeRewardPhaseStarting)
+        {
+            bool priorTerrainInputOwned =
+                jumpController.IsHoldingJump ||
+                automaticPredictionActive ||
+                passiveWallApproachActive ||
+                wallExitContactWatchActive ||
+                wallActionPhase != WallActionPhase.None;
+            jumpController.Release();
+            if (learningSampleActive && learningSource == "Automatic")
+            {
+                FinishLearningSample(
+                    state,
+                    "RewardObjectPhaseOwnershipHandoff");
+            }
+            ResetAutomaticControlState();
+            BonusRunnerLog.Debug(
+                $"RewardObjectOwnershipHandoff Position=" +
+                $"({state.PlayerPosition.x:F3},{state.PlayerPosition.y:F3}), " +
+                $"Velocity=({state.PlayerVelocity.x:F3}," +
+                $"{state.PlayerVelocity.y:F3}), PriorTerrainOwner=" +
+                $"{priorTerrainInputOwned}, RewardFlags[Available=" +
+                $"{state.RewardFlagsAvailable},Wait=" +
+                $"{state.WaitingForRewardZone},Trigger=" +
+                $"{state.RewardZoneEntered},Giving=" +
+                $"{state.GivingRewards}], Target=" +
+                $"[{rewardTargetDetector.Describe()}]. Existing terrain/wall input was " +
+                "released atomically before reward control began.",
+                "Completion");
+        }
         if (player != null &&
             jumpController.IsHoldingJump &&
             automaticPredictionActive &&
@@ -1739,21 +3019,19 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
             learningSource == "Automatic" &&
             state.HasPlayer &&
             (state.IsActiveGameplay ||
-             successfulCompletionTraversal))
+             completionControlPhase))
         {
             MonitorCommittedJump(state, player);
         }
         jumpController.Update(player);
         completionRewardController.ObserveTraversal(
-            automaticJumpingEnabled && successfulCompletionTraversal,
+            automaticJumpingEnabled && nativeRewardActionPhase,
             state);
-        if (!successfulCompletionTraversal)
-            ResetCompletionTerminalCandidate();
 
         if (!automaticJumpingEnabled ||
             !state.HasPlayer || player == null ||
             (!state.IsActiveGameplay &&
-              !successfulCompletionTraversal) ||
+              !completionControlPhase) ||
             !state.IsSupportedBonusMap)
         {
             bool completingCommittedTrajectory =
@@ -1804,7 +3082,91 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
                 "Control");
         }
 
-        if (successfulCompletionTraversal)
+        // A typed reward object owns input only while the player is alive.
+        // Validate the same sustained, unrecoverable pit evidence before the
+        // reward early-return so a persistent pooled target cannot keep
+        // jump/arrow/dash control through death and respawn.
+        if (nativeRewardActionPhase)
+        {
+            bool rewardPhaseLowDescending =
+                !state.IsGrounded &&
+                state.PlayerPosition.y < PitDescentYThreshold &&
+                state.PlayerVelocity.y <= PitDescentVelocityThreshold;
+            bool rewardPhaseRecoverableWall = HasRecoverableWallAhead(
+                state,
+                player,
+                requirePlannedTarget: true,
+                out _,
+                out string rewardPhaseWallEvidence);
+            bool rewardPhasePitConfirmed =
+                UpdateAutomaticPitConfirmation(
+                    rewardPhaseLowDescending &&
+                    !rewardPhaseRecoverableWall);
+            if (rewardPhaseLowDescending &&
+                !rewardPhaseRecoverableWall &&
+                !rewardPhasePitConfirmed)
+            {
+                jumpController.Release();
+                if (BonusRunnerLog.IsDebugMode &&
+                    Time.unscaledTime >= nextPitDescentEvidenceTime)
+                {
+                    nextPitDescentEvidenceTime =
+                        Time.unscaledTime + 0.25f;
+                    BonusRunnerLog.Debug(
+                        $"RewardObjectPitConfirmationPending Position=" +
+                        $"({state.PlayerPosition.x:F3}," +
+                        $"{state.PlayerPosition.y:F3}), Velocity=" +
+                        $"({state.PlayerVelocity.x:F3}," +
+                        $"{state.PlayerVelocity.y:F3}), ConfirmedSteps=" +
+                        $"{pitDescentCandidateFixedSteps}/" +
+                        $"{PitDescentConfirmationFixedSteps}, Wall=" +
+                        $"{rewardPhaseWallEvidence}. Reward actions are " +
+                        "withheld while lifecycle evidence is unresolved.",
+                        "Lifecycle");
+                }
+                return;
+            }
+
+            if (rewardPhasePitConfirmed || pitDescentGuardActive)
+            {
+                string revocationReason = rewardPhasePitConfirmed
+                    ? "ConfirmedPitDescent"
+                    : "PitDescentGuardActive";
+                BonusRunnerLog.Warning(
+                    $"RewardObjectOwnershipRevoked Reason=" +
+                    $"{revocationReason}, Position=" +
+                    $"({state.PlayerPosition.x:F3}," +
+                    $"{state.PlayerPosition.y:F3}), Velocity=" +
+                    $"({state.PlayerVelocity.x:F3}," +
+                    $"{state.PlayerVelocity.y:F3}), Target=" +
+                    $"[{rewardTargetDetector.Describe()}]. The typed " +
+                    "target must be re-established by a distinct instance " +
+                    "or after the retired instance is observed absent.");
+                rewardTargetDetector.BeginEpoch(
+                    state,
+                    revocationReason);
+                rewardTargetObservation =
+                    rewardTargetDetector.LastObservation;
+                lastRewardTargetObservationSignature = string.Empty;
+                rewardLatchObservedDuringInactiveFrame = false;
+                rewardTargetEmptyBaselineRequired = true;
+                rewardTargetRearmDeferralLogged = false;
+                rewardTargetConsecutiveEmptyScans = 0;
+                rewardTargetLastEmptyScanFrame = -1;
+                bonusGameplayStarted = false;
+                terrainContinuationEpochBlocked = true;
+                ResetCompletionTraversalSpeedEvidence(
+                    revocationReason);
+                completionRewardController.Reset(revocationReason);
+                nativeRewardActionPhase = false;
+                successfulCompletionTraversal =
+                    IsSuccessfulCompletionTraversal(state);
+                completionControlPhase =
+                    successfulCompletionTraversal;
+            }
+        }
+
+        if (nativeRewardActionPhase)
         {
             bool dashControlIdle = IsCompletionDashControlIdle();
             if (!dashControlIdle &&
@@ -1842,20 +3204,13 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
                     $"{JumpPhysicsFeedback.FixedStepSequence}, ResumeAt=" +
                     $"{completionDashPlanningResumeFixedStep}, " +
                     $"CapturedVX={Mathf.Abs(state.PlayerVelocity.x):F3}. " +
-                    "Route input waits for two physics steps so the dash's " +
-                    "actual Rigidbody velocity is observed before replanning.",
+                    "The native reward phase owns control; no terrain route " +
+                    "will be planned while the dash velocity settles.",
                     "Completion");
             }
 
-            if (JumpPhysicsFeedback.FixedStepSequence <
-                completionDashPlanningResumeFixedStep)
-            {
-                // Activation is allowed only while no route owns input.  Do
-                // not issue an unconditional UP here: if state changes during
-                // the barrier, an already committed trajectory still owns its
-                // press/release deadline.
-                return;
-            }
+            TryCompletionRewardActions(state, player);
+            return;
         }
 
         // characterFellOff can remain true for the rest of a protected run,
@@ -1901,9 +3256,30 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
         }
         if (confirmedPitDescent)
         {
+            if (!terrainContinuationEpochBlocked)
+            {
+                rewardTargetDetector.BeginEpoch(
+                    state,
+                    "ConfirmedPitDescent");
+                rewardTargetObservation =
+                    rewardTargetDetector.LastObservation;
+                lastRewardTargetObservationSignature = string.Empty;
+                rewardLatchObservedDuringInactiveFrame = false;
+                rewardTargetEmptyBaselineRequired = true;
+                rewardTargetRearmDeferralLogged = false;
+                rewardTargetConsecutiveEmptyScans = 0;
+                rewardTargetLastEmptyScanFrame = -1;
+                completionRewardController.Reset(
+                    "ConfirmedPitDescent");
+            }
+            // Death blocks both terrain and reward ownership until the
+            // respawn is grounded and real forward gameplay has resumed.
+            terrainContinuationEpochBlocked = true;
+            bonusGameplayStarted = false;
             if (!pitDescentGuardActive)
             {
                 pitDescentGuardActive = true;
+                RecordRunDeath(state);
                 pitRespawnLastFixedStep = -1;
                 pitRespawnStableFixedSteps = 0;
                 BonusRunnerLog.Warning(
@@ -1919,14 +3295,49 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
             if (learningSampleActive && learningSource == "Automatic")
                 FinishLearningSample(state, "PitDescentDetected");
             ResetAutomaticControlState();
+            ResetCompletionTraversalSpeedEvidence(
+                "ConfirmedPitDescent");
             nextAutomaticAttemptTime = Time.unscaledTime + 0.45f;
             return;
         }
         if (pitDescentGuardActive)
         {
+            BonusWallContact respawnWallContact =
+                state.IsSupportedBonusMap &&
+                state.HasPlayer &&
+                state.IsGrounded &&
+                Mathf.Abs(state.PlayerVelocity.y) <= 2.50f &&
+                Mathf.Abs(state.PlayerVelocity.x) < 1.0f &&
+                lastActiveTerrainSection >= 0
+                    ? wallDetector.Detect(
+                        player,
+                        Mathf.Max(1f, lastReliableHorizontalSpeed))
+                    : default;
+            float respawnFeetY = player.playerCollider != null
+                ? player.playerCollider.bounds.min.y
+                : state.PlayerPosition.y - 0.27f;
+            float respawnHalfWidth = player.playerCollider != null
+                ? Mathf.Max(
+                    0.15f,
+                    player.playerCollider.bounds.extents.x)
+                : 0.60f;
+            BonusBoardSegment respawnWallSurface = default;
+            bool mappedWallRespawnReady =
+                respawnWallContact.IsDetected &&
+                respawnWallContact.IsTouching &&
+                platformScanner.TryFindWallSurfaceAtFace(
+                    respawnWallContact.FaceX,
+                    respawnFeetY,
+                    respawnHalfWidth,
+                    out respawnWallSurface);
+            bool forwardGameplayResumed =
+                state.IsActiveGameplay ||
+                Mathf.Abs(state.PlayerVelocity.x) >= 1.0f ||
+                mappedWallRespawnReady;
             bool stableRespawnFrame =
                 state.IsGrounded &&
-                Mathf.Abs(state.PlayerVelocity.y) <= 2.50f;
+                Mathf.Abs(state.PlayerVelocity.y) <= 2.50f &&
+                forwardGameplayResumed;
             if (!stableRespawnFrame)
             {
                 pitRespawnLastFixedStep = -1;
@@ -1949,17 +3360,58 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
             }
 
             pitDescentGuardActive = false;
+            terrainContinuationEpochBlocked = false;
+            bool terrainEpochRearmed =
+                state.IsSupportedBonusMap &&
+                state.HasPlayer &&
+                lastActiveTerrainSection >= 0;
+            bonusGameplayStarted = terrainEpochRearmed;
+            if (terrainEpochRearmed && state.IsActiveGameplay)
+                lastActiveTerrainSection = state.SectionIndex;
             ResetAutomaticPitConfirmation();
             BonusRunnerLog.Debug(
                 $"PitDescentGuardReleased Position=({state.PlayerPosition.x:F3}," +
                 $"{state.PlayerPosition.y:F3}), Velocity=" +
                 $"({state.PlayerVelocity.x:F3},{state.PlayerVelocity.y:F3}), " +
-                $"StableFixedSteps={pitRespawnStableFixedSteps}. " +
-                "A stable grounded respawn was observed; route planning resumes.",
+                $"StableFixedSteps={pitRespawnStableFixedSteps}, " +
+                 $"ForwardGameplayResumed={forwardGameplayResumed}, " +
+                 $"WallRespawnReady={mappedWallRespawnReady}, " +
+                 $"WallFaceX={respawnWallContact.FaceX:F3}, " +
+                 $"WallTarget={(mappedWallRespawnReady ? $"[{respawnWallSurface.Left:F3},{respawnWallSurface.Right:F3}]@{respawnWallSurface.Top:F3}" : "None")}, " +
+                 $"TerrainEpochRearmed={terrainEpochRearmed}, " +
+                 $"ActiveGameplay={state.IsActiveGameplay}. A stable " +
+                 "grounded respawn with forward motion or authoritative " +
+                 "physical wall contact was observed; " +
+                "route planning may resume on the next frame after map " +
+                "identity is refreshed.",
                 "Lifecycle");
             pitRespawnLastFixedStep = -1;
             pitRespawnStableFixedSteps = 0;
+            // routingState and the static map registry were captured before
+            // this guard was released. Never issue a same-frame action from
+            // that stale identity; Update refreshes the authoritative terrain
+            // section before the next LateUpdate plans anything.
+            jumpController.Release();
+            return;
         }
+
+        if (successfulCompletionTraversal &&
+            TryArmCompletionTraversalWallContact(state, player))
+        {
+            return;
+        }
+
+        // A fourth-section collection jump can clear the trench without
+        // clearing the following face.  Exact physical face contact is a
+        // continuation of that airborne action, not a platform landing that
+        // should be handed back to the ground planner.  Promote it before the
+        // generic wall gate or stable-landing confirmation can discard the
+        // live contact.
+        if (TryPromoteSection3FlightWallContact(state, player))
+            return;
+
+        if (TryPromoteUnexpectedFlightWallContact(state, player))
+            return;
 
         if (TryWallRecoveryJump(state, player))
             return;
@@ -2093,6 +3545,21 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
             lastBoostRouteSelection = string.Empty;
         }
         ObserveNoSupportStall(state, scan);
+        bool urgentNarrowLandingChain =
+            scan.IsValid &&
+            secondStagePreviewActive &&
+            secondStageObservedAirborne &&
+            secondStageProjectedScan.IsValid &&
+            secondStageProjectedScan.HasNext &&
+            secondStageProjectedPlan.IsValid &&
+            secondStageExpectedSupport.Width <= 2.25f &&
+            Mathf.Abs(
+                scan.Current.Top -
+                secondStageExpectedSupport.Top) <= 0.35f &&
+            state.PlayerPosition.x >=
+                secondStageExpectedSupport.Left - 0.15f &&
+            state.PlayerPosition.x <=
+                secondStageExpectedSupport.Right + 0.15f;
         ConfirmOrRejectSecondStagePreview(state, scan);
         float sphereLookAhead = Mathf.Clamp(
             30f + Mathf.Max(0f, planningHorizontalSpeed - 18f) * 1.4f,
@@ -2122,6 +3589,91 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
                 : plan.Maneuver == BonusManeuverKind.SphereCollectionJump
                     ? scan.Current
                     : scan.Next;
+
+        bool urgentNarrowPlanPromoted = false;
+        if (urgentNarrowLandingChain &&
+            plan.IsValid &&
+            !plan.ShouldJumpNow &&
+            scan.HasNext &&
+            plan.Maneuver != BonusManeuverKind.EnterTrenchThenWallJump)
+        {
+            bool genuinelyEarly =
+                state.PlayerPosition.x <= plan.PlannedLaunchX + 0.001f;
+            float earlyLaunchDistance =
+                plan.PlannedLaunchX - state.PlayerPosition.x;
+            float earlyLandingX =
+                state.PlayerPosition.x + plan.HorizontalTravel;
+            float landingTolerance = 0.20f;
+            string translatedTrajectoryCheck = "LaunchAlreadyPassed";
+            bool translatedTrajectorySafe =
+                genuinelyEarly &&
+                jumpPlanner.IsTrajectorySafe(
+                    hazard,
+                    state.PlayerPosition.x,
+                    earlyLandingX,
+                    scan.Current.Top,
+                    plan.HoldSeconds,
+                    plan.PredictedFlightSeconds,
+                    physics,
+                    out translatedTrajectoryCheck);
+            bool earlyLandingStillFits =
+                genuinelyEarly &&
+                earlyLaunchDistance <= Mathf.Max(
+                    0.80f,
+                    planningHorizontalSpeed * physics.FixedDeltaTime * 1.75f) &&
+                earlyLandingX >= plannedTarget.SafeLeft - landingTolerance &&
+                earlyLandingX <= plannedTarget.SafeRight + landingTolerance &&
+                translatedTrajectorySafe;
+            if (earlyLandingStillFits)
+            {
+                plan = plan with
+                {
+                    ShouldJumpNow = true,
+                    PlannedLaunchX = state.PlayerPosition.x,
+                    PredictedLandingX = earlyLandingX,
+                    HorizontalTravel = Mathf.Max(
+                        0f,
+                        earlyLandingX - state.PlayerPosition.x),
+                    LaunchWindowLeft = state.PlayerPosition.x,
+                    LaunchWindowRight = state.PlayerPosition.x,
+                    Reason = "UrgentNarrowLandingChain",
+                    CandidateSummary =
+                        $"PromotedEarlyBy={earlyLaunchDistance:F3}," +
+                        $"AdjustedLanding={earlyLandingX:F3}," +
+                        $"LiveTrajectory={translatedTrajectoryCheck}; " +
+                        plan.CandidateSummary
+                };
+                urgentNarrowPlanPromoted = true;
+                BonusRunnerLog.Debug(
+                    $"UrgentNarrowLandingPlanPromoted Position=" +
+                    $"({state.PlayerPosition.x:F3},{state.PlayerPosition.y:F3}), " +
+                    $"EarlyBy={earlyLaunchDistance:F3}, AdjustedLanding=" +
+                    $"{earlyLandingX:F3}, TargetSafe=" +
+                    $"[{plannedTarget.SafeLeft:F3}," +
+                    $"{plannedTarget.SafeRight:F3}], Hold=" +
+                    $"{plan.HoldSeconds:F3}. The verified one-step landing " +
+                    "is chained immediately because another fixed-step coast " +
+                    "would leave the narrow source support.",
+                    "Lookahead");
+            }
+            else
+            {
+                BonusRunnerLog.Debug(
+                    $"UrgentNarrowLandingPromotionRejected Position=" +
+                    $"({state.PlayerPosition.x:F3},{state.PlayerPosition.y:F3}), " +
+                    $"PlannedLaunch={plan.PlannedLaunchX:F3}, " +
+                    $"GenuinelyEarly={genuinelyEarly}, EarlyBy=" +
+                    $"{earlyLaunchDistance:F3}, LiveLanding=" +
+                    $"{earlyLandingX:F3}, TargetSafe=" +
+                    $"[{plannedTarget.SafeLeft:F3}," +
+                    $"{plannedTarget.SafeRight:F3}], TrajectorySafe=" +
+                    $"{translatedTrajectorySafe}, Check=" +
+                    $"{translatedTrajectoryCheck}. The stale planned launch " +
+                    "is not promoted after it has already passed or without " +
+                    "a fresh hazard check.",
+                    "Lookahead");
+            }
+        }
 
         // A spike is allowed to create its own jump only when it is on the
         // current continuous support. A later spike must never replace the
@@ -2198,23 +3750,31 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
                 $"PlanValid={plan.IsValid}, ShouldJump=" +
                 $"{plan.ShouldJumpNow}, Maneuver={plan.Maneuver}, " +
                 $"Reason={plan.Reason}. Normal dynamic terrain planning " +
-                "continues after the sphere quota; reward actions remain " +
-                "blocked while a downstream route exists.",
+                "continues through the inactive transition; reward actions " +
+                "remain blocked until a typed box or reward collectable is " +
+                "confirmed on two frames.",
                 "Completion");
         }
 
         bool stationaryBeforeRoute =
             state.IsGrounded && observedHorizontalSpeed <= 1f && scan.HasNext;
-        bool speedTransitionBarrier =
-            plan.IsValid && plan.ShouldJumpNow &&
+        bool speedTransitionWouldBlock =
+            plan.IsValid &&
+            (plan.ShouldJumpNow || stationaryBeforeRoute) &&
             JumpPhysicsFeedback.FixedStepSequence <
                 speedPlanningResumeFixedStep;
+        bool speedTransitionBarrier =
+            speedTransitionWouldBlock &&
+            !urgentNarrowPlanPromoted;
         bool completionDashBarrier =
             successfulCompletionTraversal &&
             JumpPhysicsFeedback.FixedStepSequence <
-                completionDashPlanningResumeFixedStep;
-        if (stationaryBeforeRoute ||
-            speedTransitionBarrier || completionDashBarrier)
+                completionDashPlanningResumeFixedStep &&
+            !urgentNarrowPlanPromoted;
+        // A discontinuity or Wind Dash barrier always wins.  A physical
+        // obstacle escape may use pre-contact speed, but it must not bypass a
+        // still-pending physics observation from a genuine speed change.
+        if (speedTransitionBarrier || completionDashBarrier)
         {
             if (Time.unscaledTime >= nextSpeedPlanningBarrierLogTime)
             {
@@ -2233,12 +3793,184 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
                     $"SpeedResumeFixedStep={speedPlanningResumeFixedStep}, " +
                     $"DashResumeFixedStep=" +
                     $"{completionDashPlanningResumeFixedStep}, Reason=" +
-                    (stationaryBeforeRoute
-                        ? "LiveHorizontalVelocityZero"
-                        : completionDashBarrier
+                    (completionDashBarrier
                             ? "CompletionWindDashVelocityPending"
                             : "VelocityDiscontinuityPendingPhysicsStep") +
                     ". No DOWN is sent from a stale horizontal model.",
+                    "Physics");
+            }
+            return;
+        }
+        if (speedTransitionWouldBlock && urgentNarrowPlanPromoted)
+        {
+            BonusRunnerLog.Debug(
+                $"UrgentNarrowLandingBarrierBypass Position=" +
+                $"({state.PlayerPosition.x:F3},{state.PlayerPosition.y:F3}), " +
+                $"LiveVX={observedHorizontalSpeed:F3}, ReliableVX=" +
+                $"{lastReliableHorizontalSpeed:F3}, Plan=" +
+                $"{plan.Reason}/{plan.Maneuver}, CurrentFixedStep=" +
+                $"{JumpPhysicsFeedback.FixedStepSequence}, NormalResume=" +
+                $"{speedPlanningResumeFixedStep}. The plan was recomputed " +
+                "from the current Rigidbody velocity and the verified narrow " +
+                "support cannot survive an extra physics-step wait.",
+                "Lookahead");
+        }
+
+        if (stationaryBeforeRoute)
+        {
+            BonusObstacleAssessment stationaryObstacle =
+                BonusObstacleClassifier.Classify(scan);
+            bool mappedGround6RaisedLip =
+                string.Equals(
+                    scan.Current.MapPieceName,
+                    "Ground 6",
+                    StringComparison.OrdinalIgnoreCase) &&
+                scan.Current.StaticSurfaceIndex == 0 &&
+                string.Equals(
+                    scan.Next.MapPieceName,
+                    "Ground 6",
+                    StringComparison.OrdinalIgnoreCase) &&
+                scan.Next.StaticSurfaceIndex == 3 &&
+                scan.Current.MapPieceInstanceId != 0 &&
+                scan.Current.MapPieceInstanceId ==
+                    scan.Next.MapPieceInstanceId;
+            bool plannedFlushAdjacentObstacle =
+                plan.IsValid &&
+                plan.Maneuver ==
+                    BonusManeuverKind.EnterTrenchThenWallJump &&
+                stationaryObstacle.Kind == BonusObstacleKind.AdjacentWall &&
+                scan.Gap <= 0.10f &&
+                state.PlayerPosition.x >= plan.PlannedLaunchX - 0.16f;
+            BonusWallContact contact = plannedFlushAdjacentObstacle
+                ? wallDetector.Detect(player, planningHorizontalSpeed)
+                : default;
+            bool confirmedTargetContact =
+                plannedFlushAdjacentObstacle &&
+                contact.IsDetected && contact.IsTouching &&
+                Mathf.Abs(contact.FaceX - scan.Next.Left) <= 0.25f;
+            bool stationarySpeedAboveCruise =
+                sectionCruiseHorizontalSpeed > 1f &&
+                planningHorizontalSpeed >
+                    sectionCruiseHorizontalSpeed +
+                    Mathf.Max(
+                        1.0f,
+                        sectionCruiseHorizontalSpeed * 0.10f);
+            bool strictBoostLanding =
+                state.SpiritBoostEnabled || stationarySpeedAboveCruise;
+            BonusJumpPlan escapePlan = default;
+            BonusBoardSegment escapeTarget = default;
+            string escapeRejection = confirmedTargetContact
+                ? string.Empty
+                : "PlannerNotRunWithoutConfirmedMappedContact";
+            bool escapePlanned =
+                confirmedTargetContact && mappedGround6RaisedLip &&
+                jumpPlanner.TryPlanGroundedContactEscape(
+                    scan,
+                    state.PlayerPosition,
+                    planningHorizontalSpeed,
+                    physics,
+                    hazard,
+                    strictBoostLanding,
+                    out escapePlan,
+                    out escapeTarget,
+                    out escapeRejection);
+            if (escapePlanned)
+            {
+                BonusRunnerLog.Debug(
+                    $"GroundedContactEscapeDecision Position=" +
+                    $"({state.PlayerPosition.x:F3}," +
+                    $"{state.PlayerPosition.y:F3}), LiveVX=" +
+                    $"{observedHorizontalSpeed:F3}, PreContactVX=" +
+                    $"{planningHorizontalSpeed:F3}, SpeedSource=" +
+                    $"{planningSpeedSource}, SpiritBoost=" +
+                    $"{state.SpiritBoostEnabled}, SpeedAboveCruise=" +
+                    $"{stationarySpeedAboveCruise}, StrictSafe=" +
+                    $"{strictBoostLanding}, WallFaceX=" +
+                    $"{contact.FaceX:F3}, Gap={scan.Gap:F3}, Rise=" +
+                    $"{scan.HeightDelta:F3}, Hold=" +
+                    $"{escapePlan.HoldSeconds:F3}s, Target=" +
+                    $"[{escapeTarget.Left:F3}," +
+                    $"{escapeTarget.Right:F3}] Safe=" +
+                    $"[{escapeTarget.SafeLeft:F3}," +
+                    $"{escapeTarget.SafeRight:F3}]@" +
+                    $"{escapeTarget.Top:F3}, PredictedLanding=" +
+                    $"{escapePlan.PredictedLandingX:F3}, Reason=" +
+                    $"{escapePlan.Reason}, RouteIdentity=" +
+                    $"{scan.Current.MapPieceName}#" +
+                    $"{scan.Current.MapPieceInstanceId}/S" +
+                    $"{scan.Current.StaticSurfaceIndex}->S" +
+                    $"{scan.Next.StaticSurfaceIndex}. Collision VX=0 is contact " +
+                    "evidence, not the post-clear horizontal model. " +
+                    $"Candidates[{escapePlan.CandidateSummary}]",
+                    "Routing");
+                jumpController.Press(
+                    player,
+                    escapePlan.HoldSeconds,
+                    $"GroundedContactEscape: LiveVX=0, " +
+                    $"PreContactVX={planningHorizontalSpeed:F2}, " +
+                    $"Landing={escapePlan.PredictedLandingX:F2}");
+                MarkAutomaticJumpRequested(
+                    state,
+                    escapePlan,
+                    escapeTarget,
+                    scan,
+                    hazard,
+                    physics,
+                    planningHorizontalSpeed);
+                if (!automaticJumpArmed)
+                    ClearRoutePlanLock();
+                return;
+            }
+
+            if (confirmedTargetContact)
+            {
+                BonusRunnerLog.Debug(
+                    $"StationaryWallContactExecutorArmed Position=" +
+                    $"({state.PlayerPosition.x:F3}," +
+                    $"{state.PlayerPosition.y:F3}), PreContactVX=" +
+                    $"{planningHorizontalSpeed:F3}, WallFaceX=" +
+                    $"{contact.FaceX:F3}, Target=" +
+                    $"{scan.Next.MapPieceName}#" +
+                    $"{scan.Next.MapPieceInstanceId}/S" +
+                    $"{scan.Next.StaticSurfaceIndex}@" +
+                    $"[{scan.Next.Left:F3},{scan.Next.Right:F3}]/" +
+                    $"Y{scan.Next.Top:F3}, DirectEscapeAttempted=" +
+                    $"{mappedGround6RaisedLip}, DirectEscapeResult=" +
+                    $"{escapeRejection}. The mapped contact state, not a " +
+                    $"blind downstream jump or an indefinite zero-VX wait, " +
+                    $"now owns recovery.",
+                    "Recovery");
+                BeginPassiveWallApproach(
+                    state,
+                    plan,
+                    scan,
+                    scan.Next,
+                    hazard,
+                    physics);
+                return;
+            }
+
+            if (Time.unscaledTime >= nextSpeedPlanningBarrierLogTime)
+            {
+                nextSpeedPlanningBarrierLogTime =
+                    Time.unscaledTime + 0.50f;
+                BonusRunnerLog.Debug(
+                    $"JumpPlanningDeferred Position=" +
+                    $"({state.PlayerPosition.x:F3}," +
+                    $"{state.PlayerPosition.y:F3}), ObservedVX=" +
+                    $"{observedHorizontalSpeed:F3}, ReliableVX=" +
+                    $"{lastReliableHorizontalSpeed:F3}, PlanningVX=" +
+                    $"{planningHorizontalSpeed:F3}, SpeedSource=" +
+                    $"{planningSpeedSource}, Grounded=" +
+                    $"{state.IsGrounded}, HasNext={scan.HasNext}, Plan=" +
+                    $"{plan.Reason}/{plan.Maneuver}, Obstacle=" +
+                    $"{stationaryObstacle.Kind}, Contact=" +
+                    $"{contact.IsDetected}/{contact.IsTouching}, " +
+                    $"ContactFaceX={contact.FaceX:F3}, Reason=" +
+                    "LiveHorizontalVelocityZeroWithoutVerifiedEscape. " +
+                    $"EscapePlanner={escapeRejection}, " +
+                    "No DOWN is sent without both physical face contact " +
+                    "and a speed-aware verified escape target.",
                     "Physics");
             }
             return;
@@ -2261,14 +3993,10 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
 
         if (!plan.IsValid || !plan.ShouldJumpNow)
         {
-            // The shared jump/attack pulse is only a true end-of-route fallback.
-            // A valid route that is waiting for its launch window, and an
-            // IntentionalDrop route, must remain completely input-free here.
-            bool noTraversalRoute =
-                successfulCompletionTraversal &&
-                IsConfirmedCompletionTerminalRoute(state, scan);
-            if (noTraversalRoute)
-                TryCompletionRewardActions(state, player);
+            // Missing/terminal geometry is never reward evidence. A confirmed
+            // typed reward target is the sole authorization for the shared
+            // jump/attack action; a route that is waiting or an
+            // IntentionalDrop remains input-free here.
             return;
         }
 
@@ -2303,12 +4031,128 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
     private bool IsSuccessfulCompletionTraversal(
         BonusStageState state)
     {
-        BonusMapController controller = BonusMapController.instance;
-        return state.GameStateName == "PreBonusMode" &&
-            controller != null &&
+        return state.IsBonusStage &&
+            state.IsSupportedBonusMap &&
+            state.HasPlayer &&
+            bonusGameplayStarted &&
+            lastActiveTerrainSection >= 0 &&
+            !terrainContinuationEpochBlocked &&
+            !state.IsActiveGameplay &&
+            !rewardTargetDetector.IsLatched;
+    }
+
+    private bool IsNativeRewardActionPhase(BonusStageState state) =>
+        state.IsBonusStage &&
+        state.IsSupportedBonusMap &&
+        state.HasPlayer &&
+        rewardTargetDetector.IsLatched;
+
+    private void UpdateRunTracking(BonusStageState state)
+    {
+        if (!runTrackingActive)
+        {
+            if (!state.IsSupportedBonusMap || !state.IsActiveGameplay)
+                return;
+
+            runTrackingActive = true;
+            runStartedAtRealtime = Time.realtimeSinceStartup;
+            runDeaths = 0;
+            runHighestSection = Mathf.Clamp(state.SectionIndex, 0, 4);
+            runSpiritBoostObserved = state.SpiritBoostEnabled;
+            runFinalCompletionReached = false;
+            BonusRunnerLog.Debug(
+                $"Run tracking started: Map={state.MapName}, " +
+                $"Section={state.SectionIndex}.",
+                "Statistics");
+        }
+
+        runHighestSection = Mathf.Max(
+            runHighestSection,
+            Mathf.Clamp(state.SectionIndex, 0, 4));
+        runSpiritBoostObserved |= state.SpiritBoostEnabled;
+        if (state.SectionIndex >= 4 &&
             state.HasSphereProgress &&
             state.CollectedSpheres >=
-                (int)Math.Ceiling(state.RequiredSpheres);
+                (int)Math.Ceiling(state.RequiredSpheres))
+        {
+            runFinalCompletionReached = true;
+        }
+    }
+
+    private void RecordRunDeath(BonusStageState state)
+    {
+        if (!runTrackingActive)
+            return;
+
+        runDeaths++;
+        BonusRunnerLog.Debug(
+            $"Run death recorded: Death={runDeaths}, " +
+            $"Attempt={runDeaths + 1}, Section={state.SectionIndex}, " +
+            $"Position=({state.PlayerPosition.x:F2}," +
+            $"{state.PlayerPosition.y:F2}).",
+            "Statistics");
+    }
+
+    private void FinishRunTracking()
+    {
+        if (!runTrackingActive)
+            return;
+
+        float duration = Mathf.Max(
+            0f,
+            Time.realtimeSinceStartup - runStartedAtRealtime);
+        bool success = runFinalCompletionReached;
+        sessionRunCount++;
+        sessionDeathCount += runDeaths;
+        if (success)
+        {
+            sessionSuccessCount++;
+            sessionSuccessfulDurationTotal += duration;
+            sessionBestSuccessfulDuration = Mathf.Min(
+                sessionBestSuccessfulDuration,
+                duration);
+            if (runDeaths == 0)
+                sessionDeathlessSuccessCount++;
+        }
+        else
+        {
+            sessionFailureCount++;
+        }
+
+        float passRate = sessionRunCount > 0
+            ? sessionSuccessCount * 100f / sessionRunCount
+            : 0f;
+        string averageSuccessTime = sessionSuccessCount > 0
+            ? $"{sessionSuccessfulDurationTotal / sessionSuccessCount:F2}s"
+            : "N/A";
+        string bestTime = sessionSuccessCount > 0
+            ? $"{sessionBestSuccessfulDuration:F2}s"
+            : "N/A";
+        string endReason = success
+            ? "CompletedAllSections"
+            : "StageExitedBeforeCompletion";
+
+        BonusRunnerLog.User(
+            $"Run count: Total={sessionRunCount}, " +
+            $"Success={sessionSuccessCount}, Failure={sessionFailureCount}, " +
+            $"PassRate={passRate:F1}%, " +
+            $"Deathless={sessionDeathlessSuccessCount}, " +
+            $"SessionDeaths={sessionDeathCount}, " +
+            $"LastResult={(success ? "Success" : "Failure")}, " +
+            $"Duration={duration:F2}s, " +
+            $"AverageSuccessTime={averageSuccessTime}, " +
+            $"BestTime={bestTime}, Deaths={runDeaths}, " +
+            $"Attempts={runDeaths + 1}, " +
+            $"SectionsCleared={runHighestSection}/4, " +
+            $"SpiritBoost={runSpiritBoostObserved}, " +
+            $"EndReason={endReason}.");
+
+        runTrackingActive = false;
+        runStartedAtRealtime = 0f;
+        runDeaths = 0;
+        runHighestSection = 0;
+        runSpiritBoostObserved = false;
+        runFinalCompletionReached = false;
     }
 
     private bool IsCompletionDashControlIdle() =>
@@ -2323,57 +4167,6 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
         !wallMandatoryFaceInterceptCommitted &&
         wallActionPhase == WallActionPhase.None;
 
-    private bool IsConfirmedCompletionTerminalRoute(
-        BonusStageState state,
-        BonusBoardScanResult scan)
-    {
-        if (scan.IsValid)
-        {
-            ResetCompletionTerminalCandidate();
-            return !scan.HasNext;
-        }
-
-        if (!state.IsGrounded)
-        {
-            ResetCompletionTerminalCandidate();
-            return false;
-        }
-
-        long fixedStep = JumpPhysicsFeedback.FixedStepSequence;
-        if (fixedStep != completionInvalidRouteLastFixedStep)
-        {
-            completionInvalidRouteLastFixedStep = fixedStep;
-            completionInvalidRouteStableFixedSteps++;
-        }
-
-        bool confirmed = completionInvalidRouteStableFixedSteps >= 3;
-        if (completionInvalidRouteStableFixedSteps == 1 ||
-            completionInvalidRouteStableFixedSteps == 3)
-        {
-            BonusRunnerLog.Debug(
-                $"CompletionTerminalCandidate Section=" +
-                $"{state.SectionIndex}, ScanReason={scan.Reason}, " +
-                $"StableFixedSteps=" +
-                $"{completionInvalidRouteStableFixedSteps}/3, " +
-                $"Position=({state.PlayerPosition.x:F3}," +
-                $"{state.PlayerPosition.y:F3}), Grounded=" +
-                $"{state.IsGrounded}, Confirmed={confirmed}. " +
-                (confirmed
-                    ? "Persistent missing traversal geometry authorizes " +
-                      "the terminal reward fallback."
-                    : "Reward input remains blocked while the map scanner " +
-                      "gets two more fixed-step observations."),
-                "Completion");
-        }
-        return confirmed;
-    }
-
-    private void ResetCompletionTerminalCandidate()
-    {
-        completionInvalidRouteLastFixedStep = -1;
-        completionInvalidRouteStableFixedSteps = 0;
-    }
-
     private bool TryCompletionRewardActions(
         BonusStageState state,
         PlayerMovement player)
@@ -2381,21 +4174,15 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
         if (Plugin.Config?.AutomaticJumping?.Value != true ||
             !state.HasPlayer ||
             player == null ||
-            state.GameStateName != "PreBonusMode" ||
             !state.IsSupportedBonusMap)
         {
             return false;
         }
 
-        if (!IsSuccessfulCompletionTraversal(state))
+        if (!IsNativeRewardActionPhase(state))
             return false;
 
-        if (!state.IsGrounded)
-        {
-            return true;
-        }
-
-        return completionRewardController.TryTerminalRewardActions(
+        return completionRewardController.TryRewardActions(
             state,
             player,
             jumpController,
@@ -2866,17 +4653,24 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
                     planningVelocity,
                     physics,
                     hazard,
-                    sphereObjectives)
+                    sphereObjectives,
+                    sectionIndex: state.SectionIndex)
                 : terrainPlan;
 
         // Terrain geometry owns every ordinary crossing decision. Sphere data
-        // may create a dedicated same-surface opportunity, but it must never
-        // change the hold, launch point or landing target of a required route.
+        // may create either a deadline-safe same-surface opportunity or a
+        // sphere-scored replacement for an already verified natural drop.
+        // Both retain an explicit safe landing contract.
+        bool sphereControlledRoute =
+            sphereAwarePlan.Maneuver ==
+                BonusManeuverKind.SphereCollectionJump ||
+            sphereAwarePlan.Maneuver ==
+                BonusManeuverKind.SphereSweepToLowerLanding;
         BonusJumpPlan plan =
-            sphereAwarePlan.Maneuver == BonusManeuverKind.SphereCollectionJump
+            sphereControlledRoute
                 ? sphereAwarePlan
                 : terrainPlan;
-        if (plan.Maneuver != BonusManeuverKind.SphereCollectionJump &&
+        if (!sphereControlledRoute &&
             sphereAwarePlan.ExpectedSphereHits > 0 &&
             TerrainCommandMatches(plan, sphereAwarePlan))
         {
@@ -3425,7 +5219,9 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
                     wallExitObjectiveMaximumY;
                 if (!TryPromoteChainedWallTarget(
                         state,
-                        allowLevelFace: true))
+                        allowLevelFace: true,
+                        observedFaceX: confirmedWall.FaceX,
+                        observedFeetY: feetY))
                 {
                     return FailMandatoryFacePlan(
                         state,
@@ -3602,6 +5398,1456 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
         return true;
     }
 
+    private bool TryArmCompletionTraversalWallContact(
+        BonusStageState state,
+        PlayerMovement player)
+    {
+        bool activeCompletionFlight =
+            automaticPredictionActive &&
+            learningSampleActive &&
+            learningSource == "Automatic" &&
+            learningTookOff &&
+            automaticManeuver != BonusManeuverKind.EnterTrenchThenWallJump &&
+            automaticManeuver != BonusManeuverKind.ApproachJumpThenWallJump &&
+            automaticManeuver != BonusManeuverKind.WallJumpClimb;
+        bool routeAlreadyOwnsWall =
+            passiveWallApproachActive ||
+            automaticPredictionActive && !activeCompletionFlight ||
+            wallExitContactWatchActive ||
+            attachedObjectiveDescentActive ||
+            wallMandatoryFaceSetupActive ||
+            wallMandatoryFaceInterceptCommitted;
+        if (routeAlreadyOwnsWall ||
+            state.IsGrounded ||
+            state.PlayerVelocity.y > -1.0f)
+        {
+            return false;
+        }
+
+        float routeSpeed = Mathf.Max(1f, lastReliableHorizontalSpeed);
+        BonusWallContact wall = wallDetector.Detect(player, routeSpeed);
+        if (!wall.IsDetected || !wall.IsTouching)
+            return false;
+
+        float playerHalfWidth = player.playerCollider != null
+            ? Mathf.Max(0.15f, player.playerCollider.bounds.extents.x)
+            : 0.60f;
+        float feetY = player.playerCollider != null
+            ? player.playerCollider.bounds.min.y
+            : state.PlayerPosition.y - 0.27f;
+        if (!platformScanner.TryFindWallSurfaceAtFace(
+                wall.FaceX,
+                feetY,
+                playerHalfWidth,
+                out BonusBoardSegment target))
+        {
+            return false;
+        }
+
+        float sourceRight = wall.FaceX - 0.01f;
+        BonusBoardSegment source = new(
+            state.PlayerPosition.x - playerHalfWidth,
+            sourceRight,
+            feetY,
+            state.PlayerPosition.x,
+            state.PlayerPosition.x,
+            wall.ColliderInstanceId,
+            wall.ColliderName,
+            "CompletionAirborneContact");
+        BonusBoardScanResult contactScan = new(
+            true,
+            source,
+            true,
+            target,
+            0f,
+            Mathf.Max(0f, target.Left - source.Right),
+            target.Top - feetY,
+            "CompletionTraversalWallContact");
+        float contactCenterX = target.Left - playerHalfWidth;
+        BonusJumpPlan contactPlan = new(
+            true,
+            false,
+            0f,
+            0.01f,
+            0f,
+            state.PlayerPosition.x,
+            contactCenterX,
+            state.PlayerPosition.x,
+            state.PlayerPosition.x,
+            "CompletionTraversalWallContact",
+            $"PhysicalFaceX={wall.FaceX:F3},TargetTop={target.Top:F3}",
+            BonusManeuverKind.EnterTrenchThenWallJump);
+        JumpPhysicsSnapshot observedPhysics =
+            jumpPhysicsFeedback.CaptureSnapshot(player);
+        JumpPhysicsSnapshot planningPhysics = BuildPlanningPhysics(
+            lastActiveTerrainSection >= 0
+                ? lastActiveTerrainSection
+                : state.SectionIndex,
+            observedPhysics,
+            routeSpeed,
+            false);
+
+        long priorRouteId = activeRouteDecisionId;
+        long priorAttemptId = automaticAttemptId;
+        string priorPlan = automaticPlanReason;
+        BonusManeuverKind priorManeuver = automaticManeuver;
+        float priorTargetLeft = automaticTargetLeft;
+        float priorTargetRight = automaticTargetRight;
+        float priorTargetTop = automaticTargetTop;
+        if (activeCompletionFlight)
+        {
+            FinishLearningSample(
+                state,
+                "CompletionAirborneWallContactHandoff");
+        }
+        BeginPassiveWallApproach(
+            state,
+            contactPlan,
+            contactScan,
+            target,
+            default,
+            planningPhysics);
+        BonusRunnerLog.Warning(
+            $"CompletionTraversalWallContactRecovered Position=" +
+            $"({state.PlayerPosition.x:F3},{state.PlayerPosition.y:F3}), " +
+            $"Velocity=({state.PlayerVelocity.x:F3}," +
+            $"{state.PlayerVelocity.y:F3}), FaceX={wall.FaceX:F3}, " +
+            $"FeetY={feetY:F3}, Target=[{target.Left:F3}," +
+            $"{target.Right:F3}]@{target.Top:F3}, ActiveFlightHandoff=" +
+            $"{activeCompletionFlight}, PriorRouteId={priorRouteId}, " +
+            $"PriorAttemptId={priorAttemptId}, PriorPlan={priorPlan}, " +
+            $"PriorManeuver={priorManeuver}, PriorTarget=" +
+            $"[{priorTargetLeft:F3},{priorTargetRight:F3}]@" +
+            $"{priorTargetTop:F3}. Exact physical contact matches a new " +
+            "static wall face; it overrides a stale boosted landing target " +
+            "and bounded wall control is re-armed in the same frame.");
+        return TryWallRecoveryJump(state, player);
+    }
+
+    /// <summary>
+    /// Converts an exact wall collision during a normal fourth-section jump
+    /// into the first frame of the wall sequence. This deliberately requires
+    /// an owned automatic flight and a static face above the current feet, so
+    /// ordinary top landings and unrelated pit walls cannot manufacture a new
+    /// route. Unlike the completion fallback, a transient Grounded pulse is
+    /// accepted: that pulse is the collision symptom this handoff prevents
+    /// from becoming a full ground re-plan.
+    /// </summary>
+    private bool TryPromoteSection3FlightWallContact(
+        BonusStageState state,
+        PlayerMovement player)
+    {
+        bool eligibleFlightManeuver =
+            automaticManeuver == BonusManeuverKind.GroundJumpToLanding ||
+            automaticManeuver == BonusManeuverKind.SphereCollectionJump ||
+            automaticManeuver == BonusManeuverKind.SphereSweepToLowerLanding ||
+            automaticManeuver == BonusManeuverKind.HazardClearanceJump;
+        bool wallRouteAlreadyOwnsContact =
+            passiveWallApproachActive ||
+            wallExitContactWatchActive ||
+            attachedObjectiveDescentActive ||
+            wallMandatoryFaceSetupActive ||
+            wallMandatoryFaceInterceptCommitted ||
+            wallActionPhase != WallActionPhase.None;
+        if (state.SectionIndex != 3 ||
+            !state.IsActiveGameplay ||
+            wallRouteAlreadyOwnsContact ||
+            !eligibleFlightManeuver ||
+            !automaticPredictionActive ||
+            !learningSampleActive ||
+            learningSource != "Automatic" ||
+            !learningTookOff ||
+            state.PlayerVelocity.y > 2.0f)
+        {
+            return false;
+        }
+
+        float routeSpeed = Mathf.Max(
+            1f,
+            Mathf.Max(
+                Mathf.Abs(state.PlayerVelocity.x),
+                lastReliableHorizontalSpeed));
+        BonusWallContact wall = wallDetector.Detect(player, routeSpeed);
+        if (!wall.IsDetected || !wall.IsTouching)
+            return false;
+
+        float playerHalfWidth = player.playerCollider != null
+            ? Mathf.Max(0.15f, player.playerCollider.bounds.extents.x)
+            : 0.60f;
+        float feetY = player.playerCollider != null
+            ? player.playerCollider.bounds.min.y
+            : state.PlayerPosition.y - 0.27f;
+        if (!platformScanner.TryFindWallSurfaceAtFace(
+                wall.FaceX,
+                feetY,
+                playerHalfWidth,
+                out BonusBoardSegment target) ||
+            target.Top <= feetY + 0.20f)
+        {
+            return false;
+        }
+
+        string priorPlan = automaticPlanReason;
+        BonusManeuverKind priorManeuver = automaticManeuver;
+        long priorRouteId = activeRouteDecisionId;
+        long priorAttemptId = automaticAttemptId;
+        float sourceRight = wall.FaceX - 0.01f;
+        BonusBoardSegment source = new(
+            state.PlayerPosition.x - playerHalfWidth,
+            sourceRight,
+            feetY,
+            state.PlayerPosition.x,
+            state.PlayerPosition.x,
+            wall.ColliderInstanceId,
+            wall.ColliderName,
+            "Section3AirborneContact");
+        BonusBoardScanResult contactScan = new(
+            true,
+            source,
+            true,
+            target,
+            0f,
+            Mathf.Max(0f, target.Left - source.Right),
+            target.Top - feetY,
+            "Section3FlightWallContact");
+        float contactCenterX = target.Left - playerHalfWidth;
+        BonusJumpPlan contactPlan = new(
+            true,
+            false,
+            0f,
+            0.01f,
+            0f,
+            state.PlayerPosition.x,
+            contactCenterX,
+            state.PlayerPosition.x,
+            state.PlayerPosition.x,
+            "Section3FlightWallContact",
+            $"PhysicalFaceX={wall.FaceX:F3},TargetTop={target.Top:F3}",
+            BonusManeuverKind.EnterTrenchThenWallJump);
+        JumpPhysicsSnapshot observedPhysics =
+            jumpPhysicsFeedback.CaptureSnapshot(player);
+        JumpPhysicsSnapshot planningPhysics = BuildPlanningPhysics(
+            state.SectionIndex,
+            observedPhysics,
+            routeSpeed,
+            false);
+
+        FinishLearningSample(state, "AirborneWallContactHandoff");
+        BeginPassiveWallApproach(
+            state,
+            contactPlan,
+            contactScan,
+            target,
+            default,
+            planningPhysics);
+        BonusRunnerLog.Warning(
+            $"Section3FlightWallContactPromoted PriorRouteId={priorRouteId}, " +
+            $"PriorAttemptId={priorAttemptId}, PriorPlan={priorPlan}, " +
+            $"PriorManeuver={priorManeuver}, Position=" +
+            $"({state.PlayerPosition.x:F3},{state.PlayerPosition.y:F3}), " +
+            $"Velocity=({state.PlayerVelocity.x:F3}," +
+            $"{state.PlayerVelocity.y:F3}), GroundedPulse=" +
+            $"{state.IsGrounded}, FaceX={wall.FaceX:F3}, FeetY={feetY:F3}, " +
+            $"Target=[{target.Left:F3},{target.Right:F3}]@" +
+            $"{target.Top:F3}. Action=immediate bounded wall pulse; the " +
+            "collision remains one continuous airborne/climb route instead " +
+            "of falling through to a new ground jump.");
+        return TryWallRecoveryJump(state, player);
+    }
+
+    /// <summary>
+    /// Closed-loop fallback for an owned non-wall flight that physically meets
+    /// an unexpected mapped face. Nominal target coordinates are abandoned;
+    /// the observed face, feet height and current route speed become the new
+    /// authoritative state. Section 3 and completion traversal retain their
+    /// more specific handoffs and therefore reach this method first.
+    /// </summary>
+    private bool TryPromoteUnexpectedFlightWallContact(
+        BonusStageState state,
+        PlayerMovement player)
+    {
+        bool nonWallAutomaticFlight =
+            automaticManeuver != BonusManeuverKind.None &&
+            automaticManeuver != BonusManeuverKind.EnterTrenchThenWallJump &&
+            automaticManeuver != BonusManeuverKind.ApproachJumpThenWallJump &&
+            automaticManeuver != BonusManeuverKind.WallJumpClimb;
+        bool wallRouteAlreadyOwnsContact =
+            passiveWallApproachActive ||
+            wallExitContactWatchActive ||
+            attachedObjectiveDescentActive ||
+            wallMandatoryFaceSetupActive ||
+            wallMandatoryFaceInterceptCommitted ||
+            wallActionPhase != WallActionPhase.None;
+        if (!state.IsActiveGameplay ||
+            state.SectionIndex == 3 ||
+            wallRouteAlreadyOwnsContact ||
+            !nonWallAutomaticFlight ||
+            !automaticPredictionActive ||
+            !learningSampleActive ||
+            learningSource != "Automatic" ||
+            !learningTookOff ||
+            state.PlayerVelocity.y > 2.0f)
+        {
+            return false;
+        }
+
+        float routeSpeed = Mathf.Max(
+            1f,
+            Mathf.Max(
+                Mathf.Abs(state.PlayerVelocity.x),
+                lastReliableHorizontalSpeed));
+        BonusWallContact wall = wallDetector.Detect(player, routeSpeed);
+        if (!wall.IsDetected || !wall.IsTouching)
+            return false;
+
+        float playerHalfWidth = player.playerCollider != null
+            ? Mathf.Max(0.15f, player.playerCollider.bounds.extents.x)
+            : 0.60f;
+        float feetY = player.playerCollider != null
+            ? player.playerCollider.bounds.min.y
+            : state.PlayerPosition.y - 0.27f;
+        if (!platformScanner.TryFindWallSurfaceAtFace(
+                wall.FaceX,
+                feetY,
+                playerHalfWidth,
+                out BonusBoardSegment target) ||
+            target.Top <= feetY + 0.20f)
+        {
+            return false;
+        }
+
+        long priorRouteId = activeRouteDecisionId;
+        long priorAttemptId = automaticAttemptId;
+        string priorPlan = automaticPlanReason;
+        BonusManeuverKind priorManeuver = automaticManeuver;
+        float priorPredictedLandingX = automaticPredictedLandingX;
+        BonusBoardSegment priorTarget = BuildAutomaticTargetSegment();
+        float sourceRight = wall.FaceX - 0.01f;
+        BonusBoardSegment source = new(
+            state.PlayerPosition.x - playerHalfWidth,
+            sourceRight,
+            feetY,
+            state.PlayerPosition.x,
+            state.PlayerPosition.x,
+            wall.ColliderInstanceId,
+            wall.ColliderName,
+            "ReactiveAirborneContact");
+        BonusBoardScanResult contactScan = new(
+            true,
+            source,
+            true,
+            target,
+            0f,
+            Mathf.Max(0f, target.Left - source.Right),
+            target.Top - feetY,
+            "ReactiveFlightWallContact");
+        float contactCenterX = target.Left - playerHalfWidth;
+        BonusJumpPlan contactPlan = new(
+            true,
+            false,
+            0f,
+            0.01f,
+            0f,
+            state.PlayerPosition.x,
+            contactCenterX,
+            state.PlayerPosition.x,
+            state.PlayerPosition.x,
+            "ReactiveFlightWallContact",
+            $"PhysicalFaceX={wall.FaceX:F3},TargetTop={target.Top:F3}",
+            BonusManeuverKind.EnterTrenchThenWallJump);
+        JumpPhysicsSnapshot planningPhysics = BuildPlanningPhysics(
+            state.SectionIndex,
+            jumpPhysicsFeedback.CaptureSnapshot(player),
+            routeSpeed,
+            false);
+
+        FinishLearningSample(state, "UnexpectedMappedWallContactHandoff");
+        BeginPassiveWallApproach(
+            state,
+            contactPlan,
+            contactScan,
+            target,
+            default,
+            planningPhysics);
+        BonusRunnerLog.Warning(
+            $"ReactiveFlightWallContactHandoff PriorRouteId={priorRouteId}, " +
+            $"PriorAttemptId={priorAttemptId}, PriorPlan={priorPlan}, " +
+            $"PriorManeuver={priorManeuver}, Position=" +
+            $"({state.PlayerPosition.x:F3},{state.PlayerPosition.y:F3}), " +
+            $"Velocity=({state.PlayerVelocity.x:F3}," +
+            $"{state.PlayerVelocity.y:F3}), GroundedPulse=" +
+            $"{state.IsGrounded}, FaceX={wall.FaceX:F3}, FeetY={feetY:F3}, " +
+            $"ObservedTarget=[{target.Left:F3},{target.Right:F3}]@" +
+            $"{target.Top:F3}, AbandonedTarget=[{priorTarget.Left:F3}," +
+            $"{priorTarget.Right:F3}]@{priorTarget.Top:F3}, " +
+            $"AbandonedPredictedLandingX={priorPredictedLandingX:F3}, " +
+            $"PredictionErrorToContactX=" +
+            $"{state.PlayerPosition.x - priorPredictedLandingX:F3}. " +
+            "RecoveryState=AwaitingObservedWallPulse; exact static-map " +
+            "contact overrides the stale nominal flight in the same frame.");
+        return TryWallRecoveryJump(state, player);
+    }
+
+    private bool TryRebaseUnexpectedWallContact(
+        BonusStageState state,
+        PlayerMovement player,
+        BonusWallContact wall,
+        float playerHalfWidth)
+    {
+        // Mandatory objective-face routes may only hand off to their exact
+        // authored face. Rebinding those routes would turn a missed objective
+        // lane into false success.
+        if (!wall.IsDetected ||
+            !wall.IsTouching ||
+            wallExitFaceContactRequired ||
+            wallMandatoryFaceSetupActive ||
+            wallMandatoryFaceInterceptCommitted ||
+            attachedObjectiveDescentActive)
+        {
+            return false;
+        }
+
+        float feetY = player.playerCollider != null
+            ? player.playerCollider.bounds.min.y
+            : state.PlayerPosition.y - 0.27f;
+        if (!platformScanner.TryFindWallSurfaceAtFace(
+                wall.FaceX,
+                feetY,
+                playerHalfWidth,
+                out BonusBoardSegment observedTarget) ||
+            observedTarget.Top <= feetY + 0.20f)
+        {
+            return false;
+        }
+
+        BonusBoardSegment abandonedTarget = BuildAutomaticTargetSegment();
+        long abandonedRouteId = activeRouteDecisionId;
+        long abandonedAttemptId = automaticAttemptId;
+        string abandonedPlan = automaticPlanReason;
+        float abandonedPredictionX = automaticPredictedLandingX;
+        float routeSpeed = Mathf.Max(1f, GetWallRouteSpeed());
+        BonusBoardSegment source = new(
+            state.PlayerPosition.x - playerHalfWidth,
+            wall.FaceX - 0.01f,
+            feetY,
+            state.PlayerPosition.x,
+            state.PlayerPosition.x,
+            wall.ColliderInstanceId,
+            wall.ColliderName,
+            "ReactiveWallRouteContact");
+        BonusBoardScanResult contactScan = new(
+            true,
+            source,
+            true,
+            observedTarget,
+            0f,
+            0f,
+            observedTarget.Top - feetY,
+            "ReactiveWallRouteRebase");
+        BonusJumpPlan contactPlan = new(
+            true,
+            false,
+            0f,
+            0.01f,
+            0f,
+            state.PlayerPosition.x,
+            observedTarget.Left - playerHalfWidth,
+            state.PlayerPosition.x,
+            state.PlayerPosition.x,
+            "ReactiveWallRouteRebase",
+            $"PhysicalFaceX={wall.FaceX:F3},TargetTop={observedTarget.Top:F3}",
+            BonusManeuverKind.EnterTrenchThenWallJump);
+        JumpPhysicsSnapshot planningPhysics = BuildPlanningPhysics(
+            state.SectionIndex,
+            jumpPhysicsFeedback.CaptureSnapshot(player),
+            routeSpeed,
+            false);
+
+        if (learningSampleActive && learningSource == "Automatic")
+            FinishLearningSample(state, "UnexpectedWallRouteContactReplan");
+        BeginPassiveWallApproach(
+            state,
+            contactPlan,
+            contactScan,
+            observedTarget,
+            default,
+            planningPhysics);
+        BonusRunnerLog.Warning(
+            $"ReactiveWallRouteRebased PriorRouteId={abandonedRouteId}, " +
+            $"PriorAttemptId={abandonedAttemptId}, PriorPlan={abandonedPlan}, " +
+            $"Position=({state.PlayerPosition.x:F3}," +
+            $"{state.PlayerPosition.y:F3}), Velocity=" +
+            $"({state.PlayerVelocity.x:F3},{state.PlayerVelocity.y:F3}), " +
+            $"ObservedFaceX={wall.FaceX:F3}, FeetY={feetY:F3}, " +
+            $"ObservedTarget=[{observedTarget.Left:F3}," +
+            $"{observedTarget.Right:F3}]@{observedTarget.Top:F3}, " +
+            $"AbandonedTarget=[{abandonedTarget.Left:F3}," +
+            $"{abandonedTarget.Right:F3}]@{abandonedTarget.Top:F3}, " +
+            $"AbandonedPredictedLandingX={abandonedPredictionX:F3}. " +
+            "FailureDomain=Prediction; RecoveryState=ObservedWallAuthority. " +
+            "The physically touched mapped face replaces the stale wall " +
+            "target before any further DOWN is issued.");
+        return true;
+    }
+
+    private bool HasCommittedExitFaceFlight()
+    {
+        return wallExitFaceInterceptCommitted ||
+               wallExitCollectionFaceInterceptCommitted;
+    }
+
+    private bool IsAdoptedExitFaceAwaitingClimb()
+    {
+        return passiveWallApproachActive &&
+            automaticPredictionActive &&
+            wallExitContactWatchDeadlineFixedStep >= 0 &&
+            JumpPhysicsFeedback.FixedStepSequence <=
+                wallExitContactWatchDeadlineFixedStep &&
+            (wallActionPhase == WallActionPhase.AwaitingWallContact ||
+             wallActionPhase == WallActionPhase.AwaitingNextWallPress) &&
+            (string.Equals(
+                 automaticPlanReason,
+                 "CommittedExitFaceInterceptContact",
+                 StringComparison.Ordinal) ||
+             string.Equals(
+                 automaticPlanReason,
+                 "CollectionFaceInterceptContact",
+                 StringComparison.Ordinal));
+    }
+
+    [HideFromIl2Cpp]
+    internal static void ObserveCommittedFaceFixedStep(
+        PlayerMovement player)
+    {
+        AutoBonusRunnerRuntime runtime = activeRuntime;
+        if (runtime == null || player == null)
+            return;
+
+        if (BonusStageRetryBridge.BlocksTerrainControl)
+        {
+            runtime.jumpController.Release();
+            return;
+        }
+
+        try
+        {
+            runtime.TryHandleCommittedFaceFixedStep(player);
+        }
+        catch (System.Exception exception)
+        {
+            if (Time.unscaledTime < runtime.nextErrorLogTime)
+                return;
+
+            runtime.nextErrorLogTime = Time.unscaledTime + 5f;
+            BonusRunnerLog.Warning(
+                $"Committed-face fixed-step observer failed safely: " +
+                $"{exception.GetType().Name}: {exception.Message}");
+        }
+    }
+
+    [HideFromIl2Cpp]
+    private void TryHandleCommittedFaceFixedStep(PlayerMovement player)
+    {
+        ObserveAutomaticFlightFixedStep(player);
+        if (TryExecuteUrgentNarrowChainFixedStep(player))
+            return;
+
+        TryLatchWatchedExitSupportFixedStep(player);
+        if (wallExitSupportFixedStepLatched)
+            return;
+
+        bool committedFaceFlightPending =
+            HasCommittedExitFaceFlight() &&
+            wallExitContactWatchActive &&
+            wallExitTargetActive &&
+            wallExitContactWatchDeadlineFixedStep >= 0 &&
+            JumpPhysicsFeedback.FixedStepSequence <=
+                wallExitContactWatchDeadlineFixedStep;
+        bool adoptedFaceAwaitingClimb =
+            IsAdoptedExitFaceAwaitingClimb();
+        bool mandatoryFaceControlPending =
+            wallMandatoryFaceSetupActive ||
+            wallMandatoryFaceInterceptCommitted;
+        bool fixedStepObjectiveDescentPending =
+            attachedObjectiveDescentActive;
+        bool genericWallControlPending =
+            passiveWallApproachActive ||
+            ground5HighestPillarSinkActive ||
+            automaticManeuver == BonusManeuverKind.WallJumpClimb &&
+                (wallRecoveryContactLatched ||
+                 wallActionPhase == WallActionPhase.WallJumpPhaseOne ||
+                 wallActionPhase == WallActionPhase.WallJumpPhaseTwo ||
+                 wallActionPhase == WallActionPhase.AwaitingNextWallPress ||
+                 wallActionPhase == WallActionPhase.AwaitingWallContact ||
+                 wallActionPhase == WallActionPhase.ExitFlight);
+        bool automaticLearningOwner =
+            automaticPredictionActive &&
+            learningSampleActive &&
+            string.Equals(
+                learningSource,
+                "Automatic",
+                StringComparison.Ordinal);
+        // Passive wall approach and attached objective descent intentionally
+        // exist between learning samples. They remain automatic route owners
+        // even after FinishLearningSample clears prediction/sample flags.
+        bool persistentWallRouteOwner =
+            fixedStepObjectiveDescentPending ||
+            passiveWallApproachActive ||
+            ground5HighestPillarSinkActive;
+        if (!automationEnabled ||
+            (!committedFaceFlightPending &&
+             !adoptedFaceAwaitingClimb &&
+             !mandatoryFaceControlPending &&
+             !fixedStepObjectiveDescentPending &&
+             !genericWallControlPending) ||
+            (!automaticLearningOwner && !persistentWallRouteOwner) ||
+            !latestState.IsBonusStage ||
+            !latestState.IsSupportedBonusMap)
+        {
+            return;
+        }
+
+        int playerInstanceId = player.GetInstanceID();
+        if (latestState.PlayerInstanceId != 0 &&
+            latestState.PlayerInstanceId != playerInstanceId)
+        {
+            return;
+        }
+
+        Rigidbody2D body = player.GetComponent<Rigidbody2D>();
+        BonusStageState fixedState = GetRoutingState(latestState) with
+        {
+            PlayerInstanceId = playerInstanceId,
+            PlayerPosition = player.transform.position,
+            PlayerVelocity = body != null ? body.velocity : Vector2.zero,
+            IsGrounded = player.IsGrounded(),
+            HasPlayer = true
+        };
+        if (fixedStepObjectiveDescentPending)
+        {
+            TryWallRecoveryJump(fixedState, player);
+            return;
+        }
+        if (mandatoryFaceControlPending)
+        {
+            if (!TryValidateMandatoryFaceRouteIdentity(
+                    fixedState,
+                    player,
+                    out string mandatoryIdentityReason))
+            {
+                FailMandatoryFacePlan(
+                    fixedState,
+                    "FixedStepRouteIdentityChanged",
+                    mandatoryIdentityReason);
+                return;
+            }
+
+            if (wallMandatoryFaceSetupActive)
+            {
+                TryWallRecoveryJump(fixedState, player);
+                return;
+            }
+            if (wallActionPhase != WallActionPhase.ExitFlight)
+                MonitorCommittedJump(fixedState, player);
+            if (wallMandatoryFaceInterceptCommitted &&
+                wallActionPhase == WallActionPhase.ExitFlight)
+            {
+                HandleMandatoryFaceContactWatch(fixedState, player);
+            }
+            return;
+        }
+        if (adoptedFaceAwaitingClimb)
+        {
+            TryWallRecoveryJump(fixedState, player);
+            return;
+        }
+        if (genericWallControlPending && !committedFaceFlightPending)
+        {
+            // Release classification and the next separated wall DOWN must be
+            // evaluated on the same physics cadence as the native movement.
+            // Waiting for LateUpdate here loses multi-pulse climbs whenever
+            // several FixedUpdates run under one background render frame.
+            TryWallRecoveryJump(fixedState, player);
+            return;
+        }
+
+        bool collectionFaceRoute =
+            wallExitCollectionFaceInterceptCommitted;
+        long contactFixedStep =
+            JumpPhysicsFeedback.FixedStepSequence;
+        if (!TryAdoptCommittedExitFaceContact(fixedState, player))
+            return;
+
+        BonusRunnerLog.Debug(
+            $"CommittedExitFaceFixedStepHandoff FixedStep=" +
+            $"{contactFixedStep}, Player={playerInstanceId}, Mode=" +
+            $"{(collectionFaceRoute ? "CollectionFace" : "FaceOrTop")}, " +
+            $"Position=({fixedState.PlayerPosition.x:F3}," +
+            $"{fixedState.PlayerPosition.y:F3}), Velocity=" +
+            $"({fixedState.PlayerVelocity.x:F3}," +
+            $"{fixedState.PlayerVelocity.y:F3}). The mapped collision was " +
+            "consumed before PlayerMovement.FixedUpdate so background " +
+            "render throttling cannot skip the attached input window.",
+            "Recovery");
+        TryWallRecoveryJump(fixedState, player);
+    }
+
+    [HideFromIl2Cpp]
+    private void ObserveAutomaticFlightFixedStep(PlayerMovement player)
+    {
+        if (!automationEnabled || player == null)
+            return;
+
+        bool grounded = player.IsGrounded();
+        if (!grounded &&
+            secondStagePreviewActive &&
+            string.Equals(
+                secondStageSource,
+                "IntentionalDrop",
+                StringComparison.Ordinal))
+        {
+            secondStageObservedAirborne = true;
+        }
+
+        if (
+            !learningSampleActive ||
+            !string.Equals(
+                learningSource,
+                "Automatic",
+                StringComparison.Ordinal) ||
+            !automaticPredictionActive)
+        {
+            return;
+        }
+
+        int playerInstanceId = player.GetInstanceID();
+        if (latestState.PlayerInstanceId != 0 &&
+            latestState.PlayerInstanceId != playerInstanceId)
+        {
+            return;
+        }
+
+        Rigidbody2D body = player.GetComponent<Rigidbody2D>();
+        Vector2 velocity = body != null ? body.velocity : Vector2.zero;
+        Vector3 position = player.transform.position;
+        if (!grounded)
+            secondStageObservedAirborne = true;
+
+        bool validUpwardTakeoff =
+            !learningTookOff &&
+            !grounded &&
+            velocity.y > 5f &&
+            position.y >= learningTriggerPosition.y - 0.75f;
+        if (validUpwardTakeoff)
+        {
+            learningTookOff = true;
+            learningTakeoffTime = Time.unscaledTime;
+            learningTakeoffPosition = position;
+            learningTakeoffVelocity = velocity;
+            learningPreviousVelocityY = velocity.y;
+            if (position.y > learningMaximumY)
+            {
+                learningMaximumY = position.y;
+                learningApexPosition = position;
+            }
+            jumpPhysicsFeedback.ObserveTakeoff(
+                learningInputDownTime,
+                learningTakeoffVelocity);
+            BonusRunnerLog.Debug(
+                $"JumpAttemptTakeoff AttemptId={learningSampleId}, " +
+                $"Source={learningSource}, ObservationMode=" +
+                $"FixedStepObserver, FixedStep=" +
+                $"{JumpPhysicsFeedback.FixedStepSequence}, " +
+                $"InputToTakeoff=" +
+                $"{learningTakeoffTime - learningInputDownTime:F3}s, " +
+                $"Position=({position.x:F3},{position.y:F3}), " +
+                $"Velocity=({velocity.x:F3},{velocity.y:F3}). " +
+                "Takeoff was captured even when no render Update separated " +
+                "the powered physics steps.",
+                "Attempt");
+        }
+
+        if (learningTookOff && !learningFirstApexCaptured)
+        {
+            if (position.y > learningMaximumY)
+            {
+                learningMaximumY = position.y;
+                learningApexPosition = position;
+            }
+            if (learningPreviousVelocityY > 0f &&
+                velocity.y <= 0f &&
+                !grounded)
+            {
+                learningFirstApexCaptured = true;
+                BonusRunnerLog.Debug(
+                    $"JumpAttemptApex AttemptId={learningSampleId}, " +
+                    $"Source={learningSource}, ObservationMode=" +
+                    $"FixedStepObserver, FixedStep=" +
+                    $"{JumpPhysicsFeedback.FixedStepSequence}, X=" +
+                    $"{learningApexPosition.x:F3}, Y=" +
+                    $"{learningApexPosition.y:F3}, CrossingVY=" +
+                    $"{velocity.y:F3}.",
+                    "Attempt");
+            }
+            learningPreviousVelocityY = velocity.y;
+        }
+
+        learningLastObservedPosition = position;
+        learningLastObservedAt = Time.unscaledTime;
+        learningLastObservedFixedStep =
+            JumpPhysicsFeedback.FixedStepSequence;
+    }
+
+    [HideFromIl2Cpp]
+    private bool TryExecuteUrgentNarrowChainFixedStep(
+        PlayerMovement player)
+    {
+        BonusStageState routingState = GetRoutingState(latestState);
+        bool terrainControlActive =
+            routingState.IsActiveGameplay ||
+            IsSuccessfulCompletionTraversal(routingState);
+        bool automaticLearningFlight =
+            learningSampleActive &&
+            string.Equals(
+                learningSource,
+                "Automatic",
+                StringComparison.Ordinal) &&
+            learningTookOff &&
+            automaticPredictionActive;
+        bool passiveIntentionalDrop =
+            !learningSampleActive &&
+            string.Equals(
+                secondStageSource,
+                "IntentionalDrop",
+                StringComparison.Ordinal);
+        if (!automationEnabled ||
+            Plugin.Config?.AutomaticJumping?.Value != true ||
+            player == null ||
+            !terrainControlActive ||
+            terrainContinuationEpochBlocked ||
+            pitDescentGuardActive ||
+            rewardTargetDetector.IsLatched ||
+            Time.unscaledTime - lastManualInputTime < 0.40f ||
+            (!automaticLearningFlight && !passiveIntentionalDrop) ||
+            !automaticTrajectoryCompatible ||
+            !secondStagePreviewActive ||
+            !secondStageObservedAirborne ||
+            !secondStageProjectedScan.IsValid ||
+            !secondStageProjectedScan.HasNext ||
+            !secondStageProjectedPlan.IsValid ||
+            secondStageExpectedSupport.Width > 2.25f ||
+            !routingState.IsBonusStage ||
+            !routingState.IsSupportedBonusMap)
+        {
+            return false;
+        }
+
+        int playerInstanceId = player.GetInstanceID();
+        if (routingState.PlayerInstanceId != 0 &&
+            routingState.PlayerInstanceId != playerInstanceId)
+        {
+            return false;
+        }
+
+        Rigidbody2D body = player.GetComponent<Rigidbody2D>();
+        Vector2 liveVelocity = body != null ? body.velocity : Vector2.zero;
+        Vector3 livePosition = player.transform.position;
+        if (!player.IsGrounded() || liveVelocity.y > 2.50f)
+            return false;
+
+        float liveSpeed = Mathf.Abs(liveVelocity.x);
+        float planningSpeed = liveSpeed > 1f && liveSpeed < 80f
+            ? liveSpeed
+            : Mathf.Max(1f, lastReliableHorizontalSpeed);
+        BonusBoardScanResult scan;
+        try
+        {
+            scan = platformScanner.Scan(
+                livePosition,
+                player,
+                planningSpeed);
+        }
+        catch
+        {
+            return false;
+        }
+        scan = BonusJumpPlanner.SelectLowerRouteWhenItContinues(scan);
+        bool sourceMatch =
+            scan.IsValid &&
+            scan.HasNext &&
+            Mathf.Abs(
+                scan.Current.Top -
+                secondStageExpectedSupport.Top) <= 0.35f &&
+            livePosition.x >= secondStageExpectedSupport.Left - 0.15f &&
+            livePosition.x <= secondStageExpectedSupport.Right + 0.15f;
+        bool nextGeometryMatch =
+            sourceMatch &&
+            Mathf.Abs(
+                scan.Next.Left -
+                secondStageProjectedScan.Next.Left) <= 0.25f &&
+            Mathf.Abs(
+                scan.Next.Right -
+                secondStageProjectedScan.Next.Right) <= 0.25f &&
+            Mathf.Abs(
+                scan.Next.Top -
+                secondStageProjectedScan.Next.Top) <= 0.35f;
+        if (!sourceMatch || !nextGeometryMatch)
+            return false;
+
+        JumpPhysicsSnapshot observedPhysics =
+            jumpPhysicsFeedback.CaptureSnapshot(player);
+        JumpPhysicsSnapshot planningPhysics = BuildPlanningPhysics(
+            routingState.SectionIndex,
+            observedPhysics,
+            planningSpeed,
+            routingState.IsActiveGameplay &&
+                !routingState.SpiritBoostEnabled);
+        Vector2 planningVelocity = new(
+            planningSpeed,
+            liveVelocity.y);
+        if (routingState.SpiritBoostEnabled ||
+            planningSpeed > planningPhysics.BaseHorizontalSpeed + 1.0f)
+        {
+            scan = jumpPlanner.SelectBoostReachableRoute(
+                scan,
+                livePosition,
+                planningVelocity,
+                planningPhysics,
+                hazardScanner.FindNearest(livePosition),
+                out _);
+        }
+
+        BonusHazard hazard = hazardScanner.FindNearest(livePosition);
+        Vector2[] routeSphereObjectives =
+            routingState.HasSphereProgress &&
+            routingState.RemainingRequiredSpheres > 0
+                ? BonusStageInspector.GetActiveSpherePositions(
+                    livePosition.x - 1.0f,
+                    livePosition.x + Mathf.Clamp(
+                        30f + Mathf.Max(0f, planningSpeed - 18f) * 1.4f,
+                        30f,
+                        80f))
+                : Array.Empty<Vector2>();
+        BonusJumpPlan plan = jumpPlanner.Plan(
+            scan,
+            livePosition,
+            planningVelocity,
+            planningPhysics,
+            hazard,
+            routeSphereObjectives,
+            routingState.SectionIndex);
+        if (!plan.IsValid ||
+            plan.Maneuver == BonusManeuverKind.EnterTrenchThenWallJump ||
+            !scan.HasNext)
+        {
+            return false;
+        }
+
+        BonusBoardSegment target =
+            plan.Maneuver == BonusManeuverKind.SphereCollectionJump
+                ? scan.Current
+                : scan.Next;
+        bool promotedEarly = false;
+        if (!plan.ShouldJumpNow)
+        {
+            bool genuinelyEarly =
+                livePosition.x <= plan.PlannedLaunchX + 0.001f;
+            float earlyLaunchDistance =
+                plan.PlannedLaunchX - livePosition.x;
+            float earlyLandingX =
+                livePosition.x + plan.HorizontalTravel;
+            string translatedTrajectoryCheck = "LaunchAlreadyPassed";
+            bool translatedTrajectorySafe =
+                genuinelyEarly &&
+                jumpPlanner.IsTrajectorySafe(
+                    hazard,
+                    livePosition.x,
+                    earlyLandingX,
+                    scan.Current.Top,
+                    plan.HoldSeconds,
+                    plan.PredictedFlightSeconds,
+                    planningPhysics,
+                    out translatedTrajectoryCheck);
+            bool earlyLandingStillFits =
+                genuinelyEarly &&
+                earlyLaunchDistance <= Mathf.Max(
+                    0.80f,
+                    planningSpeed * planningPhysics.FixedDeltaTime * 1.75f) &&
+                earlyLandingX >= target.SafeLeft - 0.20f &&
+                earlyLandingX <= target.SafeRight + 0.20f &&
+                translatedTrajectorySafe;
+            if (!earlyLandingStillFits)
+            {
+                BonusRunnerLog.Debug(
+                    $"UrgentNarrowLandingFixedStepRejected FixedStep=" +
+                    $"{JumpPhysicsFeedback.FixedStepSequence}, Position=" +
+                    $"({livePosition.x:F3},{livePosition.y:F3}), " +
+                    $"PlannedLaunch={plan.PlannedLaunchX:F3}, " +
+                    $"GenuinelyEarly={genuinelyEarly}, EarlyBy=" +
+                    $"{earlyLaunchDistance:F3}, LiveLanding=" +
+                    $"{earlyLandingX:F3}, TargetSafe=" +
+                    $"[{target.SafeLeft:F3},{target.SafeRight:F3}], " +
+                    $"TrajectorySafe={translatedTrajectorySafe}, Check=" +
+                    $"{translatedTrajectoryCheck}.",
+                    "Lookahead");
+                return false;
+            }
+
+            plan = plan with
+            {
+                ShouldJumpNow = true,
+                PlannedLaunchX = livePosition.x,
+                PredictedLandingX = earlyLandingX,
+                HorizontalTravel = Mathf.Max(
+                    0f,
+                    earlyLandingX - livePosition.x),
+                LaunchWindowLeft = livePosition.x,
+                LaunchWindowRight = livePosition.x,
+                Reason = "UrgentNarrowLandingChainFixedStep",
+                CandidateSummary =
+                    $"PromotedEarlyBy={earlyLaunchDistance:F3}," +
+                    $"AdjustedLanding={earlyLandingX:F3}," +
+                    $"LiveTrajectory={translatedTrajectoryCheck}; " +
+                    plan.CandidateSummary
+            };
+            promotedEarly = true;
+        }
+
+        BonusStageState fixedState = routingState with
+        {
+            PlayerInstanceId = playerInstanceId,
+            PlayerPosition = livePosition,
+            PlayerVelocity = liveVelocity,
+            IsGrounded = true,
+            HasPlayer = true
+        };
+        long completedAttemptId = automaticAttemptId;
+        long landingFixedStep = JumpPhysicsFeedback.FixedStepSequence;
+        string previewSource = secondStageSource;
+        bool releasedPriorHold = jumpController.IsHoldingJump;
+        if (releasedPriorHold)
+        {
+            // The observer runs before MaintainHeldJump. On the boundary tick
+            // the old pointer may therefore still be logically held even
+            // though this verified support must launch the next action now.
+            // Close the old edge explicitly before issuing the new DOWN.
+            jumpController.Release();
+            if (automaticLearningFlight)
+            {
+                learningInputUpTime = Time.unscaledTime;
+                learningInputReleased = true;
+            }
+        }
+        if (automaticLearningFlight)
+            FinishLearningSample(fixedState, "Landed");
+        ResetWallRecoveryAfterLanding();
+        automaticJumpArmed = true;
+        airborneAfterAutomaticJump = false;
+        nextAutomaticAttemptTime = 0f;
+        ClearRoutePlanLock();
+        jumpController.Press(
+            player,
+            plan.HoldSeconds,
+            $"UrgentNarrowFixedStep: Source={previewSource}, " +
+            $"LandingStep={landingFixedStep}, " +
+            $"Target={plan.PredictedLandingX:F2}");
+        if (!jumpController.IsHoldingJump)
+        {
+            ResetAutomaticControlState();
+            nextAutomaticAttemptTime = Time.unscaledTime + 0.20f;
+            return false;
+        }
+
+        MarkAutomaticJumpRequested(
+            fixedState,
+            plan,
+            target,
+            scan,
+            hazard,
+            planningPhysics,
+            planningSpeed);
+        BonusRunnerLog.Debug(
+            $"UrgentNarrowLandingFixedStepChained PriorAttemptId=" +
+            $"{completedAttemptId}, NewAttemptId={automaticAttemptId}, " +
+            $"FixedStep={landingFixedStep}, Player={playerInstanceId}, " +
+            $"Position=({livePosition.x:F3},{livePosition.y:F3}), " +
+            $"Velocity=({liveVelocity.x:F3},{liveVelocity.y:F3}), " +
+            $"Source=[{scan.Current.Left:F3},{scan.Current.Right:F3}]@" +
+            $"{scan.Current.Top:F3}, Target=" +
+            $"[{target.Left:F3},{target.Right:F3}]@{target.Top:F3}, " +
+            $"Hold={plan.HoldSeconds:F3}, PromotedEarly={promotedEarly}, " +
+            $"ReleasedPriorHold={releasedPriorHold}, " +
+            $"Plan={plan.Reason}. DOWN was issued before the original " +
+            "PlayerMovement.FixedUpdate consumed the only narrow-support " +
+            "physics step.",
+            "Lookahead");
+        return true;
+    }
+
+    [HideFromIl2Cpp]
+    private void TryLatchWatchedExitSupportFixedStep(
+        PlayerMovement player)
+    {
+        BonusStageState routingState = GetRoutingState(latestState);
+        long currentFixedStep = JumpPhysicsFeedback.FixedStepSequence;
+        bool faceOrTopRoute = wallExitFaceInterceptCommitted;
+        bool collectionFaceRoute =
+            wallExitCollectionFaceInterceptCommitted;
+        bool completionNarrowRoute =
+            !faceOrTopRoute &&
+             !collectionFaceRoute &&
+             IsSuccessfulCompletionTraversal(routingState) &&
+             wallExitTargetActive &&
+             wallExitTarget.Width <= 2.25f;
+        bool automaticWallTargetRoute =
+            !faceOrTopRoute &&
+            !collectionFaceRoute &&
+            !completionNarrowRoute &&
+            !wallExitTargetActive &&
+            !wallExitContactWatchActive &&
+            !HasCommittedExitFaceFlight() &&
+            automaticPredictionActive &&
+            learningSampleActive &&
+            string.Equals(
+                learningSource,
+                "Automatic",
+                StringComparison.Ordinal) &&
+            automaticManeuver == BonusManeuverKind.WallJumpClimb &&
+            automaticTargetRight > automaticTargetLeft + 0.05f;
+        bool watchedExitPending =
+            wallExitContactWatchActive ||
+            HasCommittedExitFaceFlight() ||
+            automaticWallTargetRoute;
+        BonusBoardSegment watchedTarget = automaticWallTargetRoute
+            ? BuildAutomaticTargetSegment()
+            : wallExitTarget;
+        bool committedWatchWithinDeadline =
+            (faceOrTopRoute || collectionFaceRoute) &&
+            wallExitContactWatchDeadlineFixedStep >= 0 &&
+            currentFixedStep <= wallExitContactWatchDeadlineFixedStep;
+        bool completionWatchWithinDeadline =
+            completionNarrowRoute &&
+            Time.unscaledTime <= wallRecoveryCommitmentUntil;
+        bool automaticTargetWithinDeadline =
+            automaticWallTargetRoute &&
+            Time.unscaledTime <= wallRecoveryCommitmentUntil;
+        if (wallExitSupportFixedStepLatched ||
+            !automationEnabled ||
+            !watchedExitPending ||
+            (!wallExitTargetActive && !automaticWallTargetRoute) ||
+            wallExitFaceContactRequired ||
+            (!faceOrTopRoute &&
+             !collectionFaceRoute &&
+             !completionNarrowRoute &&
+             !automaticWallTargetRoute) ||
+            (!committedWatchWithinDeadline &&
+             !completionWatchWithinDeadline &&
+             !automaticTargetWithinDeadline) ||
+            !automaticPredictionActive ||
+            !learningSampleActive ||
+            !string.Equals(
+                learningSource,
+                "Automatic",
+                StringComparison.Ordinal) ||
+            player == null ||
+            !latestState.IsBonusStage ||
+            !latestState.IsSupportedBonusMap)
+        {
+            return;
+        }
+
+        int playerInstanceId = player.GetInstanceID();
+        if (latestState.PlayerInstanceId != 0 &&
+            latestState.PlayerInstanceId != playerInstanceId)
+        {
+            return;
+        }
+
+        Rigidbody2D body = player.GetComponent<Rigidbody2D>();
+        Vector2 velocity = body != null ? body.velocity : Vector2.zero;
+        Vector3 position = player.transform.position;
+        if (!player.IsGrounded() || velocity.y > 2.50f)
+            return;
+
+        BonusBoardScanResult supportScan;
+        try
+        {
+            supportScan = platformScanner.Scan(
+                position,
+                player,
+                Mathf.Max(1f, Mathf.Abs(velocity.x)));
+        }
+        catch
+        {
+            return;
+        }
+
+        bool supportConfirmed =
+            supportScan.IsValid &&
+            position.x >= supportScan.Current.Left - 0.20f &&
+            position.x <= supportScan.Current.Right + 0.20f &&
+            Mathf.Abs(position.y - supportScan.Current.Top) <= 0.60f;
+        bool matchesWatchedExit =
+            supportConfirmed &&
+            Mathf.Abs(
+                supportScan.Current.Top - watchedTarget.Top) <= 0.35f &&
+            position.x >= watchedTarget.Left - 0.20f &&
+            position.x <= watchedTarget.Right + 0.20f;
+        if (!matchesWatchedExit)
+            return;
+
+        bool forcedRelease = jumpController.IsHoldingJump;
+        if (forcedRelease)
+        {
+            // This prefix runs before the controller's normal fixed-step
+            // maintenance. Exact non-rising support is stronger evidence than
+            // the stale held flag, so close the old edge here rather than miss
+            // a one-tick top on the release boundary.
+            jumpController.Release();
+            learningInputUpTime = Time.unscaledTime;
+            learningInputReleased = true;
+            BonusRunnerLog.Debug(
+                $"WatchedExitSupportForcedRelease AttemptId=" +
+                $"{automaticAttemptId}, FixedStep={currentFixedStep}, " +
+                $"Position=({position.x:F3},{position.y:F3}), Support=" +
+                $"[{supportScan.Current.Left:F3}," +
+                $"{supportScan.Current.Right:F3}]@" +
+                $"{supportScan.Current.Top:F3}. Exact support closed the " +
+                "previous held edge before normal fixed-step maintenance.",
+                "Control");
+        }
+
+        wallExitSupportFixedStepLatched = true;
+        wallExitSupportLatchedAttemptId = automaticAttemptId;
+        wallExitSupportLatchedFixedStep =
+            JumpPhysicsFeedback.FixedStepSequence;
+        wallExitSupportLatchedPlayerInstanceId = playerInstanceId;
+        wallExitSupportLatchedTarget = watchedTarget;
+        wallExitSupportLatchedSurface = supportScan.Current;
+        wallExitSupportLatchedPosition = position;
+        wallExitSupportLatchedVelocity = velocity;
+        wallExitSupportLatchedPlayerHalfWidth =
+            player.playerCollider != null
+                ? Mathf.Max(
+                    0.15f,
+                    player.playerCollider.bounds.extents.x)
+                : 0.60f;
+        wallExitSupportLatchedAt = Time.unscaledTime;
+        wallExitSupportLatchedFaceOrTop = faceOrTopRoute;
+        wallExitSupportLatchedCollectionFace = collectionFaceRoute;
+        wallExitSupportLatchedCompletionNarrow = completionNarrowRoute;
+        wallExitSupportLatchedAutomaticTarget = automaticWallTargetRoute;
+        BonusRunnerLog.Debug(
+            $"WatchedExitSupportFixedStepLatched AttemptId=" +
+            $"{automaticAttemptId}, FixedStep=" +
+            $"{wallExitSupportLatchedFixedStep}, Player=" +
+            $"{playerInstanceId}, Mode=" +
+            $"{(collectionFaceRoute ? "CollectionFaceTopMiss" : faceOrTopRoute ? "FaceOrTop" : completionNarrowRoute ? "CompletionNarrow" : "AutomaticWallTarget")}, " +
+            $"Position=({position.x:F3},{position.y:F3}), Velocity=" +
+            $"({velocity.x:F3},{velocity.y:F3}), Support=" +
+            $"[{supportScan.Current.Left:F3}," +
+            $"{supportScan.Current.Right:F3}]@" +
+            $"{supportScan.Current.Top:F3}/" +
+            $"{supportScan.Current.MapPieceName}:S" +
+            $"{supportScan.Current.StaticSurfaceIndex}, Target=" +
+            $"[{watchedTarget.Left:F3},{watchedTarget.Right:F3}]@" +
+            $"{watchedTarget.Top:F3}, ForcedRelease={forcedRelease}, " +
+            $"DeadlineStep={wallExitContactWatchDeadlineFixedStep}, " +
+            $"CommitmentRemaining=" +
+            $"{wallRecoveryCommitmentUntil - Time.unscaledTime:F3}s. " +
+            "The render loop may consume this " +
+            "one-step support after additional physics ticks without " +
+            "reclassifying it as a missed landing.",
+            "Recovery");
+    }
+
+    private bool TryAdoptCommittedExitFaceContact(
+        BonusStageState state,
+        PlayerMovement player)
+    {
+        if (!HasCommittedExitFaceFlight() ||
+            !wallExitTargetActive ||
+            wallExitFaceContactRequired ||
+            player == null)
+        {
+            return false;
+        }
+
+        BonusWallContact wall = wallDetector.Detect(
+            player,
+            GetWallRouteSpeed());
+        float feetY = player.playerCollider != null
+            ? player.playerCollider.bounds.min.y
+            : state.PlayerPosition.y - 0.27f;
+        BonusBoardSegment exit = wallExitTarget;
+        bool collectionFaceRoute =
+            wallExitCollectionFaceInterceptCommitted;
+        float playerHalfWidth = player.playerCollider != null
+            ? Mathf.Max(
+                0.15f,
+                player.playerCollider.bounds.extents.x)
+            : 0.60f;
+        BonusBoardSegment observedSurface = default;
+        bool mappedSurfaceFound =
+            wall.IsDetected &&
+            platformScanner.TryFindWallSurfaceAtFace(
+                wall.FaceX,
+                feetY,
+                playerHalfWidth,
+                out observedSurface);
+        bool mappedGeometryMatches =
+            mappedSurfaceFound &&
+            Mathf.Abs(observedSurface.Left - exit.Left) <= 0.45f &&
+            Mathf.Abs(observedSurface.Top - exit.Top) <= 0.35f;
+        bool mappedIdentityMatches =
+            mappedGeometryMatches &&
+            StaticOrColliderIdentityMatches(observedSurface, exit);
+        float minimumFaceFeetY =
+            exit.Top - CommittedExitFaceDepth +
+            CommittedExitFaceBottomClearance;
+        float maximumFaceFeetY =
+            exit.Top -
+            (collectionFaceRoute
+                ? 0.45f
+                : CommittedExitFaceTopClearance);
+        bool exactLeftFaceContact =
+            wall.IsDetected &&
+            wall.IsTouching &&
+            wall.Normal.x <= -0.35f &&
+            Mathf.Abs(wall.FaceX - exit.Left) <= 0.45f &&
+            mappedIdentityMatches &&
+            state.PlayerPosition.x < exit.Left + 0.20f &&
+            feetY <= maximumFaceFeetY &&
+            feetY >= minimumFaceFeetY;
+        if (!exactLeftFaceContact)
+        {
+            bool apparentTargetFace =
+                wall.IsDetected &&
+                wall.IsTouching &&
+                Mathf.Abs(wall.FaceX - exit.Left) <= 0.45f;
+            if (apparentTargetFace &&
+                BonusRunnerLog.IsDebugMode &&
+                Time.unscaledTime >= nextWallProbeLogTime)
+            {
+                nextWallProbeLogTime = Time.unscaledTime + 0.08f;
+                BonusRunnerLog.Debug(
+                    $"CommittedExitFaceContactRejected Position=" +
+                    $"({state.PlayerPosition.x:F3}," +
+                    $"{state.PlayerPosition.y:F3}), FeetY={feetY:F3}, " +
+                    $"ObservedFaceX={wall.FaceX:F3}, Expected=" +
+                    $"[{exit.Left:F3},{exit.Right:F3}]@{exit.Top:F3}/" +
+                    $"{exit.MapPieceName}:S{exit.StaticSurfaceIndex}, " +
+                    $"MappedFound={mappedSurfaceFound}, " +
+                    $"MappedGeometryMatch={mappedGeometryMatches}, " +
+                    $"MappedIdentityMatch={mappedIdentityMatches}, " +
+                    $"MappedObserved=[{observedSurface.Left:F3}," +
+                    $"{observedSurface.Right:F3}]@" +
+                    $"{observedSurface.Top:F3}/" +
+                    $"{observedSurface.MapPieceName}:S" +
+                    $"{observedSurface.StaticSurfaceIndex}, FaceWindow=" +
+                    $"[{minimumFaceFeetY:F3}," +
+                    $"{maximumFaceFeetY:F3}], RouteMode=" +
+                    $"{(collectionFaceRoute ? "CollectionFace" : "FaceOrTop")}. " +
+                    "A ray hit alone cannot replace mapped finite-face " +
+                    "identity or the solver's vertical contact window.",
+                    "Recovery");
+            }
+            return false;
+        }
+
+        float predictedContactX = wallExitPredictedLandingX;
+        float predictionErrorX =
+            state.PlayerPosition.x - predictedContactX;
+        wallExitContactWatchActive = false;
+        // The flight watch is now resolved, but retain a separate bounded
+        // fixed-step budget in the same field until the contact-triggered
+        // climb actually issues its discrete DOWN. This lets a positive-VY
+        // contact wait through real physics steps without being erased by a
+        // background wall-clock timeout.
+        wallExitContactWatchDeadlineFixedStep =
+            JumpPhysicsFeedback.FixedStepSequence +
+            GetPhysicsStepBudget(1.50f);
+        wallExitTargetActive = false;
+        wallExitTarget = default;
+        ClearWallExitPreparedContract();
+        wallExitFaceInterceptCommitted = false;
+        wallExitCollectionFaceInterceptCommitted = false;
+        wallExitTransferCommitted = false;
+        wallLandingFlightCommitted = false;
+        wallTopLandingSequenceCommitted = false;
+        wallExitFaceContactRequired = false;
+        wallExitObjectiveCountAtCapture = 0;
+        wallExitObjectiveMinimumY = float.NaN;
+        wallExitObjectiveMaximumY = float.NaN;
+
+        automaticTargetSafeLeft = exit.SafeLeft;
+        automaticTargetSafeRight = exit.SafeRight;
+        automaticLandingAllowsRawBodyFit = false;
+        automaticLandingSafeTolerance = 0f;
+        automaticTargetLeft = exit.Left;
+        automaticTargetRight = exit.Right;
+        automaticTargetTop = exit.Top;
+        automaticTargetColliderId = exit.ColliderInstanceId;
+        automaticTargetColliderName = exit.ColliderName;
+        automaticTargetMapPieceName = exit.MapPieceName;
+        automaticTargetMapPieceOriginX = exit.MapPieceOriginX;
+        automaticTargetMapPieceInstanceId = exit.MapPieceInstanceId;
+        automaticTargetRegistryGeneration = exit.RegistryGeneration;
+        automaticTargetStaticSurfaceIndex = exit.StaticSurfaceIndex;
+        automaticTargetHeightDelta = exit.Top - state.PlayerPosition.y;
+        automaticPredictedLandingX = exit.Left;
+        automaticPredictedHorizontalTravel = Mathf.Max(
+            0f,
+            exit.Left - automaticPlanTriggerPosition.x);
+
+        wallRecoveryContactLatched = false;
+        wallRecoverySawUpwardMotion = false;
+        wallRecoveryLipCrossed = false;
+        wallRecoveryRequiredReleaseY = exit.Top - 0.20f;
+        wallRecoveryCommitmentUntil = Time.unscaledTime + 1.50f;
+        wallReleaseObservedFixedStep = -1;
+        wallDetachedLastFixedStep = -1;
+        wallDetachedConfirmationSteps = 0;
+        wallStallStartedAt =
+            Time.unscaledTime - WallStallConfirmationSeconds;
+        nextWallRecoveryTime = 0f;
+        passiveWallApproachActive = true;
+        wallActionPhase = WallActionPhase.AwaitingWallContact;
+        automaticJumpArmed = false;
+        airborneAfterAutomaticJump = true;
+        automaticJumpRequestedAt = Time.unscaledTime;
+        automaticJumpVelocityConfirmed = true;
+        automaticPredictionActive = true;
+        automaticTrajectoryCompatible = true;
+        automaticPlanReason = collectionFaceRoute
+            ? "CollectionFaceInterceptContact"
+            : "CommittedExitFaceInterceptContact";
+        automaticManeuver =
+            BonusManeuverKind.ApproachJumpThenWallJump;
+
+        BonusRunnerLog.Debug(
+            $"CommittedExitFaceContactHandoff Position=" +
+            $"({state.PlayerPosition.x:F3},{state.PlayerPosition.y:F3}), " +
+            $"FeetY={feetY:F3}, Velocity=" +
+            $"({state.PlayerVelocity.x:F3},{state.PlayerVelocity.y:F3}), " +
+            $"ObservedFaceX={wall.FaceX:F3}, Normal=" +
+            $"({wall.Normal.x:F3},{wall.Normal.y:F3}), Target=" +
+            $"[{exit.Left:F3},{exit.Right:F3}]@{exit.Top:F3}/" +
+            $"{exit.MapPieceName}:S{exit.StaticSurfaceIndex}, " +
+            $"PredictedContactX={predictedContactX:F3}, " +
+            $"PredictionErrorX={predictionErrorX:F3}, Collider=" +
+            $"{wall.ColliderInstanceId}:{wall.ColliderName}, MappedSurface=" +
+            $"{observedSurface.MapPieceName}:S" +
+            $"{observedSurface.StaticSurfaceIndex}/G" +
+            $"{observedSurface.RegistryGeneration}, RouteMode=" +
+            $"{(collectionFaceRoute ? "CollectionFace" : "FaceOrTop")}. " +
+            "Result=ExactMappedLeftFace; NextState=AwaitingWallContact. " +
+            "The physical face, not the rejected landing model, now owns " +
+            "the bounded climb.",
+            "Recovery");
+        return true;
+    }
+
     private bool TryWallRecoveryJump(
         BonusStageState state,
         PlayerMovement player)
@@ -3613,11 +6859,22 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
             automaticPredictionActive &&
             learningSampleActive &&
             learningSource == "Automatic";
+        // A completed pulse can finish its learning sample before the body
+        // reaches the next physical face. Preserve only a probe-only slice of
+        // ownership while that released flight is still airborne. It cannot
+        // issue input by itself; the later gate still requires an exact,
+        // touching, different mapped face before rebasing the climb.
+        bool chainedExitFlightProbe =
+            wallActionPhase == WallActionPhase.ExitFlight &&
+            wallRecoveryAttempts > 0 &&
+            airborneAfterAutomaticJump;
         bool unresolvedWallRoute =
             wallExitContactWatchActive ||
+            HasCommittedExitFaceFlight() ||
             attachedObjectiveDescentActive ||
             wallMandatoryFaceSetupActive ||
-            wallMandatoryFaceInterceptCommitted;
+            wallMandatoryFaceInterceptCommitted ||
+            chainedExitFlightProbe;
         if (!passiveWallApproachActive &&
             !activeAutomaticJumpRoute &&
             !unresolvedWallRoute)
@@ -3709,13 +6966,37 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
             return HandleMandatoryFaceContactWatch(state, player);
         }
 
+        // A committed Ground 7 face intercept owns contact before the generic
+        // watch timeout. This matters on the deadline/background catch-up
+        // frame: real collision is authoritative even if render time has just
+        // advanced beyond the nominal watch duration.
+        if (TryAdoptCommittedExitFaceContact(state, player))
+            return TryWallRecoveryJump(state, player);
+
+        bool committedExitFaceFlight = HasCommittedExitFaceFlight();
+        bool committedFacePhysicsBudgetExpired =
+            committedExitFaceFlight &&
+            (wallExitContactWatchDeadlineFixedStep >= 0
+                ? JumpPhysicsFeedback.FixedStepSequence >
+                    wallExitContactWatchDeadlineFixedStep
+                : Time.unscaledTime > wallRecoveryCommitmentUntil);
+        bool ordinaryWatchTimeExpired =
+            !committedExitFaceFlight &&
+            Time.unscaledTime > wallRecoveryCommitmentUntil;
+        bool watchedExitOverflown =
+            state.PlayerPosition.x > wallExitTarget.Right + 1.0f;
         if (wallExitContactWatchActive &&
             !wallMandatoryFaceInterceptCommitted &&
-            (Time.unscaledTime > wallRecoveryCommitmentUntil ||
-             state.PlayerPosition.x > wallExitTarget.Right + 1.0f))
+            (committedFacePhysicsBudgetExpired ||
+             ordinaryWatchTimeExpired ||
+             watchedExitOverflown))
         {
             bool mandatoryContactExpired =
                 wallExitFaceContactRequired;
+            bool committedFaceInterceptExpired =
+                wallExitFaceInterceptCommitted;
+            bool collectionFaceInterceptExpired =
+                wallExitCollectionFaceInterceptCommitted;
             BonusRunnerLog.Warning(
                 $"WallExitContactWatchExpired Position=" +
                 $"({state.PlayerPosition.x:F3}," +
@@ -3725,13 +7006,26 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
                 $"{wallExitTarget.Top:F3}, TimeRemaining=" +
                 $"{wallRecoveryCommitmentUntil - Time.unscaledTime:F3}s, " +
                 $"ContactRequired={mandatoryContactExpired}, " +
+                $"CommittedFaceIntercept=" +
+                $"{committedFaceInterceptExpired}, " +
+                $"CollectionFaceIntercept=" +
+                $"{collectionFaceInterceptExpired}, FixedStep=" +
+                $"{JumpPhysicsFeedback.FixedStepSequence}, " +
+                $"DeadlineFixedStep=" +
+                $"{wallExitContactWatchDeadlineFixedStep}, Overflown=" +
+                $"{watchedExitOverflown}, " +
                 $"ObjectiveCount={wallExitObjectiveCountAtCapture}. " +
                 (mandatoryContactExpired
                     ? "No mandatory downstream face contact was observed; " +
                       "FailureDomain=RouteExecution and the stale wall route " +
                       "is reset."
-                    : "No downstream contact was observed; the exit target " +
-                      "and all related commitments are cleared atomically."));
+                    : committedFaceInterceptExpired ||
+                      collectionFaceInterceptExpired
+                        ? "The committed Ground 7 face outcome was not " +
+                          "observed. FailureDomain=RouteExecution; the exact " +
+                          "contract is cleared before generic recovery."
+                        : "No downstream contact was observed; the exit target " +
+                          "and all related commitments are cleared atomically."));
             if (mandatoryContactExpired)
             {
                 automaticTrajectoryCompatible = false;
@@ -3747,9 +7041,30 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
                 return true;
             }
 
+            if (committedFaceInterceptExpired ||
+                collectionFaceInterceptExpired)
+            {
+                automaticTrajectoryCompatible = false;
+                if (learningSampleActive &&
+                    learningSource == "Automatic")
+                {
+                    FinishLearningSample(
+                        state,
+                        collectionFaceInterceptExpired
+                            ? "CollectionFaceContactWatchExpired"
+                            : "CommittedExitFaceContactWatchExpired");
+                }
+                ResetAutomaticControlState();
+                nextAutomaticAttemptTime =
+                    Time.unscaledTime + 0.20f;
+                return true;
+            }
+
             wallExitContactWatchActive = false;
+            wallExitContactWatchDeadlineFixedStep = -1;
             wallExitTargetActive = false;
             wallExitTarget = default;
+            ClearWallExitPreparedContract();
             wallExitFaceContactRequired = false;
             wallExitObjectiveCountAtCapture = 0;
             wallExitObjectiveMinimumY = float.NaN;
@@ -3757,6 +7072,8 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
             ResetMandatoryFacePlanState();
             wallExitTransferCommitted = false;
             wallLandingFlightCommitted = false;
+            wallExitFaceInterceptCommitted = false;
+            wallExitCollectionFaceInterceptCommitted = false;
             wallTopLandingSequenceCommitted = false;
             wallExitPredictedLandingX = 0f;
             wallExitPredictedTravel = 0f;
@@ -3769,6 +7086,29 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
             (Time.unscaledTime - automaticJumpRequestedAt > 1.50f ||
              state.PlayerPosition.x > automaticTargetRight + 1.0f))
         {
+            float abortPlayerHalfWidth = player.playerCollider != null
+                ? Mathf.Max(0.15f, player.playerCollider.bounds.extents.x)
+                : 0.60f;
+            BonusWallContact abortWall = wallDetector.Detect(
+                player,
+                GetWallRouteSpeed());
+            if (TryRebaseUnexpectedWallContact(
+                    state,
+                    player,
+                    abortWall,
+                    abortPlayerHalfWidth))
+            {
+                BonusRunnerLog.Debug(
+                    $"WallDropAbortSuppressed Position=" +
+                    $"({state.PlayerPosition.x:F3}," +
+                    $"{state.PlayerPosition.y:F3}), FaceX=" +
+                    $"{abortWall.FaceX:F3}. Exact mapped contact was " +
+                    "resolved before the stale target timeout/overflight " +
+                    "gate, so reactive wall authority remains active.",
+                    "Recovery");
+                return TryWallRecoveryJump(state, player);
+            }
+
             BonusRunnerLog.Warning(
                 $"WallDropRouteAborted Position=({state.PlayerPosition.x:F3}," +
                 $"{state.PlayerPosition.y:F3}), Elapsed=" +
@@ -4155,13 +7495,29 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
                 // Arm the mapped downstream face from that observed boundary
                 // so Ground 3 S2 -> S3 cannot silently lose its mandatory
                 // contact contract.
+                bool existingCommittedFaceWatch =
+                    HasCommittedExitFaceFlight() &&
+                    wallExitContactWatchActive &&
+                    wallExitTargetActive;
+                if (existingCommittedFaceWatch)
+                {
+                    wallExitContactWatchDeadlineFixedStep =
+                        Math.Max(
+                            wallExitContactWatchDeadlineFixedStep,
+                            JumpPhysicsFeedback.FixedStepSequence +
+                            GetPhysicsStepBudget(1.25f));
+                    wallRecoveryCommitmentUntil = Mathf.Max(
+                        wallRecoveryCommitmentUntil,
+                        Time.unscaledTime + 1.25f);
+                }
                 bool watchingDownstreamWall =
                     (!stillAttached || completedOldWall) &&
-                    TryArmWallExitContactWatch(
-                        state,
-                        completedOldWall && stillAttached
-                            ? "PostBounceReleaseHeightWhileTouchingOldFace"
-                            : "PostBounceExit");
+                    (existingCommittedFaceWatch ||
+                     TryArmWallExitContactWatch(
+                         state,
+                         completedOldWall && stillAttached
+                             ? "PostBounceReleaseHeightWhileTouchingOldFace"
+                             : "PostBounceExit"));
 
                 wallActionPhase = WallActionPhase.ExitFlight;
                 wallRecoveryContactLatched = false;
@@ -4208,9 +7564,82 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
             }
             wallReleaseObservedFixedStep = -1;
         }
+        // Probe before applying the horizontal-speed gate.  Physics reports
+        // the incoming run velocity on the exact render frame where the body
+        // first touches a wall, then collapses VX on the next physics step.
+        // Waiting for that collapse lost the one-frame ray/native contact in
+        // the retained Section 2 traces.  Only authoritative current-frame
+        // contact with the already planned face may bypass the speed/stall
+        // gates; predicted position alone remains insufficient.
+        BonusWallContact wall = wallDetector.Detect(
+            player,
+            GetWallRouteSpeed());
+        float priorExitFlightPulseContactX = wallRecoveryContactX;
+        bool authoritativeNewExitFlightFace =
+            wallRecoveryAttempts > 0 &&
+            wallActionPhase == WallActionPhase.ExitFlight &&
+            !wallExitFaceContactRequired &&
+            !wallMandatoryFaceSetupActive &&
+            !wallMandatoryFaceInterceptCommitted &&
+            !attachedObjectiveDescentActive &&
+            wall.IsDetected &&
+            wall.IsTouching &&
+            wall.FaceX > priorExitFlightPulseContactX +
+                inferredPlayerHalfWidth + 0.55f;
+        if (authoritativeNewExitFlightFace &&
+            TryRebaseUnexpectedWallContact(
+                state,
+                player,
+                wall,
+                inferredPlayerHalfWidth))
+        {
+            BonusRunnerLog.Warning(
+                $"ChainedExitFlightWallContact Position=" +
+                $"({state.PlayerPosition.x:F3}," +
+                $"{state.PlayerPosition.y:F3}), Velocity=" +
+                $"({state.PlayerVelocity.x:F3}," +
+                $"{state.PlayerVelocity.y:F3}), NewFaceX=" +
+                $"{wall.FaceX:F3}, PriorPulseContactX=" +
+                $"{priorExitFlightPulseContactX:F3}. A different forward " +
+                "face was " +
+                "touched during ExitFlight, so it becomes the next bounded " +
+                "climb target immediately instead of waiting for a ground " +
+                "re-plan.");
+            return TryWallRecoveryJump(state, player);
+        }
+        bool ground5AuthoredNarrowPillar =
+            state.SectionIndex == 1 &&
+            string.Equals(
+                automaticTargetMapPieceName,
+                "Ground 5",
+                StringComparison.OrdinalIgnoreCase) &&
+            automaticTargetStaticSurfaceIndex >= 2 &&
+            automaticTargetStaticSurfaceIndex <= 4;
+        bool authoritativePlannedContact =
+            plannedWallApproach &&
+            !ground5AuthoredNarrowPillar &&
+            wall.IsDetected &&
+            wall.IsTouching &&
+            wall.Point.x >= automaticTargetLeft - 0.80f &&
+            wall.Point.x <= automaticTargetRight + 0.80f;
+        bool authoritativeWatchedExitContact =
+            wallExitContactWatchActive &&
+            wallExitTargetActive &&
+            !HasCommittedExitFaceFlight() &&
+            (wallActionPhase == WallActionPhase.ExitFlight ||
+             wallActionPhase == WallActionPhase.AttachedObjectiveDescent) &&
+            wall.IsDetected &&
+            wall.IsTouching &&
+            wall.Point.x >= wallExitTarget.Left - 0.80f &&
+            wall.Point.x <= wallExitTarget.Right + 0.80f;
+        bool wallContactReady =
+            plannedBodyContactReady ||
+            authoritativePlannedContact ||
+            authoritativeWatchedExitContact;
+
         if (horizontalSpeed > WallAttachmentVelocityTolerance &&
             !transientWallGrounding &&
-            !plannedBodyContactReady)
+            !wallContactReady)
         {
             wallStallStartedAt = -1f;
             // Keep the completed press pending until its synthetic UP has
@@ -4242,7 +7671,7 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
         }
 
         float stalledFor = 0f;
-        if (!transientWallGrounding && !plannedBodyContactReady)
+        if (!transientWallGrounding && !wallContactReady)
         {
             if (wallStallStartedAt < 0f)
             {
@@ -4255,9 +7684,6 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
                 return false;
         }
 
-        BonusWallContact wall = wallDetector.Detect(
-            player,
-            GetWallRouteSpeed());
         // After one confirmed wall press, the player's collider can remain
         // overlapped with the face and make Physics2D.RaycastAll return no
         // hit for several consecutive frames.  Post-release classification
@@ -4283,7 +7709,13 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
                 $"VX={state.PlayerVelocity.x:F3}, VY={state.PlayerVelocity.y:F3}, " +
                 $"Grounded={state.IsGrounded}, TransientGrounding={transientWallGrounding}, " +
                 $"PlannedApproach={plannedWallApproach}, " +
+                $"Ground5NarrowPillarBodyGate=" +
+                $"{ground5AuthoredNarrowPillar}, " +
                 $"BodyContactReady={plannedBodyContactReady}, " +
+                $"AuthoritativePlannedContact=" +
+                $"{authoritativePlannedContact}, " +
+                $"AuthoritativeWatchedExitContact=" +
+                $"{authoritativeWatchedExitContact}, " +
                 $"ActionPhase={wallActionPhase}, " +
                 $"PlannedContactX={plannedWallContactCenterX:F3}, " +
                 $"StalledFor={stalledFor:F3}s, Attempt={wallRecoveryAttempts + 1}/" +
@@ -4316,6 +7748,8 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
             wall.Point.x <= wallExitTarget.Right + 0.80f;
         bool watchedExitIsAlreadyActiveTarget =
             touchingWatchedExitFace &&
+            !wallExitFaceContactRequired &&
+            !HasCommittedExitFaceFlight() &&
             Mathf.Abs(wallExitTarget.Left - automaticTargetLeft) <= 0.20f &&
             Mathf.Abs(wallExitTarget.Right - automaticTargetRight) <= 0.20f &&
             Mathf.Abs(wallExitTarget.Top - automaticTargetTop) <= 0.35f;
@@ -4324,9 +7758,15 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
             BonusBoardSegment contactedExit = wallExitTarget;
             bool satisfiedMandatoryContact =
                 wallExitFaceContactRequired;
+            float abandonedPredictedLandingX =
+                wallExitPredictedLandingX;
+            float predictionErrorToContact =
+                state.PlayerPosition.x - abandonedPredictedLandingX;
             wallExitContactWatchActive = false;
+            wallExitContactWatchDeadlineFixedStep = -1;
             wallExitTargetActive = false;
             wallExitTarget = default;
+            ClearWallExitPreparedContract();
             wallExitFaceContactRequired = false;
             wallExitObjectiveCountAtCapture = 0;
             wallExitObjectiveMinimumY = float.NaN;
@@ -4334,6 +7774,8 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
             ResetMandatoryFacePlanState();
             wallExitTransferCommitted = false;
             wallLandingFlightCommitted = false;
+            wallExitFaceInterceptCommitted = false;
+            wallExitCollectionFaceInterceptCommitted = false;
             wallTopLandingSequenceCommitted = false;
             wallRecoveryContactLatched = false;
             wallRecoverySawUpwardMotion = false;
@@ -4359,7 +7801,11 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
                 $"({wall.Point.x:F3},{wall.Point.y:F3}), Target=" +
                 $"[{contactedExit.Left:F3},{contactedExit.Right:F3}]" +
                 $"@{contactedExit.Top:F3}, Collider=" +
-                $"{wall.ColliderInstanceId}:{wall.ColliderName}. " +
+                $"{wall.ColliderInstanceId}:{wall.ColliderName}, " +
+                $"AbandonedPredictedLandingX=" +
+                $"{abandonedPredictedLandingX:F3}, " +
+                $"PredictionErrorToContactX=" +
+                $"{predictionErrorToContact:F3}. " +
                 "ExpectedResult=direct landing; ActualResult=physical face " +
                 "contact. The observed collision overrides the optimistic " +
                 "landing prediction and re-enters bounded wall control." +
@@ -4370,7 +7816,11 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
         else if (touchingWatchedExitFace &&
                  TryPromoteChainedWallTarget(
                      state,
-                     allowLevelFace: true))
+                     allowLevelFace: true,
+                     observedFaceX: wall.FaceX,
+                     observedFeetY: player.playerCollider != null
+                         ? player.playerCollider.bounds.min.y
+                         : state.PlayerPosition.y - 0.27f))
         {
             BonusRunnerLog.Debug(
                 $"WallExitContactIntercepted Position=" +
@@ -4390,6 +7840,15 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
             wall.Point.x <= automaticTargetRight + 0.80f;
         if (!wallBelongsToPlannedTarget)
         {
+            if (TryRebaseUnexpectedWallContact(
+                    state,
+                    player,
+                    wall,
+                    inferredPlayerHalfWidth))
+            {
+                return TryWallRecoveryJump(state, player);
+            }
+
             BonusRunnerLog.Debug(
                 $"WallRecoveryRejected Reason=OutsidePlannedTarget, " +
                 $"WallX={wall.Point.x:F3}, TargetRaw=" +
@@ -4416,7 +7875,7 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
 
         CaptureWallExitTargetFromPreview();
         CaptureChainedWallTargetFromStaticMap(inferredPlayerHalfWidth);
-        CaptureSectionThreeWallExitTargetFromStaticMap(
+        CaptureGround7WallExitTargetFromStaticMap(
             inferredPlayerHalfWidth);
 
         JumpPhysicsSnapshot observedWallPhysics =
@@ -4424,10 +7883,14 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
         JumpPhysicsSnapshot wallPhysics = BuildWallPlanningPhysics(
             observedWallPhysics);
         float postLipHorizontalSpeed = GetWallRouteSpeed();
+        float wallExitPlanningSpeed = GetWallExitPlanningSpeed(
+            state,
+            postLipHorizontalSpeed,
+            out bool wallExitAccelerationEnvelopeApplied);
         JumpPhysicsSnapshot wallExitPhysics =
             BuildWallExitPlanningPhysics(
                 wallPhysics,
-                postLipHorizontalSpeed,
+                wallExitPlanningSpeed,
                 sectionCruiseHorizontalSpeed,
                 state.IsActiveGameplay && !state.SpiritBoostEnabled);
         float physicalReleaseFaceX = wall.IsDetected
@@ -4475,13 +7938,14 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
             ? automaticTargetTop - contactFeetY
             : 0f;
         int wallSphereCount = 0;
+        float wallSphereMinimumY = float.PositiveInfinity;
         float wallSphereMaximumY = float.NegativeInfinity;
         bool hasWallSpheres = hasKnownWallTarget &&
             BonusStageInspector.TryGetActiveSphereVerticalBounds(
                 automaticTargetLeft - 1.55f,
                 automaticTargetRight + 0.8f,
                 out wallSphereCount,
-                out _,
+                out wallSphereMinimumY,
                 out wallSphereMaximumY);
         // Spheres are route objectives, not merely diagnostics. On scoring
         // walls (notably section three) extend the climb only as far as the
@@ -4494,6 +7958,18 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
         wallRecoveryRequiredReleaseY = hasWallSpheres
             ? Mathf.Max(automaticTargetTop - 0.20f, wallSphereMaximumY - 0.35f)
             : automaticTargetTop - 0.20f;
+
+        if (TryManageGround5HighestPillarSink(
+                state,
+                wall,
+                contactFeetY,
+                hasWallSpheres,
+                wallSphereCount,
+                wallSphereMinimumY,
+                wallSphereMaximumY))
+        {
+            return true;
+        }
 
         if ((wallMandatoryFaceSetupActive ||
              wallMandatoryFaceInterceptCommitted) &&
@@ -4584,6 +8060,9 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
         bool wallTopLandingSelected = false;
         bool mandatoryFaceSetupSelected = false;
         bool mandatoryFaceContactPulseSelected = false;
+        bool section3CollectionFacePulseSelected = false;
+        bool committedExitFaceInterceptSelected = false;
+        bool committedExitFaceInterceptModelProven = false;
         bool wallLandingPredictionSelected = false;
         float wallLandingPredictedX = 0f;
         float wallLandingPredictedTravel = 0f;
@@ -4592,15 +8071,29 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
         wallExitPredictedLandingX = 0f;
         wallExitPredictedTravel = 0f;
         wallExitPredictedFlightSeconds = 0f;
+        wallExitTransferAcceptedRawBodyFit = false;
+        wallExitTransferSafeTolerance = 0f;
         wallExitPlanSummary = string.Empty;
         wallExitTransferCommitted = false;
         wallLandingFlightCommitted = false;
+        if (HasCommittedExitFaceFlight())
+            wallExitContactWatchActive = false;
+        wallExitFaceInterceptCommitted = false;
+        wallExitCollectionFaceInterceptCommitted = false;
+        wallExitContactWatchDeadlineFixedStep = -1;
         float mandatoryFaceLipSeconds = 0f;
         float mandatoryFaceTopClearSeconds = 0f;
         float mandatoryFaceContactSeconds = 0f;
         float mandatoryFaceTopClearFeetY = float.NaN;
         float mandatoryFaceContactFeetY = float.NaN;
         float mandatoryFaceContactVelocityY = float.NaN;
+        float collectionFaceContactSeconds = 0f;
+        float collectionFaceContactFeetY = float.NaN;
+        float collectionFaceContactVelocityY = float.NaN;
+        float committedExitFaceContactSeconds = 0f;
+        float committedExitFaceContactFeetY = float.NaN;
+        float committedExitFaceContactVelocityY = float.NaN;
+        string committedExitFaceSummary = string.Empty;
         int mandatorySetupMinimumSteps = 0;
         int mandatorySetupMaximumSteps = 0;
         float mandatorySetupMinimumApexFeetY = float.NaN;
@@ -4621,6 +8114,14 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
         if (isGround3MandatoryFaceRoute)
         {
             BonusBoardSegment currentWall = mandatoryCurrentWall;
+            bool exactMandatoryCurrentWallContact =
+                wall.IsDetected &&
+                wall.IsTouching &&
+                wall.Normal.x <= -0.50f &&
+                Mathf.Abs(wall.FaceX - currentWall.Left) <= 0.35f &&
+                state.PlayerPosition.x <= wall.FaceX + 0.05f &&
+                (currentWall.ColliderInstanceId == 0 ||
+                 wall.ColliderInstanceId == currentWall.ColliderInstanceId);
             mandatoryFaceContactPulseSelected =
                 jumpPlanner.TryChooseWallFaceInterceptHold(
                     state.PlayerPosition.x,
@@ -4636,6 +8137,8 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
                     mandatoryFacePhysics,
                     MinimumWallLandingHoldSeconds,
                     MaximumWallLandingHoldSeconds,
+                    false,
+                    1,
                     out float faceInterceptHold,
                     out mandatoryFaceLipSeconds,
                     out mandatoryFaceTopClearSeconds,
@@ -4644,6 +8147,60 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
                     out mandatoryFaceContactFeetY,
                     out mandatoryFaceContactVelocityY,
                     out mandatoryFacePlanSummary);
+            if (!mandatoryFaceContactPulseSelected &&
+                exactMandatoryCurrentWallContact)
+            {
+                string robustFacePlanSummary = mandatoryFacePlanSummary;
+                mandatoryFaceContactPulseSelected =
+                    jumpPlanner.TryChooseWallFaceInterceptHold(
+                        state.PlayerPosition.x,
+                        contactFeetY,
+                        currentWall,
+                        wallRecoveryRequiredReleaseY,
+                        wallExitTarget,
+                        inferredPlayerHalfWidth,
+                        GetWallRouteSpeed(),
+                        mandatoryFaceMinimumFeetY,
+                        mandatoryFaceMaximumFeetY,
+                        mandatoryFacePreferredFeetY,
+                        mandatoryFacePhysics,
+                        MinimumWallLandingHoldSeconds,
+                        MaximumWallLandingHoldSeconds,
+                        false,
+                        0,
+                        out faceInterceptHold,
+                        out mandatoryFaceLipSeconds,
+                        out mandatoryFaceTopClearSeconds,
+                        out mandatoryFaceContactSeconds,
+                        out mandatoryFaceTopClearFeetY,
+                        out mandatoryFaceContactFeetY,
+                        out mandatoryFaceContactVelocityY,
+                        out string exactStepFacePlanSummary);
+                mandatoryFacePlanSummary =
+                    $"RobustTolerance[Rejected:{robustFacePlanSummary}] " +
+                    $"ExactContactStep[{exactStepFacePlanSummary}]";
+                if (mandatoryFaceContactPulseSelected)
+                {
+                    BonusRunnerLog.Warning(
+                        $"MandatoryFaceExactStepFallbackSelected Position=" +
+                        $"({state.PlayerPosition.x:F3}," +
+                        $"{state.PlayerPosition.y:F3}), FeetY=" +
+                        $"{contactFeetY:F3}, Velocity=" +
+                        $"({state.PlayerVelocity.x:F3}," +
+                        $"{state.PlayerVelocity.y:F3}), Hold=" +
+                        $"{faceInterceptHold:F3}s, PredictedContact=" +
+                        $"[Y={mandatoryFaceContactFeetY:F3},VY=" +
+                        $"{mandatoryFaceContactVelocityY:F3},T=" +
+                        $"{mandatoryFaceContactSeconds:F3}], FaceWindow=" +
+                        $"[{mandatoryFaceMinimumFeetY:F3}," +
+                        $"{mandatoryFaceMaximumFeetY:F3}]. The robust +/-1 " +
+                        "horizontal-step envelope rejected the route, but " +
+                        "the exact mapped contact and fixed-step actuator " +
+                        "prove the zero-offset intercept. Physical target " +
+                        "contact remains mandatory; this is not landing " +
+                        "success.");
+                }
+            }
             if (mandatoryFaceContactPulseSelected)
             {
                 wallHold = faceInterceptHold;
@@ -4714,7 +8271,7 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
                         contactFeetY,
                         wallRecoveryRequiredReleaseY,
                         mandatoryFacePhysics,
-                        MinimumAttachedWallPulseHoldSeconds,
+                        MinimumMandatoryFaceSetupHoldSeconds,
                         MaximumAttachedWallPulseHoldSeconds,
                         MandatoryWallFaceSetupSafetyMargin,
                         out float setupHold,
@@ -4770,40 +8327,239 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
             !wallTopLandingSequenceCommitted &&
             (!isGround3ObjectiveFace || remainingRise <= 2.25f))
         {
-            float transferHold;
-            wallExitTransferSelected =
-                jumpPlanner.TryChooseWallExitTransferHold(
-                    state.PlayerPosition.x,
-                    contactFeetY,
-                    wallRecoveryRequiredReleaseY,
-                    wallExitTarget,
-                    GetWallRouteSpeed(),
-                    wallExitPhysics,
-                    wallReleaseTravelBias,
-                    MinimumWallLandingHoldSeconds,
-                    MaximumWallLandingHoldSeconds,
-                    out transferHold,
-                    out wallExitPredictedFlightSeconds,
-                    out wallExitPredictedTravel,
-                    out wallExitPredictedLandingX,
-                    out wallExitPlanSummary);
-
             BonusBoardSegment currentWall = BuildAutomaticTargetSegment();
-            bool sectionThreeNarrowWall =
-                state.SectionIndex == 3 &&
+            bool completionTerrainTraversal =
+                IsSuccessfulCompletionTraversal(state);
+            bool terrainRouteActive =
+                state.IsActiveGameplay || completionTerrainTraversal;
+            bool mappedGround7NarrowWall =
                 string.Equals(
                     currentWall.MapPieceName,
                     "Ground 7",
                     StringComparison.OrdinalIgnoreCase) &&
                 currentWall.StaticSurfaceIndex == 2;
-            if (!wallExitTransferSelected && sectionThreeNarrowWall)
+            if (mappedGround7NarrowWall)
+            {
+                // Ground 7's retained trace measured the held wall velocity
+                // after gravity (18.627), not the raw configured force (20),
+                // and its target-height crossing was shorter than the raw
+                // analytical flight.  Use those observed quantities for this
+                // failing transfer only.  Other wall routes keep their proven
+                // V0.33 model. A normal Ground 7 undershoot is no longer
+                // mislabeled as a landing; it remains a face-contact route.
+                wallExitPhysics = BuildWallExitPlanningPhysics(
+                    mandatoryFacePhysics,
+                    wallExitPlanningSpeed,
+                    sectionCruiseHorizontalSpeed,
+                    terrainRouteActive &&
+                        !state.SpiritBoostEnabled) with
+                {
+                    FlightTimeScale = Mathf.Clamp(
+                        observedWallPhysics.FlightTimeScale,
+                        0.75f,
+                        1.15f)
+                };
+            }
+            bool speedAboveEstablishedCruise =
+                sectionCruiseHorizontalSpeed > 1f &&
+                postLipHorizontalSpeed >
+                    sectionCruiseHorizontalSpeed +
+                    Mathf.Max(1.0f, sectionCruiseHorizontalSpeed * 0.10f);
+            bool strictBoostLanding =
+                state.SpiritBoostEnabled || speedAboveEstablishedCruise;
+            bool normalSection3CollectionExit =
+                state.IsActiveGameplay &&
+                state.SectionIndex == 3 &&
+                mappedGround7NarrowWall &&
+                !state.SpiritBoostEnabled &&
+                !speedAboveEstablishedCruise;
+            float transferMaximumHold = normalSection3CollectionExit
+                ? 0.135f
+                : MaximumWallLandingHoldSeconds;
+
+            // In normal section 4, a top-landing transfer skips the low soul
+            // lane and the measured landing ran 5.82 units farther than the
+            // model. Prefer the section-3 style route requested by the user:
+            // a smaller pulse that clears the current lip, descends into the
+            // next vertical face, then lets physical wall contact start the
+            // normal bounded climb controller. Boost mode retains strict top
+            // landing because its larger horizontal speed can make a low-face
+            // intercept unsafe.
+            float collectionFaceBottomY = wallExitTarget.Top - 4.50f;
+            float collectionFaceMinimumFeetY =
+                collectionFaceBottomY + 0.35f;
+            float collectionFaceMaximumFeetY =
+                wallExitTarget.Top - 0.45f;
+            float collectionFacePreferredFeetY =
+                wallExitTarget.Top - 2.00f;
+            string collectionFaceSummary = string.Empty;
+            if (normalSection3CollectionExit &&
+                state.HasSphereProgress &&
+                state.RemainingRequiredSpheres > 0 &&
+                wallExitTarget.Left > currentWall.Right + 0.10f)
+            {
+                section3CollectionFacePulseSelected =
+                    jumpPlanner.TryChooseWallFaceInterceptHold(
+                        state.PlayerPosition.x,
+                        contactFeetY,
+                        currentWall,
+                        wallRecoveryRequiredReleaseY,
+                        wallExitTarget,
+                        inferredPlayerHalfWidth,
+                        wallExitPlanningSpeed,
+                        collectionFaceMinimumFeetY,
+                        collectionFaceMaximumFeetY,
+                        collectionFacePreferredFeetY,
+                        wallExitPhysics,
+                        MinimumWallLandingHoldSeconds,
+                        transferMaximumHold,
+                        true,
+                        1,
+                        out float collectionFaceHold,
+                        out _,
+                        out _,
+                        out collectionFaceContactSeconds,
+                        out _,
+                        out collectionFaceContactFeetY,
+                        out collectionFaceContactVelocityY,
+                        out collectionFaceSummary);
+                if (section3CollectionFacePulseSelected)
+                {
+                    wallExitTransferSelected = true;
+                    wallHold = collectionFaceHold;
+                    wallExitPredictedLandingX =
+                        wallExitTarget.Left - inferredPlayerHalfWidth;
+                    wallExitPredictedTravel = Mathf.Max(
+                        0f,
+                        wallExitPredictedLandingX - state.PlayerPosition.x);
+                    wallExitPredictedFlightSeconds =
+                        collectionFaceContactSeconds;
+                    wallExitPlanSummary =
+                        $"Section3CollectionFace[Hold={collectionFaceHold:F3}," +
+                        $"ContactY={collectionFaceContactFeetY:F3}," +
+                        $"ContactVY={collectionFaceContactVelocityY:F3}," +
+                        $"Window=[{collectionFaceMinimumFeetY:F3}," +
+                        $"{collectionFaceMaximumFeetY:F3}]] " +
+                        collectionFaceSummary;
+                }
+            }
+            float wallExitSafeTolerance = strictBoostLanding
+                ? 0.02f
+                : 0.20f;
+            bool preparedTargetMatches =
+                wallExitPreparedPlanActive &&
+                Mathf.Abs(
+                    wallExitPreparedTarget.Left -
+                    wallExitTarget.Left) <= 0.12f &&
+                Mathf.Abs(
+                    wallExitPreparedTarget.Right -
+                    wallExitTarget.Right) <= 0.12f &&
+                Mathf.Abs(
+                    wallExitPreparedTarget.Top -
+                    wallExitTarget.Top) <= 0.12f;
+            bool preparedSpeedMatches =
+                preparedTargetMatches &&
+                Mathf.Abs(
+                    wallExitPreparedSpeed -
+                    postLipHorizontalSpeed) <=
+                Mathf.Max(1.50f, postLipHorizontalSpeed * 0.15f);
+            bool applyPreparedMinimumHold =
+                !strictBoostLanding && preparedSpeedMatches;
+            float transferMinimumHold = applyPreparedMinimumHold
+                ? Mathf.Clamp(
+                    wallExitPreparedPlan.HoldSeconds,
+                    MinimumWallLandingHoldSeconds,
+                    transferMaximumHold)
+                : MinimumWallLandingHoldSeconds;
+            bool mappedGround5HighestPillarExit =
+                state.SectionIndex == 1 &&
+                string.Equals(
+                    currentWall.MapPieceName,
+                    "Ground 5",
+                    StringComparison.OrdinalIgnoreCase) &&
+                currentWall.StaticSurfaceIndex == 4 &&
+                string.Equals(
+                    wallExitTarget.MapPieceName,
+                    "Ground 5",
+                    StringComparison.OrdinalIgnoreCase) &&
+                wallExitTarget.StaticSurfaceIndex == 1 &&
+                (currentWall.MapPieceInstanceId != 0 &&
+                 currentWall.MapPieceInstanceId ==
+                    wallExitTarget.MapPieceInstanceId ||
+                 !float.IsNaN(currentWall.MapPieceOriginX) &&
+                 !float.IsNaN(wallExitTarget.MapPieceOriginX) &&
+                 Mathf.Abs(
+                     currentWall.MapPieceOriginX -
+                     wallExitTarget.MapPieceOriginX) <= 0.05f) &&
+                wallExitTarget.Top <= currentWall.Top - 5.00f;
+            bool allowRawBodyFitLanding =
+                mappedGround5HighestPillarExit ||
+                (!strictBoostLanding &&
+                 (preparedSpeedMatches || mappedGround7NarrowWall));
+            float transferHold = wallHold;
+            string directLandingSummary = string.Empty;
+            bool directLandingSelected =
+                !section3CollectionFacePulseSelected &&
+                jumpPlanner.TryChooseWallExitTransferHold(
+                    state.PlayerPosition.x,
+                    contactFeetY,
+                    wallRecoveryRequiredReleaseY,
+                    wallExitTarget,
+                    wallExitPlanningSpeed,
+                    wallExitPhysics,
+                    wallReleaseTravelBias,
+                    transferMinimumHold,
+                    transferMaximumHold,
+                    wallExitSafeTolerance,
+                    allowRawBodyFitLanding,
+                    out transferHold,
+                    out wallExitPredictedFlightSeconds,
+                    out wallExitPredictedTravel,
+                    out wallExitPredictedLandingX,
+                    out wallExitTransferAcceptedRawBodyFit,
+                    out directLandingSummary);
+            wallExitTransferSelected =
+                section3CollectionFacePulseSelected ||
+                directLandingSelected;
+            if (section3CollectionFacePulseSelected)
+            {
+                transferHold = wallHold;
+            }
+            else if (wallExitTransferSelected)
+                wallExitTransferSafeTolerance = wallExitSafeTolerance;
+
+            wallExitPlanSummary =
+                $"Policy[StrictBoost={strictBoostLanding}," +
+                $"SpeedAboveCruise={speedAboveEstablishedCruise}," +
+                $"SafeTolerance={wallExitSafeTolerance:F3}," +
+                $"RawBodyFit={allowRawBodyFitLanding}," +
+                $"Ground5HighestPillarExit=" +
+                $"{mappedGround5HighestPillarExit}," +
+                $"NormalSection3CollectionExit=" +
+                $"{normalSection3CollectionExit},MaximumHold=" +
+                $"{transferMaximumHold:F3}," +
+                $"CollectionFacePulse=" +
+                $"{section3CollectionFacePulseSelected}," +
+                $"PreparedActive={wallExitPreparedPlanActive}," +
+                $"PreparedTargetMatch={preparedTargetMatches}," +
+                $"PreparedSpeedMatch={preparedSpeedMatches}," +
+                $"PreparedSpeed={wallExitPreparedSpeed:F3}," +
+                $"MinimumHold={transferMinimumHold:F3}] " +
+                $"CollectionFaceCandidates[{collectionFaceSummary}] " +
+                $"DirectLandingCandidates[{directLandingSummary}]";
+            bool searchSpeedReachableAlternate =
+                (mappedGround7NarrowWall &&
+                 (!state.HasSphereProgress ||
+                  state.RemainingRequiredSpheres <= 0)) ||
+                wallExitAccelerationEnvelopeApplied;
+            if (!wallExitTransferSelected && searchSpeedReachableAlternate)
             {
                 string nearestTargetSummary = wallExitPlanSummary;
                 BonusBoardSegment[] speedCandidates =
                     platformScanner.GetWallExitLandingCandidates(
                         currentWall,
                         inferredPlayerHalfWidth,
-                        postLipHorizontalSpeed);
+                        wallExitPlanningSpeed);
                 foreach (BonusBoardSegment candidate in speedCandidates)
                 {
                     bool sameAsCurrentExit =
@@ -4819,15 +8575,18 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
                             contactFeetY,
                             wallRecoveryRequiredReleaseY,
                             candidate,
-                            postLipHorizontalSpeed,
+                            wallExitPlanningSpeed,
                             wallExitPhysics,
                             wallReleaseTravelBias,
                             MinimumWallLandingHoldSeconds,
-                            MaximumWallLandingHoldSeconds,
+                            transferMaximumHold,
+                            strictBoostLanding ? 0.02f : 0.20f,
+                            false,
                             out float candidateHold,
                             out float candidateFlight,
                             out float candidateTravel,
                             out float candidateLandingX,
+                            out _,
                             out string candidateSummary);
                     nearestTargetSummary +=
                         $" | AlternateTarget=[{candidate.Left:F3}," +
@@ -4839,7 +8598,9 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
                     if (!ConfigureWallExitRouteContract(
                             currentWall,
                             candidate,
-                            "Section3SpeedReachableAlternate"))
+                            wallExitAccelerationEnvelopeApplied
+                                ? "AcceleratingCompletionAlternate"
+                                : "Ground7SpeedReachableAlternate"))
                     {
                         continue;
                     }
@@ -4847,14 +8608,21 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
                     BonusBoardSegment previousExit = wallExitTarget;
                     wallExitTarget = candidate;
                     wallExitTargetActive = true;
+                    ClearWallExitPreparedContract();
                     transferHold = candidateHold;
                     wallExitPredictedFlightSeconds = candidateFlight;
                     wallExitPredictedTravel = candidateTravel;
                     wallExitPredictedLandingX = candidateLandingX;
+                    wallExitTransferAcceptedRawBodyFit = false;
+                    wallExitTransferSafeTolerance =
+                        strictBoostLanding ? 0.02f : 0.20f;
                     wallExitTransferSelected = true;
                     BonusRunnerLog.Debug(
                         $"WallExitTargetSpeedPromoted Section={state.SectionIndex}, " +
-                        $"PostLipVX={postLipHorizontalSpeed:F3}, From=" +
+                        $"ObservedPostLipVX={postLipHorizontalSpeed:F3}, " +
+                        $"PlanningVX={wallExitPlanningSpeed:F3}, " +
+                        $"AccelerationEnvelopeApplied=" +
+                        $"{wallExitAccelerationEnvelopeApplied}, From=" +
                         $"[{previousExit.Left:F3},{previousExit.Right:F3}]" +
                         $"@{previousExit.Top:F3}, To=[{candidate.Left:F3}," +
                         $"{candidate.Right:F3}]@{candidate.Top:F3}, Hold=" +
@@ -4867,10 +8635,149 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
                 }
                 wallExitPlanSummary = nearestTargetSummary;
             }
+
+            // Strict landing remains authoritative. When it and every legal
+            // alternate fail on the exact mapped Ground 7 S2 route, preserve a
+            // separately typed result: reach the lower downstream vertical
+            // face and let physical contact resume bounded climbing. The
+            // fixed-step face solver is preferred and now evaluates the exact
+            // powered-step count delivered by the actuator. The exact normal
+            // S2/S3 routes also retain their demonstrated native-cap holds as
+            // a liveness fallback when the remaining model still rejects a
+            // contact that the trace proved. Completion speed may use only
+            // the exact current-speed solver, never that normal-speed
+            // empirical fallback. This result is never reported as a landing
+            // prediction.
+            float committedFaceGap =
+                wallExitTarget.Left - currentWall.Right;
+            bool mappedGround7FaceRoute =
+                !wallExitTransferSelected &&
+                mappedGround7NarrowWall &&
+                terrainRouteActive &&
+                (completionTerrainTraversal ||
+                 !state.SpiritBoostEnabled &&
+                 !speedAboveEstablishedCruise) &&
+                (completionTerrainTraversal ||
+                 !state.HasSphereProgress ||
+                 state.RemainingRequiredSpheres > 0) &&
+                committedFaceGap > 5.25f &&
+                committedFaceGap <= CommittedExitFaceMaximumGap &&
+                wallExitTarget.Top <= currentWall.Top + 0.35f &&
+                wallExitTarget.Top >= currentWall.Top - 3.25f;
+            if (mappedGround7FaceRoute)
+            {
+                float minimumFaceFeetY =
+                    wallExitTarget.Top - CommittedExitFaceDepth +
+                    CommittedExitFaceBottomClearance;
+                float maximumFaceFeetY =
+                    wallExitTarget.Top - CommittedExitFaceTopClearance;
+                float preferredFaceFeetY =
+                    wallExitTarget.Top - CommittedExitFacePreferredDepth;
+                committedExitFaceInterceptModelProven =
+                    jumpPlanner.TryChooseWallFaceInterceptHold(
+                        state.PlayerPosition.x,
+                        contactFeetY,
+                        currentWall,
+                        wallRecoveryRequiredReleaseY,
+                        wallExitTarget,
+                        inferredPlayerHalfWidth,
+                        wallExitPlanningSpeed,
+                        minimumFaceFeetY,
+                        maximumFaceFeetY,
+                        preferredFaceFeetY,
+                        wallExitPhysics,
+                        transferMinimumHold,
+                        transferMaximumHold,
+                        true,
+                        1,
+                        out float faceHold,
+                        out _,
+                        out _,
+                        out committedExitFaceContactSeconds,
+                        out _,
+                        out committedExitFaceContactFeetY,
+                        out committedExitFaceContactVelocityY,
+                        out committedExitFaceSummary);
+
+                float empiricalFaceHold = Mathf.Min(
+                    transferMaximumHold,
+                    wallExitPhysics.EffectiveHoldCapSeconds);
+                bool retainedNormalFaceEvidence =
+                    !committedExitFaceInterceptModelProven &&
+                    state.IsActiveGameplay &&
+                    !completionTerrainTraversal &&
+                    (state.SectionIndex == 2 || state.SectionIndex == 3) &&
+                    empiricalFaceHold + 0.001f >= transferMinimumHold;
+                committedExitFaceInterceptSelected =
+                    committedExitFaceInterceptModelProven ||
+                    retainedNormalFaceEvidence;
+                if (committedExitFaceInterceptSelected)
+                {
+                    transferHold = committedExitFaceInterceptModelProven
+                        ? faceHold
+                        : empiricalFaceHold;
+                    wallExitTransferSelected = true;
+                    wallTopLandingSelected = false;
+                    wallTopLandingSequenceCommitted = false;
+                    wallExitTransferAcceptedRawBodyFit = false;
+                    wallExitTransferSafeTolerance = 0f;
+                    wallExitPredictedLandingX =
+                        wallExitTarget.Left - inferredPlayerHalfWidth;
+                    wallExitPredictedTravel = Mathf.Max(
+                        0f,
+                        wallExitPredictedLandingX -
+                            state.PlayerPosition.x);
+                    if (!committedExitFaceInterceptModelProven)
+                    {
+                        committedExitFaceContactSeconds = Mathf.Clamp(
+                            transferHold +
+                                wallExitPredictedTravel /
+                                Mathf.Max(1f, wallExitPlanningSpeed),
+                            0.10f,
+                            1.20f);
+                    }
+                    wallExitPredictedFlightSeconds =
+                        committedExitFaceContactSeconds;
+                    wallExitPlanSummary +=
+                        $" | CommittedFaceIntercept[Mode=" +
+                        $"{(committedExitFaceInterceptModelProven ? "FixedStepProven" : "RetainedGround7Evidence")}," +
+                        $"Hold={transferHold:F3},Gap={committedFaceGap:F3}," +
+                        $"ContactX={wallExitPredictedLandingX:F3}," +
+                        $"ContactY={committedExitFaceContactFeetY:F3}," +
+                        $"ContactVY={committedExitFaceContactVelocityY:F3}," +
+                        $"FaceWindow=[{minimumFaceFeetY:F3}," +
+                        $"{maximumFaceFeetY:F3}],Candidates[" +
+                        $"{committedExitFaceSummary}]]";
+                    BonusRunnerLog.Debug(
+                        $"CommittedExitFaceInterceptSelected Section=" +
+                        $"{state.SectionIndex}, Mode=" +
+                        $"{(committedExitFaceInterceptModelProven ? "FixedStepProven" : "RetainedGround7Evidence")}, " +
+                        $"CompletionTraversal=" +
+                        $"{completionTerrainTraversal}, " +
+                        $"Current=[{currentWall.Left:F3}," +
+                        $"{currentWall.Right:F3}]@{currentWall.Top:F3}/" +
+                        $"{currentWall.MapPieceName}:S" +
+                        $"{currentWall.StaticSurfaceIndex}, TargetFace=" +
+                        $"X={wallExitTarget.Left:F3},Y=[" +
+                        $"{minimumFaceFeetY:F3}," +
+                        $"{maximumFaceFeetY:F3}], Gap={committedFaceGap:F3}, " +
+                        $"ObservedVX={postLipHorizontalSpeed:F3}, " +
+                        $"PlanningVX={wallExitPlanningSpeed:F3}, Hold=" +
+                        $"{transferHold:F3}s, PredictedContact=" +
+                        $"({wallExitPredictedLandingX:F3}," +
+                        $"{committedExitFaceContactFeetY:F3})/" +
+                        $"{committedExitFaceContactSeconds:F3}s. " +
+                        "ExpectedOutcome=FaceContactOrVerifiedTargetTop; " +
+                        "strict landing was not weakened.",
+                        "Routing");
+                }
+            }
             if (wallExitTransferSelected)
             {
                 wallHold = transferHold;
-                wallLandingPredictionSelected = true;
+                wallLandingPredictionSelected =
+                    !section3CollectionFacePulseSelected &&
+                    !committedExitFaceInterceptSelected;
                 wallLandingPredictedX = wallExitPredictedLandingX;
                 wallLandingPredictedTravel = wallExitPredictedTravel;
                 wallLandingPredictedFlightSeconds =
@@ -4903,15 +8810,18 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
                     contactFeetY,
                     wallRecoveryRequiredReleaseY,
                     wallTopTarget,
-                    GetWallRouteSpeed(),
+                    wallExitPlanningSpeed,
                     wallExitPhysics,
                     wallReleaseTravelBias,
                     MinimumWallLandingHoldSeconds,
                     MaximumWallLandingHoldSeconds,
+                    0.20f,
+                    false,
                     out float wallTopHold,
                     out wallLandingPredictedFlightSeconds,
                     out wallLandingPredictedTravel,
                     out wallLandingPredictedX,
+                    out _,
                     out wallTopPlanSummary);
             if (wallTopLandingSelected)
             {
@@ -4929,6 +8839,34 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
         }
 
         float wallTopWidth = automaticTargetRight - automaticTargetLeft;
+        bool reactiveWallLipEscapeSelected =
+            !wallExitTransferSelected &&
+            !wallTopLandingSelected &&
+            hasKnownWallTarget &&
+            !isGround3ObjectiveFace &&
+            !wallExitFaceContactRequired &&
+            !wallExitTargetActive &&
+            wallTopWidth > StagedWallTopMaximumWidth &&
+            remainingRise <= 1.25f &&
+            wall.IsDetected &&
+            wall.IsTouching;
+        if (reactiveWallLipEscapeSelected)
+        {
+            // When a real face is already attached just below a wide top, a
+            // failed landing model must not fall back to the 0.115s generic
+            // climb floor. The normal Section-3 trace showed that this turns a
+            // 0.50-unit lip correction into a full second arc across the whole
+            // platform. Use the shortest pulse that the vertical model proves
+            // can clear the observed lip, then let the real landing replan.
+            wallHold = jumpPlanner.ChooseWallRecoveryHold(
+                remainingRise,
+                wallPhysics,
+                out predictedMaximumRise,
+                MinimumWallLandingHoldSeconds,
+                0.075f);
+            wallTopLandingSequenceCommitted = false;
+            wallLandingPredictionSelected = false;
+        }
         bool stagedAttachedBounceSelected =
             hasKnownWallTarget &&
             !wallExitFaceContactRequired &&
@@ -4970,8 +8908,11 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
         if (hasKnownWallTarget &&
             !wallLandingPredictionSelected &&
             !stagedAttachedBounceSelected &&
+            !reactiveWallLipEscapeSelected &&
             !mandatoryFaceSetupSelected &&
-            !mandatoryFaceContactPulseSelected)
+            !mandatoryFaceContactPulseSelected &&
+            !section3CollectionFacePulseSelected &&
+            !committedExitFaceInterceptSelected)
             wallHold = Mathf.Max(wallHold, holdUntilWallLip);
 
         BonusRunnerLog.Debug(
@@ -4981,6 +8922,7 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
             $"RemainingRise={remainingRise:F3}, ChosenHold={wallHold:F3}s, " +
             $"HoldUntilLip={holdUntilWallLip:F3}s, " +
             $"SphereObjective[Found={hasWallSpheres},Count={wallSphereCount}," +
+            $"MinY={(hasWallSpheres ? wallSphereMinimumY : float.NaN):F3}," +
             $"MaxY={(hasWallSpheres ? wallSphereMaximumY : float.NaN):F3}," +
             $"RequiredRise={sphereRequiredRise:F3}], " +
             $"PlannedRise={plannedWallRise:F3}, " +
@@ -4996,6 +8938,12 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
             $"MandatoryFaceContact={wallExitFaceContactRequired}, " +
             $"MandatoryFaceSetup={mandatoryFaceSetupSelected}, " +
             $"MandatoryFaceContactPulse={mandatoryFaceContactPulseSelected}, " +
+            $"Section3CollectionFacePulse=" +
+            $"{section3CollectionFacePulseSelected}, " +
+            $"CommittedExitFaceIntercept=" +
+            $"{committedExitFaceInterceptSelected}, " +
+            $"CommittedExitFaceMode=" +
+            $"{(committedExitFaceInterceptModelProven ? "FixedStepProven" : committedExitFaceInterceptSelected ? "RetainedGround7Evidence" : "NotSelected")}, " +
             $"MandatoryFaceState[SetupActive=" +
             $"{wallMandatoryFaceSetupActive},InterceptCommitted=" +
             $"{wallMandatoryFaceInterceptCommitted}], " +
@@ -5017,12 +8965,18 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
             $"{mandatoryFaceContactVelocityY:F3}], " +
             $"Ground3ObjectiveFace={isGround3ObjectiveFace}, " +
             $"WallTopSequenceCommitted={wallTopLandingSequenceCommitted}, " +
+            $"ReactiveWallLipEscape={reactiveWallLipEscapeSelected}, " +
             $"StagedAttachedBounce={stagedAttachedBounceSelected}, " +
             $"StagedHoldRange=" +
             $"{(stagedAttachedBounceSelected ? "0.075-0.135" : "NotApplicable")}, " +
             $"WallExitKinematics[AttachedVX=" +
             $"{Mathf.Abs(state.PlayerVelocity.x):F3},PostLipVX=" +
-            $"{postLipHorizontalSpeed:F3},ReleaseTravelBias=" +
+            $"{postLipHorizontalSpeed:F3},PlanningVX=" +
+            $"{wallExitPlanningSpeed:F3},AccelerationEnvelope=" +
+            $"{positiveHorizontalAccelerationEnvelope:F3},Applied=" +
+            $"{wallExitAccelerationEnvelopeApplied},CompletionSpeedCeiling=" +
+            $"{GetCompletionTraversalSpeedCeiling(state):F3}," +
+            $"ReleaseTravelBias=" +
             $"{wallReleaseTravelBias:F3},BaseVX=" +
             $"{wallExitPhysics.BaseHorizontalSpeed:F3},SectionCruiseVX=" +
             $"{(sectionCruiseHorizontalSpeed > 1f ? sectionCruiseHorizontalSpeed.ToString("F3") : "Unresolved")},SpeedMode=" +
@@ -5052,15 +9006,24 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
                     ? "WallRecoveryPhaseComplete"
                     : "WallRecoveryRetry");
         }
-        int mandatoryFixedStepHoldLimit =
+        bool fixedStepBoundedFacePulse =
             mandatoryFaceSetupSelected ||
-            mandatoryFaceContactPulseSelected
+            mandatoryFaceContactPulseSelected ||
+            section3CollectionFacePulseSelected ||
+            committedExitFaceInterceptSelected;
+        float facePulseFixedDelta =
+            section3CollectionFacePulseSelected ||
+            committedExitFaceInterceptSelected
+                ? wallExitPhysics.FixedDeltaTime
+                : mandatoryFacePhysics.FixedDeltaTime;
+        int fixedStepHoldLimit =
+            fixedStepBoundedFacePulse
                 ? Mathf.Max(
                     1,
                     Mathf.CeilToInt(
                         wallHold /
                         Mathf.Clamp(
-                            mandatoryFacePhysics.FixedDeltaTime,
+                            facePulseFixedDelta,
                             0.005f,
                             0.05f) -
                         0.0001f))
@@ -5072,7 +9035,7 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
             $"WallRecovery: Stall={stalledFor:F2}s, " +
             $"Contact={(inferredContinuousWallContact ? "Kinematic" : "Raycast")}, " +
             $"Collider={wall.ColliderInstanceId}:{wall.ColliderName}",
-            mandatoryFixedStepHoldLimit);
+            fixedStepHoldLimit);
         if (!jumpController.IsHoldingJump)
         {
             nextWallRecoveryTime =
@@ -5082,6 +9045,21 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
 
         wallExitTransferCommitted = wallExitTransferSelected;
         wallLandingFlightCommitted = wallLandingPredictionSelected;
+        wallExitFaceInterceptCommitted =
+            committedExitFaceInterceptSelected;
+        wallExitCollectionFaceInterceptCommitted =
+            section3CollectionFacePulseSelected;
+        if (HasCommittedExitFaceFlight())
+        {
+            // Own the complete action from DOWN, not merely from a later lip
+            // observation. Post-bounce classification can otherwise clear a
+            // ten-unit target because the generic chain watcher only accepts
+            // nearby faces.
+            wallExitContactWatchActive = true;
+            wallRecoveryCommitmentUntil = Mathf.Max(
+                wallRecoveryCommitmentUntil,
+                Time.unscaledTime + 1.25f);
+        }
         if (mandatoryFaceSetupSelected)
         {
             wallMandatoryFaceSetupActive = true;
@@ -5159,7 +9137,11 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
         automaticPlanReason =
             $"WallRecoveryPhase{wallRecoveryAttempts}" +
             (wallExitTransferSelected
-                ? ":ExitTransfer"
+                ? committedExitFaceInterceptSelected
+                    ? ":ExitFaceIntercept"
+                    : section3CollectionFacePulseSelected
+                    ? ":CollectionFaceIntercept"
+                    : ":ExitTransfer"
                 : wallTopLandingSelected
                     ? ":WallTopLanding"
                     : mandatoryFaceSetupSelected
@@ -5168,6 +9150,8 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
                         ? ":MandatoryFaceIntercept"
                     : stagedAttachedBounceSelected
                         ? ":StagedAttachedBounce"
+                    : reactiveWallLipEscapeSelected
+                        ? ":ReactiveLipEscape"
                     : ":AttachedClimb");
         // The approach press and the attached climb press have different
         // release rules. Leaving this as ApproachJumpThenWallJump caused
@@ -5187,6 +9171,7 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
         wallRecoveryUpwardPhysicsSteps = 0;
         wallRecoveryImpulseConfirmed = false;
         wallRecoveryImpulseFailureLogged = false;
+        wallRecoveryImpulseReleaseObservedFixedStep = -1;
         wallRecoveryPrematureReleaseLogged = false;
         wallRecoveryLipCrossed = false;
         learningInputUpTime =
@@ -5205,34 +9190,45 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
         automaticPlannedLaunchX = state.PlayerPosition.x;
         automaticLaunchWindowLeft = state.PlayerPosition.x;
         automaticLaunchWindowRight = state.PlayerPosition.x;
-        float mandatoryFaceContactCenterX =
-            mandatoryFaceContactPulseSelected
+        bool anyFaceContactPulseSelected =
+            mandatoryFaceContactPulseSelected ||
+            section3CollectionFacePulseSelected ||
+            committedExitFaceInterceptSelected;
+        float faceContactCenterX =
+            anyFaceContactPulseSelected
                 ? wallExitTarget.Left - inferredPlayerHalfWidth
                 : 0f;
-        float mandatoryFaceContactTravel =
-            mandatoryFaceContactPulseSelected
+        float faceContactTravel =
+            anyFaceContactPulseSelected
                 ? Mathf.Max(
                     0f,
-                    mandatoryFaceContactCenterX -
+                    faceContactCenterX -
                         state.PlayerPosition.x)
                 : 0f;
         automaticTargetHeightDelta =
             mandatoryFaceContactPulseSelected
                 ? mandatoryFaceContactFeetY - contactFeetY
+                : section3CollectionFacePulseSelected
+                    ? collectionFaceContactFeetY - contactFeetY
+                : committedExitFaceInterceptSelected
+                    ? (float.IsNaN(committedExitFaceContactFeetY)
+                        ? wallExitTarget.Top -
+                            CommittedExitFacePreferredDepth - contactFeetY
+                        : committedExitFaceContactFeetY - contactFeetY)
                 : wallExitTransferSelected
                     ? wallExitTarget.Top - contactFeetY
                     : remainingRise;
         automaticPredictedHorizontalTravel =
-            mandatoryFaceContactPulseSelected
-                ? mandatoryFaceContactTravel
+            anyFaceContactPulseSelected
+                ? faceContactTravel
                 : wallLandingPredictionSelected
             ? wallLandingPredictedTravel
             : Mathf.Max(
                 0f,
                 automaticTargetSafeLeft - state.PlayerPosition.x);
         automaticPredictedLandingX =
-            mandatoryFaceContactPulseSelected
-                ? mandatoryFaceContactCenterX
+            anyFaceContactPulseSelected
+                ? faceContactCenterX
                 : wallLandingPredictionSelected
             ? wallLandingPredictedX
             : automaticTargetSafeLeft;
@@ -5242,6 +9238,10 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
         automaticPredictedFlightSeconds =
             mandatoryFaceContactPulseSelected
                 ? mandatoryFaceContactSeconds
+                : section3CollectionFacePulseSelected
+                    ? collectionFaceContactSeconds
+                : committedExitFaceInterceptSelected
+                    ? committedExitFaceContactSeconds
                 : wallLandingPredictionSelected
             ? wallLandingPredictedFlightSeconds
             : jumpPlanner.PredictRawInputToLandingSeconds(
@@ -5251,10 +9251,17 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
         if (automaticPredictedFlightSeconds <= 0.05f)
             automaticPredictedFlightSeconds = 1.0f;
         automaticTrajectoryCompatible = true;
-        wallRecoveryCommitmentUntil = Time.unscaledTime + Mathf.Clamp(
+        float wallExitWatchSeconds = Mathf.Clamp(
             automaticPredictedFlightSeconds + 0.40f,
             0.80f,
             1.50f);
+        wallRecoveryCommitmentUntil =
+            Time.unscaledTime + wallExitWatchSeconds;
+        wallExitContactWatchDeadlineFixedStep =
+            HasCommittedExitFaceFlight()
+                ? JumpPhysicsFeedback.FixedStepSequence +
+                  GetPhysicsStepBudget(wallExitWatchSeconds)
+                : -1;
         nextTrajectoryMonitorLogTime = 0f;
         ClearSecondStagePreview();
         ClearRoutePlanLock();
@@ -5263,7 +9270,7 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
             $"WallRecoveryDecision Attempt={wallRecoveryAttempts}/" +
             $"{MaximumWallRecoveriesPerAirborneSequence}, " +
             $"ActionPhase={wallActionPhase}, " +
-            $"TriggerMode={(plannedBodyContactReady ? "BodyContact" : "ConfirmedStall")}, " +
+            $"TriggerMode={(authoritativeWatchedExitContact ? "ObservedWatchedExitFaceContact" : authoritativePlannedContact ? "ObservedPlannedFaceContact" : plannedBodyContactReady ? "BodyContact" : "ConfirmedStall")}, " +
             $"ContactEvidence={(inferredContinuousWallContact ? "Kinematic" : "Raycast")}, " +
             $"PhaseSeparation={(float.IsNaN(phaseSeparationSeconds) ? "FirstPhase" : $"{phaseSeparationSeconds:F3}s")}, " +
             $"Hold={wallHold:F3}s, X={state.PlayerPosition.x:F3}, " +
@@ -5275,14 +9282,272 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
             $"WallTopLanding={wallTopLandingSelected}, " +
             $"MandatoryFaceSetup={mandatoryFaceSetupSelected}, " +
             $"MandatoryFaceIntercept={mandatoryFaceContactPulseSelected}, " +
+            $"CommittedExitFaceIntercept=" +
+            $"{wallExitFaceInterceptCommitted}, " +
+            $"CollectionFaceIntercept=" +
+            $"{wallExitCollectionFaceInterceptCommitted}, " +
+            $"PredictedOutcome=" +
+            $"{(section3CollectionFacePulseSelected ? "CollectionFace" : anyFaceContactPulseSelected ? "FaceOrTop" : wallLandingPredictionSelected ? "Landing" : "Climb")}, " +
             $"MandatoryFacePrediction[ClearY=" +
             $"{mandatoryFaceTopClearFeetY:F3},ContactY=" +
             $"{mandatoryFaceContactFeetY:F3},ContactVY=" +
             $"{mandatoryFaceContactVelocityY:F3},ContactT=" +
             $"{mandatoryFaceContactSeconds:F3}], " +
             $"CommitUntil={wallRecoveryCommitmentUntil:F3}, " +
+            $"CommitDeadlineFixedStep=" +
+            $"{wallExitContactWatchDeadlineFixedStep}, " +
             $"Collider={wall.ColliderInstanceId}:{wall.ColliderName}.",
             "Recovery");
+        return true;
+    }
+
+    /// <summary>
+    /// The highest Ground 5 pillar has one pickup below the contact height at
+    /// which the normal wall solver immediately starts the next pulse.  Keep
+    /// input released through at least one fixed update while descending
+    /// through that pickup.  Resume as soon as the pickup/band is observed and
+    /// cap the wait with a bounded live-velocity/gravity prediction, then
+    /// solve the next wall pulse from live state. This is deliberately scoped
+    /// to the authored pillar
+    /// identity so it cannot change the stable routes on other walls.
+    /// </summary>
+    [HideFromIl2Cpp]
+    private bool TryManageGround5HighestPillarSink(
+        BonusStageState state,
+        BonusWallContact wall,
+        float contactFeetY,
+        bool hasWallSpheres,
+        int wallSphereCount,
+        float wallSphereMinimumY,
+        float wallSphereMaximumY)
+    {
+        bool isHighestGround5Pillar =
+            state.SectionIndex == 1 &&
+            string.Equals(
+                automaticTargetMapPieceName,
+                "Ground 5",
+                StringComparison.OrdinalIgnoreCase) &&
+            automaticTargetStaticSurfaceIndex == 4;
+        long fixedStep = JumpPhysicsFeedback.FixedStepSequence;
+        double fixedTime = Time.fixedTimeAsDouble;
+
+        if (ground5HighestPillarSinkActive)
+        {
+            if (!isHighestGround5Pillar)
+            {
+                BonusRunnerLog.Warning(
+                    $"Ground5HighestPillarSinkAborted Reason=" +
+                    $"RouteIdentityChanged, Position=" +
+                    $"({state.PlayerPosition.x:F3}," +
+                    $"{state.PlayerPosition.y:F3}), FeetY=" +
+                    $"{contactFeetY:F3}, MapPiece=" +
+                    $"{automaticTargetMapPieceName}#" +
+                    $"{automaticTargetMapPieceInstanceId}/S" +
+                    $"{automaticTargetStaticSurfaceIndex}.");
+                ResetGround5HighestPillarSink();
+                return false;
+            }
+
+            bool stillHasSpheres =
+                BonusStageInspector.TryGetActiveSphereVerticalBounds(
+                    automaticTargetLeft - 1.55f,
+                    automaticTargetRight + 0.8f,
+                    out int remainingSphereCount,
+                    out float remainingMinimumY,
+                    out float remainingMaximumY,
+                    out bool sphereScanSucceeded);
+            long rawSequenceDelta = Math.Max(
+                0L,
+                fixedStep - ground5HighestPillarSinkArmedFixedStep);
+            float activeSinkFixedDelta = Mathf.Clamp(
+                ground5HighestPillarSinkFixedDelta,
+                0.005f,
+                0.05f);
+            double elapsedFixedTime = Math.Max(
+                0d,
+                fixedTime - ground5HighestPillarSinkArmedFixedTime);
+            int elapsedPhysicsSteps = Math.Max(
+                0,
+                (int)Math.Floor(
+                    (elapsedFixedTime + activeSinkFixedDelta * 0.25f) /
+                    activeSinkFixedDelta));
+            double observationGap = Math.Max(
+                0d,
+                fixedTime -
+                    ground5HighestPillarSinkLastObservedFixedTime);
+            int physicsStepsSinceLastObservation = Math.Max(
+                0,
+                (int)Math.Floor(
+                    (observationGap +
+                        activeSinkFixedDelta * 0.25f) /
+                    activeSinkFixedDelta));
+            if (physicsStepsSinceLastObservation > 1)
+            {
+                ground5HighestPillarSinkBackgroundCatchUpObserved = true;
+            }
+            ground5HighestPillarSinkLastObservedFixedTime = fixedTime;
+            float armedSphereMinimumY =
+                ground5HighestPillarSinkTargetFeetY - 0.42f;
+            bool pickupCollected = sphereScanSucceeded &&
+                (!stillHasSpheres ||
+                 remainingSphereCount <
+                    ground5HighestPillarSinkSphereCount ||
+                 remainingMinimumY > armedSphereMinimumY + 0.20f);
+            bool reachedPickupBand =
+                contactFeetY <=
+                    ground5HighestPillarSinkTargetFeetY + 0.08f;
+            bool sinkDeadlineReached =
+                ground5HighestPillarSinkDeadlineFixedTime >= 0d &&
+                fixedTime + activeSinkFixedDelta * 0.25f >=
+                    ground5HighestPillarSinkDeadlineFixedTime;
+            bool keepReleased =
+                elapsedPhysicsSteps < 1 ||
+                !pickupCollected &&
+                !reachedPickupBand &&
+                !sinkDeadlineReached;
+            if (keepReleased)
+            {
+                jumpController.Release();
+                passiveWallApproachActive = true;
+                wallActionPhase = WallActionPhase.AwaitingNextWallPress;
+                wallStallStartedAt =
+                    Time.unscaledTime - WallStallConfirmationSeconds;
+                nextWallRecoveryTime = 0f;
+                return true;
+            }
+
+            string completionReason = pickupCollected
+                ? "PickupCollected"
+                : reachedPickupBand
+                    ? "PickupBandReached"
+                    : "DynamicFixedStepSafetyLimit";
+            BonusRunnerLog.Debug(
+                $"Ground5HighestPillarSinkComplete Reason=" +
+                $"{completionReason}, StartFeetY=" +
+                $"{ground5HighestPillarSinkStartFeetY:F3}, " +
+                $"ActualFeetY={contactFeetY:F3}, TargetFeetY=" +
+                $"{ground5HighestPillarSinkTargetFeetY:F3}, " +
+                $"StartFixedStep=" +
+                $"{ground5HighestPillarSinkArmedFixedStep}, " +
+                $"CurrentFixedStep={fixedStep}, RawSequenceDelta=" +
+                $"{rawSequenceDelta}, StartFixedTime=" +
+                $"{ground5HighestPillarSinkArmedFixedTime:F4}, " +
+                $"CurrentFixedTime={fixedTime:F4}, " +
+                $"ElapsedPhysicsSteps={elapsedPhysicsSteps}, " +
+                $"PhysicsStepsSinceLastObservation=" +
+                $"{physicsStepsSinceLastObservation}, " +
+                $"BackgroundCatchUpObserved=" +
+                $"{ground5HighestPillarSinkBackgroundCatchUpObserved}, " +
+                $"StartSpheres=" +
+                $"{ground5HighestPillarSinkSphereCount}, " +
+                $"SphereScanSucceeded={sphereScanSucceeded}, " +
+                $"RemainingSpheres=" +
+                $"{(stillHasSpheres ? remainingSphereCount : 0)}, " +
+                $"RemainingSphereY=" +
+                $"{(stillHasSpheres ? $"[{remainingMinimumY:F3}," +
+                    $"{remainingMaximumY:F3}]" : "None")}, " +
+                $"Velocity=({state.PlayerVelocity.x:F3}," +
+                $"{state.PlayerVelocity.y:F3}), WallFaceX=" +
+                $"{wall.FaceX:F3}. NextBehavior=solve the next wall pulse " +
+                $"from live post-sink state.",
+                "Routing");
+            ResetGround5HighestPillarSink();
+            wallStallStartedAt =
+                Time.unscaledTime - WallStallConfirmationSeconds;
+            nextWallRecoveryTime = 0f;
+            return false;
+        }
+
+        const float pickupFeetOffset = 0.42f;
+        // Spirit Boost reaches the authored S4 face at FeetY ~= 4.454 while
+        // the pickup target is 3.420.  The former 0.85 window ended at 4.270,
+        // so boosted runs skipped this state entirely and immediately pulsed
+        // upward.  The wider bound still applies only to Ground 5/S4 and the
+        // live downward phase; the fixed-step prediction remains responsible
+        // for stopping at the pickup band.
+        const float maximumArmFeetOffset = 1.25f;
+        if (!isHighestGround5Pillar ||
+            !hasWallSpheres ||
+            wallSphereCount <= 0 ||
+            state.PlayerVelocity.y >= -2.0f)
+        {
+            return false;
+        }
+
+        float targetFeetY = wallSphereMinimumY + pickupFeetOffset;
+        if (contactFeetY <= targetFeetY ||
+            contactFeetY > targetFeetY + maximumArmFeetOffset)
+        {
+            return false;
+        }
+
+        ground5HighestPillarSinkActive = true;
+        ground5HighestPillarSinkArmedFixedStep = fixedStep;
+        float sinkFixedDelta = Mathf.Clamp(
+            automaticPlanPhysicsSnapshot.FixedDeltaTime,
+            0.005f,
+            0.05f);
+        float sinkGravity = Mathf.Clamp(
+            automaticPlanPhysicsSnapshot.GravityMagnitude,
+            5f,
+            100f);
+        float predictedFeetY = contactFeetY;
+        float predictedVelocityY = state.PlayerVelocity.y;
+        int sinkStepBudget = 8;
+        for (int step = 1; step <= 8; step++)
+        {
+            predictedVelocityY -= sinkGravity * sinkFixedDelta;
+            predictedFeetY += predictedVelocityY * sinkFixedDelta;
+            if (predictedFeetY <= targetFeetY + 0.08f)
+            {
+                sinkStepBudget = step;
+                break;
+            }
+        }
+        sinkStepBudget = Mathf.Clamp(sinkStepBudget, 2, 8);
+        ground5HighestPillarSinkArmedFixedTime = fixedTime;
+        ground5HighestPillarSinkFixedDelta = sinkFixedDelta;
+        ground5HighestPillarSinkDeadlineFixedTime =
+            fixedTime + sinkStepBudget * sinkFixedDelta;
+        ground5HighestPillarSinkLastObservedFixedTime = fixedTime;
+        ground5HighestPillarSinkBackgroundCatchUpObserved = false;
+        ground5HighestPillarSinkStartFeetY = contactFeetY;
+        ground5HighestPillarSinkTargetFeetY = targetFeetY;
+        ground5HighestPillarSinkSphereCount = wallSphereCount;
+        wallExitTransferCommitted = false;
+        wallLandingFlightCommitted = false;
+        wallExitFaceInterceptCommitted = false;
+        wallExitCollectionFaceInterceptCommitted = false;
+        wallExitContactWatchDeadlineFixedStep = -1;
+        wallTopLandingSequenceCommitted = false;
+        passiveWallApproachActive = true;
+        wallActionPhase = WallActionPhase.AwaitingNextWallPress;
+        wallStallStartedAt =
+            Time.unscaledTime - WallStallConfirmationSeconds;
+        nextWallRecoveryTime = 0f;
+        jumpController.Release();
+        BonusRunnerLog.Debug(
+            $"Ground5HighestPillarSinkArmed Position=" +
+            $"({state.PlayerPosition.x:F3},{state.PlayerPosition.y:F3}), " +
+            $"FeetY={contactFeetY:F3}, Velocity=" +
+            $"({state.PlayerVelocity.x:F3},{state.PlayerVelocity.y:F3}), " +
+            $"TargetFeetY={targetFeetY:F3}, ObjectiveSpheres=" +
+            $"{wallSphereCount}, SphereY=[{wallSphereMinimumY:F3}," +
+            $"{wallSphereMaximumY:F3}], ArmWindowFeet=" +
+            $"({targetFeetY:F3},{targetFeetY + maximumArmFeetOffset:F3}], " +
+            $"SinkModel[FixedDt={sinkFixedDelta:F4},Gravity=" +
+            $"{sinkGravity:F3},Steps={sinkStepBudget},PredictedFeetY=" +
+            $"{predictedFeetY:F3}], FixedStep={fixedStep}, " +
+            $"FixedTime={fixedTime:F4}, DeadlineFixedTime=" +
+            $"{ground5HighestPillarSinkDeadlineFixedTime:F4}, " +
+            $"MapPiece={automaticTargetMapPieceName}#" +
+            $"{automaticTargetMapPieceInstanceId}/G" +
+            $"{automaticTargetRegistryGeneration}/S" +
+            $"{automaticTargetStaticSurfaceIndex}. Action=release with a " +
+            $"planned {sinkStepBudget}-physics-step budget; the next runtime " +
+            $"observation stops at/after the deadline, or earlier when the " +
+            $"pickup or target feet band is confirmed.",
+            "Routing");
         return true;
     }
 
@@ -5421,6 +9686,9 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
             nextAttachedObjectiveDescentLogTime = 0f;
             wallExitTransferCommitted = false;
             wallLandingFlightCommitted = false;
+            wallExitFaceInterceptCommitted = false;
+            wallExitCollectionFaceInterceptCommitted = false;
+            wallExitContactWatchDeadlineFixedStep = -1;
             wallTopLandingSequenceCommitted = false;
             wallRecoveryContactLatched = false;
             wallRecoverySawUpwardMotion = false;
@@ -5712,6 +9980,44 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
         out string evidence)
     {
         wall = wallDetector.Detect(player, GetWallRouteSpeed());
+        float committedFaceFeetY =
+            player != null && player.playerCollider != null
+                ? player.playerCollider.bounds.min.y
+                : state.PlayerPosition.y - 0.27f;
+        bool committedFaceFlightPending =
+            requirePlannedTarget &&
+            HasCommittedExitFaceFlight() &&
+            wallExitContactWatchActive &&
+            wallExitTargetActive &&
+            automaticPredictionActive &&
+            learningSampleActive &&
+            string.Equals(
+                learningSource,
+                "Automatic",
+                StringComparison.Ordinal) &&
+            wallExitContactWatchDeadlineFixedStep >= 0 &&
+            JumpPhysicsFeedback.FixedStepSequence <=
+                wallExitContactWatchDeadlineFixedStep &&
+            state.PlayerPosition.x <= wallExitTarget.Right + 1.0f &&
+            wallExitTarget.Width > 0.05f &&
+            wallExitTarget.Left - state.PlayerPosition.x <=
+                CommittedExitFaceMaximumGap + 1.50f &&
+            committedFaceFeetY >=
+                wallExitTarget.Top - CommittedExitFaceDepth - 0.25f;
+        if (committedFaceFlightPending)
+        {
+            evidence =
+                $"CommittedExitFaceFlightPending(Mode=" +
+                $"{(wallExitCollectionFaceInterceptCommitted ? "CollectionFace" : "FaceOrTop")}," +
+                $"Target=[{wallExitTarget.Left:F3}," +
+                $"{wallExitTarget.Right:F3}]@{wallExitTarget.Top:F3}," +
+                $"FeetY={committedFaceFeetY:F3}," +
+                $"FixedStep={JumpPhysicsFeedback.FixedStepSequence}/" +
+                $"{wallExitContactWatchDeadlineFixedStep}," +
+                $"RayDetected={wall.IsDetected}," +
+                $"RayDistance={wall.Distance:F3})";
+            return true;
+        }
         if (!wall.IsDetected)
         {
             evidence = wall.Reason ?? "WallNotDetected";
@@ -5733,6 +10039,8 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
         }
 
         bool plannedWallRoute =
+            HasCommittedExitFaceFlight() &&
+                wallExitTargetActive ||
             passiveWallApproachActive ||
             automaticPredictionActive &&
                 (automaticManeuver ==
@@ -5746,18 +10054,33 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
             return false;
         }
 
+        bool committedExitTargetOwnsProbe =
+            HasCommittedExitFaceFlight() &&
+            wallExitTargetActive;
+        float plannedTargetLeft = committedExitTargetOwnsProbe
+            ? wallExitTarget.Left
+            : automaticTargetLeft;
+        float plannedTargetRight = committedExitTargetOwnsProbe
+            ? wallExitTarget.Right
+            : automaticTargetRight;
+        float plannedTargetTop = committedExitTargetOwnsProbe
+            ? wallExitTarget.Top
+            : automaticTargetTop;
         bool targetGeometryAvailable =
-            automaticTargetRight > automaticTargetLeft + 0.05f;
+            plannedTargetRight > plannedTargetLeft + 0.05f;
         bool targetFaceMatches =
             targetGeometryAvailable &&
-            wall.FaceX >= automaticTargetLeft - 0.80f &&
-            wall.FaceX <= automaticTargetRight + 0.80f &&
-            state.PlayerPosition.x <= automaticTargetRight + 0.80f &&
-            state.PlayerPosition.y < automaticTargetTop + 0.50f;
+            wall.FaceX >= plannedTargetLeft - 0.80f &&
+            wall.FaceX <= plannedTargetRight + 0.80f &&
+            state.PlayerPosition.x <= plannedTargetRight + 0.80f &&
+            state.PlayerPosition.y < plannedTargetTop + 0.50f;
         evidence = targetFaceMatches
-            ? "PlannedTargetWallMatch"
-            : $"DetectedWallTargetMismatch(Target=[{automaticTargetLeft:F3}," +
-              $"{automaticTargetRight:F3}]@{automaticTargetTop:F3})";
+            ? committedExitTargetOwnsProbe
+                ? "CommittedExitFaceTargetMatch"
+                : "PlannedTargetWallMatch"
+            : $"DetectedWallTargetMismatch(Target=[{plannedTargetLeft:F3}," +
+              $"{plannedTargetRight:F3}]@{plannedTargetTop:F3}," +
+              $"CommittedFace={committedExitTargetOwnsProbe})";
         return targetFaceMatches;
     }
 
@@ -5825,19 +10148,27 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
         wallRecoveryUpwardPhysicsSteps = 0;
         wallRecoveryImpulseConfirmed = false;
         wallRecoveryImpulseFailureLogged = false;
+        wallRecoveryImpulseReleaseObservedFixedStep = -1;
         wallRecoveryPrematureReleaseLogged = false;
         wallRecoveryLipCrossed = false;
         wallRecoveryRequiredReleaseY = 0f;
         wallExitTargetActive = false;
         wallExitTarget = default;
+        ClearWallExitPreparedContract();
         wallExitPredictedLandingX = 0f;
         wallExitPredictedTravel = 0f;
         wallExitPredictedFlightSeconds = 0f;
+        wallExitTransferAcceptedRawBodyFit = false;
+        wallExitTransferSafeTolerance = 0f;
         wallExitPlanSummary = string.Empty;
         wallExitTransferCommitted = false;
         wallLandingFlightCommitted = false;
+        wallExitFaceInterceptCommitted = false;
+        wallExitCollectionFaceInterceptCommitted = false;
+        ClearWatchedExitSupportFixedStepLatch();
         wallTopLandingSequenceCommitted = false;
         wallExitContactWatchActive = false;
+        wallExitContactWatchDeadlineFixedStep = -1;
         ResetWallResidualRiseWait();
         wallExitFaceContactRequired = false;
         wallExitObjectiveCountAtCapture = 0;
@@ -5850,12 +10181,35 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
         attachedObjectiveDescentTargetFeetY = 0f;
         attachedObjectiveDescentSphereCount = 0;
         nextAttachedObjectiveDescentLogTime = 0f;
+        ResetGround5HighestPillarSink();
         wallReleaseObservedFixedStep = -1;
         wallDetachedLastFixedStep = -1;
         wallDetachedConfirmationSteps = 0;
         wallActionPhase = WallActionPhase.None;
         wallRouteSpeedLatched = false;
         wallRouteHorizontalSpeed = 0f;
+    }
+
+    private void ClearWallExitPreparedContract()
+    {
+        wallExitPreparedPlanActive = false;
+        wallExitPreparedPlan = default;
+        wallExitPreparedSpeed = 0f;
+        wallExitPreparedTarget = default;
+    }
+
+    private void ResetGround5HighestPillarSink()
+    {
+        ground5HighestPillarSinkActive = false;
+        ground5HighestPillarSinkArmedFixedStep = -1;
+        ground5HighestPillarSinkArmedFixedTime = -1d;
+        ground5HighestPillarSinkDeadlineFixedTime = -1d;
+        ground5HighestPillarSinkFixedDelta = 0.02f;
+        ground5HighestPillarSinkLastObservedFixedTime = -1d;
+        ground5HighestPillarSinkBackgroundCatchUpObserved = false;
+        ground5HighestPillarSinkStartFeetY = 0f;
+        ground5HighestPillarSinkTargetFeetY = 0f;
+        ground5HighestPillarSinkSphereCount = 0;
     }
 
     private void ResetWallRecoveryState()
@@ -5875,6 +10229,8 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
         activeRouteDecisionId = 0;
         automaticPlanReason = string.Empty;
         automaticManeuver = BonusManeuverKind.None;
+        automaticLandingAllowsRawBodyFit = false;
+        automaticLandingSafeTolerance = 0f;
         automaticTargetColliderId = 0;
         automaticTargetColliderName = string.Empty;
         automaticTargetMapPieceName = string.Empty;
@@ -5937,6 +10293,18 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
             return true;
         }
 
+        // A static preview and the live composite collider can annotate the
+        // exact same physical runway with adjacent pooled prefab identities.
+        // Geometry is authoritative at that seam; rejecting coincident
+        // bounds/top polluted a verified Ground 5 exit as WrongSupport and
+        // discarded useful landing feedback.
+        bool coincidentGeometry =
+            Mathf.Abs(live.Left - expected.Left) <= 0.12f &&
+            Mathf.Abs(live.Right - expected.Right) <= 0.12f &&
+            Mathf.Abs(live.Top - expected.Top) <= 0.35f;
+        if (coincidentGeometry)
+            return true;
+
         bool liveHasStaticIdentity =
             live.MapPieceInstanceId != 0 &&
             live.StaticSurfaceIndex >= 0;
@@ -5978,6 +10346,8 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
         automaticManeuver = BonusManeuverKind.EnterTrenchThenWallJump;
         automaticTargetSafeLeft = target.SafeLeft;
         automaticTargetSafeRight = target.SafeRight;
+        automaticLandingAllowsRawBodyFit = false;
+        automaticLandingSafeTolerance = 0f;
         automaticTargetLeft = target.Left;
         automaticTargetRight = target.Right;
         automaticTargetTop = target.Top;
@@ -6052,7 +10422,8 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
         BonusBoardSegment target,
         BonusBoardScanResult scan,
         BonusHazard hazard,
-        JumpPhysicsSnapshot planningPhysics)
+        JumpPhysicsSnapshot planningPhysics,
+        float triggerSpeedOverride = 0f)
     {
         if (!jumpController.IsHoldingJump) return;
         if (plan.Maneuver == BonusManeuverKind.ApproachJumpThenWallJump)
@@ -6075,11 +10446,15 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
         automaticPredictionLaunchFeetY = scan.Current.Top;
         automaticPlannedTravelScale = planningPhysics.HorizontalTravelScale;
         automaticPlannedHold = plan.HoldSeconds;
-        automaticTriggerSpeed = Mathf.Max(1f, Mathf.Abs(state.PlayerVelocity.x));
+        automaticTriggerSpeed = triggerSpeedOverride > 1f
+            ? triggerSpeedOverride
+            : Mathf.Max(1f, Mathf.Abs(state.PlayerVelocity.x));
         automaticTargetHeightDelta = target.Top - state.PlayerPosition.y;
         automaticPhysicsRevision = planningPhysics.ModelRevision;
         automaticTargetSafeLeft = target.SafeLeft;
         automaticTargetSafeRight = target.SafeRight;
+        automaticLandingAllowsRawBodyFit = false;
+        automaticLandingSafeTolerance = 0f;
         automaticTargetLeft = target.Left;
         automaticTargetRight = target.Right;
         automaticTargetTop = target.Top;
@@ -6412,11 +10787,45 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
             // executor.
             wallExitTargetActive = false;
             wallExitTarget = default;
+            ClearWallExitPreparedContract();
             return;
         }
 
         wallExitTargetActive = true;
         wallExitTarget = candidate;
+        bool preparedPlanTargetsCandidate =
+            secondStageProjectedPlan.IsValid &&
+            secondStageProjectedPlan.HoldSeconds >= 0.02f &&
+            secondStageProjectedPlan.PredictedLandingX >=
+                candidate.SafeLeft - 0.25f &&
+            secondStageProjectedPlan.PredictedLandingX <=
+                candidate.SafeRight + 0.25f;
+        if (preparedPlanTargetsCandidate)
+        {
+            wallExitPreparedPlanActive = true;
+            wallExitPreparedPlan = secondStageProjectedPlan;
+            wallExitPreparedSpeed = GetWallRouteSpeed();
+            wallExitPreparedTarget = candidate;
+            BonusRunnerLog.Debug(
+                $"WallExitPreparedContractCaptured Target=" +
+                $"[{candidate.Left:F3},{candidate.Right:F3}] Safe=" +
+                $"[{candidate.SafeLeft:F3},{candidate.SafeRight:F3}]@" +
+                $"{candidate.Top:F3}, PreparedAction=" +
+                $"{(secondStageProjectedPlan.ShouldJumpNow ? "Jump" : "Wait")}, " +
+                $"PreparedHold={secondStageProjectedPlan.HoldSeconds:F3}s, " +
+                $"PreparedLanding=" +
+                $"{secondStageProjectedPlan.PredictedLandingX:F3}, " +
+                $"PreparedSpeed={wallExitPreparedSpeed:F3}, Maneuver=" +
+                $"{secondStageProjectedPlan.Maneuver}, Reason=" +
+                $"{secondStageProjectedPlan.Reason}. The downstream action " +
+                $"survives the wall-contact handoff and may set a normal-speed " +
+                $"minimum hold; live wall kinematics remain authoritative.",
+                "Lookahead");
+        }
+        else
+        {
+            ClearWallExitPreparedContract();
+        }
         BonusRunnerLog.Debug(
             $"WallExitTargetCaptured Wall=[{automaticTargetLeft:F3}," +
             $"{automaticTargetRight:F3}]@{automaticTargetTop:F3}, " +
@@ -6511,9 +10920,11 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
         {
             wallExitTargetActive = false;
             wallExitTarget = default;
+            ClearWallExitPreparedContract();
             return;
         }
 
+        ClearWallExitPreparedContract();
         wallExitTargetActive = true;
         wallExitTarget = candidate;
         BonusRunnerLog.Debug(
@@ -6531,10 +10942,10 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
             "Recovery");
     }
 
-    private void CaptureSectionThreeWallExitTargetFromStaticMap(
+    private void CaptureGround7WallExitTargetFromStaticMap(
         float playerHalfWidth)
     {
-        if (wallExitTargetActive || latestState.SectionIndex != 3)
+        if (wallExitTargetActive)
             return;
 
         BonusBoardSegment currentWall = BuildAutomaticTargetSegment();
@@ -6557,11 +10968,12 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
             !ConfigureWallExitRouteContract(
                 currentWall,
                 candidate,
-                "Section3StaticExitFallback"))
+                "Ground7StaticExitFallback"))
         {
             return;
         }
 
+        ClearWallExitPreparedContract();
         wallExitTargetActive = true;
         wallExitTarget = candidate;
         BonusRunnerLog.Debug(
@@ -6569,7 +10981,7 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
             $"{currentWall.Right:F3}]@{currentWall.Top:F3}, Exit=" +
             $"[{candidate.Left:F3},{candidate.Right:F3}] Safe=" +
             $"[{candidate.SafeLeft:F3},{candidate.SafeRight:F3}]" +
-            $"@{candidate.Top:F3}, Source=Section3StaticExitFallback, " +
+            $"@{candidate.Top:F3}, Source=Ground7StaticExitFallback, " +
             $"PostLipVX={GetWallRouteSpeed():F3}, MapPiece=" +
             $"{candidate.MapPieceName}#{candidate.MapPieceInstanceId}/G" +
             $"{candidate.RegistryGeneration}/S" +
@@ -6583,6 +10995,10 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
         BonusBoardSegment candidate,
         string source)
     {
+        ClearWatchedExitSupportFixedStepLatch();
+        wallExitFaceInterceptCommitted = false;
+        wallExitCollectionFaceInterceptCommitted = false;
+        wallExitContactWatchDeadlineFixedStep = -1;
         wallExitFaceContactRequired = false;
         wallExitObjectiveCountAtCapture = 0;
         wallExitObjectiveMinimumY = float.NaN;
@@ -6679,6 +11095,14 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
 
         wallExitContactWatchActive = true;
         wallRecoveryCommitmentUntil = Time.unscaledTime + 1.25f;
+        if (HasCommittedExitFaceFlight())
+        {
+            wallExitContactWatchDeadlineFixedStep =
+                Math.Max(
+                    wallExitContactWatchDeadlineFixedStep,
+                    JumpPhysicsFeedback.FixedStepSequence +
+                    GetPhysicsStepBudget(1.25f));
+        }
         if (wallMandatoryFaceInterceptCommitted &&
             wallExitFaceContactRequired)
         {
@@ -6698,6 +11122,8 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
             $"{wallRecoveryCommitmentUntil:F3}, ContactRequired=" +
             $"{wallExitFaceContactRequired}, DeadlineFixedStep=" +
             $"{wallMandatoryFaceContactWatchDeadlineFixedStep}, " +
+            $"CommittedDeadlineFixedStep=" +
+            $"{wallExitContactWatchDeadlineFixedStep}, " +
             $"ObjectiveCount=" +
             $"{wallExitObjectiveCountAtCapture}. " +
             (wallExitFaceContactRequired
@@ -6711,7 +11137,9 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
 
     private bool TryPromoteChainedWallTarget(
         BonusStageState state,
-        bool allowLevelFace = false)
+        bool allowLevelFace = false,
+        float observedFaceX = float.NaN,
+        float observedFeetY = float.NaN)
     {
         if (!wallExitTargetActive)
             return false;
@@ -6729,19 +11157,46 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
         if (!isForwardRisingStep)
             return false;
 
+        bool observedContactSupplied =
+            !float.IsNaN(observedFaceX) &&
+            !float.IsNaN(observedFeetY);
+        bool observedFiniteFaceContact =
+            !observedContactSupplied ||
+            Mathf.Abs(observedFaceX - nextWall.Left) <= 0.45f &&
+            observedFeetY <= nextWall.Top - 0.10f;
+        if (!observedFiniteFaceContact)
+        {
+            BonusRunnerLog.Warning(
+                $"WallChainTargetPromotionRejected Reason=" +
+                $"ObservedContactOutsideFiniteFace, Position=" +
+                $"({state.PlayerPosition.x:F3},{state.PlayerPosition.y:F3}), " +
+                $"ObservedFaceX={observedFaceX:F3}, FeetY=" +
+                $"{observedFeetY:F3}, ExpectedFaceX={nextWall.Left:F3}, " +
+                $"ExpectedTop={nextWall.Top:F3}. The geometric successor " +
+                "cannot replace physical face evidence.");
+            return false;
+        }
+
         if (learningSampleActive)
             FinishLearningSample(state, "WallPulseChainTransfer");
 
         wallExitTargetActive = false;
         wallExitTarget = default;
+        ClearWallExitPreparedContract();
+        wallExitFaceInterceptCommitted = false;
+        wallExitCollectionFaceInterceptCommitted = false;
+        wallExitContactWatchDeadlineFixedStep = -1;
         wallExitFaceContactRequired = false;
         wallExitObjectiveCountAtCapture = 0;
         wallExitObjectiveMinimumY = float.NaN;
         wallExitObjectiveMaximumY = float.NaN;
         ResetMandatoryFacePlanState();
         wallExitContactWatchActive = false;
+        wallExitContactWatchDeadlineFixedStep = -1;
         automaticTargetSafeLeft = nextWall.SafeLeft;
         automaticTargetSafeRight = nextWall.SafeRight;
+        automaticLandingAllowsRawBodyFit = false;
+        automaticLandingSafeTolerance = 0f;
         automaticTargetLeft = nextWall.Left;
         automaticTargetRight = nextWall.Right;
         automaticTargetTop = nextWall.Top;
@@ -6767,6 +11222,9 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
         wallDetachedConfirmationSteps = 0;
         wallExitTransferCommitted = false;
         wallLandingFlightCommitted = false;
+        wallExitFaceInterceptCommitted = false;
+        wallExitCollectionFaceInterceptCommitted = false;
+        wallExitContactWatchDeadlineFixedStep = -1;
         wallTopLandingSequenceCommitted = false;
         wallStallStartedAt = -1f;
         nextWallRecoveryTime = 0f;
@@ -6800,6 +11258,8 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
             $"@{completedWall.Top:F3}, Next=" +
             $"[{nextWall.Left:F3},{nextWall.Right:F3}]" +
             $"@{nextWall.Top:F3}, Gap={gap:F3}, Rise={rise:F3}, " +
+            $"ObservedContact=" +
+            $"{(observedContactSupplied ? $"FaceX={observedFaceX:F3}/FeetY={observedFeetY:F3}" : "NotRequiredAtOldLip")}, " +
             $"PromotionMode={(allowLevelFace ? "PhysicalExitFaceContact" : "RisingStaticChain")}. " +
             $"MandatoryFaceContact=" +
             $"{(satisfiedMandatoryContact ? "Satisfied" : "NotRequired")}. " +
@@ -6817,6 +11277,10 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
         BonusBoardSegment exit = wallExitTarget;
         automaticTargetSafeLeft = exit.SafeLeft;
         automaticTargetSafeRight = exit.SafeRight;
+        automaticLandingAllowsRawBodyFit =
+            wallExitTransferAcceptedRawBodyFit;
+        automaticLandingSafeTolerance =
+            wallExitTransferSafeTolerance;
         automaticTargetLeft = exit.Left;
         automaticTargetRight = exit.Right;
         automaticTargetTop = exit.Top;
@@ -6854,20 +11318,43 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
         wallRecoveryCommitmentUntil = Mathf.Max(
             wallRecoveryCommitmentUntil,
             Time.unscaledTime + 1.25f);
+        if (HasCommittedExitFaceFlight())
+        {
+            wallExitContactWatchDeadlineFixedStep =
+                Math.Max(
+                    wallExitContactWatchDeadlineFixedStep,
+                    JumpPhysicsFeedback.FixedStepSequence +
+                    GetPhysicsStepBudget(1.25f));
+        }
 
         BonusRunnerLog.Debug(
             $"WallExitTransferActivated AttemptId={automaticAttemptId}, " +
+            $"TransferMode=" +
+            $"{(wallExitCollectionFaceInterceptCommitted ? "CollectionFacePending" : wallExitFaceInterceptCommitted ? "FaceOrTopPending" : "SafeLandingWithFaceFallback")}, " +
             $"Position=({state.PlayerPosition.x:F3},{state.PlayerPosition.y:F3}), " +
             $"Velocity=({state.PlayerVelocity.x:F3},{state.PlayerVelocity.y:F3}), " +
             $"Target=[{exit.Left:F3},{exit.Right:F3}] " +
             $"Safe=[{exit.SafeLeft:F3},{exit.SafeRight:F3}]@{exit.Top:F3}, " +
-            $"PredictedLandingX={automaticPredictedLandingX:F3}, " +
+            $"PredictedOutcomeX={automaticPredictedLandingX:F3}, " +
             $"PredictedTravel={automaticPredictedHorizontalTravel:F3}, " +
             $"PredictedFlight={automaticPredictedFlightSeconds:F3}s, " +
+            $"LandingAcceptance[SafeTolerance=" +
+            $"{automaticLandingSafeTolerance:F3},RawBodyFit=" +
+            $"{automaticLandingAllowsRawBodyFit}], " +
             $"ContactFallbackDeadline={wallRecoveryCommitmentUntil:F3}. " +
-            "The downstream support is the expected landing objective, but " +
-            "its physical face remains armed as an authoritative wall-contact " +
-            "fallback until stable landing.",
+            $"ContactFallbackDeadlineFixedStep=" +
+            $"{wallExitContactWatchDeadlineFixedStep}. " +
+            (wallExitCollectionFaceInterceptCommitted
+                ? "The low-objective route requires the mapped left face; " +
+                  "a top landing is recoverable terrain but is recorded as " +
+                  "a missed collection route."
+                : wallExitFaceInterceptCommitted
+                ? "The strict landing solver rejected every hold; the mapped " +
+                  "left face is the expected outcome and a verified target-top " +
+                  "landing remains an equally safe completion."
+                : "The downstream support is the expected landing objective, " +
+                  "but its physical face remains armed as an authoritative " +
+                  "wall-contact fallback until stable landing."),
             "Recovery");
     }
 
@@ -6915,11 +11402,30 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
         landingCandidateColliderId = 0;
     }
 
+    private void ClearWatchedExitSupportFixedStepLatch()
+    {
+        wallExitSupportFixedStepLatched = false;
+        wallExitSupportLatchedAttemptId = 0;
+        wallExitSupportLatchedFixedStep = -1;
+        wallExitSupportLatchedPlayerInstanceId = 0;
+        wallExitSupportLatchedTarget = default;
+        wallExitSupportLatchedSurface = default;
+        wallExitSupportLatchedPosition = default;
+        wallExitSupportLatchedVelocity = default;
+        wallExitSupportLatchedPlayerHalfWidth = 0f;
+        wallExitSupportLatchedAt = 0f;
+        wallExitSupportLatchedFaceOrTop = false;
+        wallExitSupportLatchedCollectionFace = false;
+        wallExitSupportLatchedCompletionNarrow = false;
+        wallExitSupportLatchedAutomaticTarget = false;
+    }
+
     private static bool IsGroundLearningManeuver(
         BonusManeuverKind maneuver) =>
         maneuver == BonusManeuverKind.GroundJumpToLanding ||
         maneuver == BonusManeuverKind.ApproachJumpThenWallJump ||
         maneuver == BonusManeuverKind.SphereCollectionJump ||
+        maneuver == BonusManeuverKind.SphereSweepToLowerLanding ||
         maneuver == BonusManeuverKind.HazardClearanceJump;
 
     private bool IsManualGroundLearningEligible(BonusStageState state)
@@ -6964,6 +11470,8 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
         learningPreviousVelocityY = state.PlayerVelocity.y;
         learningLastObservedPosition = state.PlayerPosition;
         learningLastObservedAt = Time.unscaledTime;
+        learningLastObservedFixedStep =
+            JumpPhysicsFeedback.FixedStepSequence;
         learningTookOff = false;
         learningFirstApexCaptured = false;
         learningInputReleased = false;
@@ -6996,16 +11504,52 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
             Time.unscaledTime - learningLastObservedAt);
         Vector3 frameDelta =
             state.PlayerPosition - learningLastObservedPosition;
+        long currentObservationFixedStep =
+            JumpPhysicsFeedback.FixedStepSequence;
+        long elapsedObservationFixedSteps =
+            learningLastObservedFixedStep >= 0
+                ? Math.Max(
+                    0L,
+                    currentObservationFixedStep -
+                    learningLastObservedFixedStep)
+                : 0L;
+        float observationFixedDelta = Mathf.Clamp(
+            latestPhysicsSnapshot.FixedDeltaTime > 0f
+                ? latestPhysicsSnapshot.FixedDeltaTime
+                : Time.fixedDeltaTime,
+            0.005f,
+            0.05f);
+        float physicsObservationDelta =
+            elapsedObservationFixedSteps > 0
+                ? elapsedObservationFixedSteps * observationFixedDelta
+                : Mathf.Min(observationDelta, observationFixedDelta);
         float maximumExpectedHorizontalDelta =
             Mathf.Max(
                 Mathf.Abs(state.PlayerVelocity.x),
                 Mathf.Abs(lastReliableHorizontalSpeed)) *
-            observationDelta + 1.25f;
+            physicsObservationDelta + 1.25f;
+        float verticalVelocityEnvelope = Mathf.Max(
+            Mathf.Max(
+                Mathf.Abs(state.PlayerVelocity.y),
+                Mathf.Abs(learningPreviousVelocityY)),
+            Mathf.Max(
+                5f,
+                Mathf.Abs(latestPhysicsSnapshot.JumpVelocity)));
+        float gravityEnvelope = Mathf.Clamp(
+            Mathf.Abs(latestPhysicsSnapshot.GravityMagnitude),
+            1f,
+            120f);
+        float maximumExpectedVerticalDelta =
+            verticalVelocityEnvelope * physicsObservationDelta +
+            0.5f * gravityEnvelope *
+                physicsObservationDelta * physicsObservationDelta +
+            1.25f;
         bool positionDiscontinuity =
-            Mathf.Abs(frameDelta.y) > 5.50f ||
+            Mathf.Abs(frameDelta.y) > maximumExpectedVerticalDelta ||
             Mathf.Abs(frameDelta.x) > maximumExpectedHorizontalDelta + 1.25f;
         learningLastObservedPosition = state.PlayerPosition;
         learningLastObservedAt = Time.unscaledTime;
+        learningLastObservedFixedStep = currentObservationFixedStep;
         if (positionDiscontinuity)
         {
             bool automaticLifecycleTransition =
@@ -7013,7 +11557,11 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
             BonusRunnerLog.Warning(
                 $"ActionPositionDiscontinuity AttemptId={learningSampleId}, " +
                 $"Source={learningSource}, Delta=({frameDelta.x:F3},{frameDelta.y:F3}), " +
-                $"Dt={observationDelta:F3}s, Position=" +
+                $"WallDt={observationDelta:F3}s, PhysicsDt=" +
+                $"{physicsObservationDelta:F3}s, FixedSteps=" +
+                $"{elapsedObservationFixedSteps}, Limits=" +
+                $"[X={maximumExpectedHorizontalDelta + 1.25f:F3}," +
+                $"Y={maximumExpectedVerticalDelta:F3}], Position=" +
                 $"({state.PlayerPosition.x:F3},{state.PlayerPosition.y:F3}), " +
                 $"Velocity=({state.PlayerVelocity.x:F3},{state.PlayerVelocity.y:F3}). " +
                 "FailureDomain=Lifecycle, FailureReason=TeleportOrRespawn; " +
@@ -7023,6 +11571,8 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
             ResetAutomaticControlState();
             if (automaticLifecycleTransition)
             {
+                ResetCompletionTraversalSpeedEvidence(
+                    "ActionPositionDiscontinuity");
                 pitDescentGuardActive = true;
                 pitRespawnLastFixedStep = -1;
                 pitRespawnStableFixedSteps = 0;
@@ -7037,11 +11587,22 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
 
         float timeSinceInput = Time.unscaledTime - learningInputDownTime;
         MonitorWallRecoveryImpulse(state, timeSinceInput);
-        bool validUpwardTakeoff =
+        bool compressedFixedStepWallTakeoff =
+            learningSource == "Automatic" &&
+            automaticManeuver == BonusManeuverKind.WallJumpClimb &&
+            jumpController.LastReleaseHeldFixedSteps >= 2 &&
+            Mathf.Abs(
+                jumpController.LastPressStartedAt -
+                learningInputDownTime) <= 0.10f &&
             !state.IsGrounded &&
-            state.PlayerVelocity.y > 5f &&
-            timeSinceInput <= 0.30f &&
-            state.PlayerPosition.y >= learningTriggerPosition.y - 0.75f;
+            state.PlayerPosition.y >= learningTriggerPosition.y + 0.30f;
+        bool validUpwardTakeoff =
+            compressedFixedStepWallTakeoff ||
+            !state.IsGrounded &&
+                state.PlayerVelocity.y > 5f &&
+                timeSinceInput <= 0.30f &&
+                state.PlayerPosition.y >=
+                    learningTriggerPosition.y - 0.75f;
         if (!learningTookOff && validUpwardTakeoff)
         {
             learningTookOff = true;
@@ -7054,11 +11615,16 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
                 learningMaximumY = state.PlayerPosition.y;
                 learningApexPosition = state.PlayerPosition;
             }
-            jumpPhysicsFeedback.ObserveTakeoff(
-                learningInputDownTime,
-                learningTakeoffVelocity);
+            if (!compressedFixedStepWallTakeoff)
+            {
+                jumpPhysicsFeedback.ObserveTakeoff(
+                    learningInputDownTime,
+                    learningTakeoffVelocity);
+            }
             BonusRunnerLog.Debug(
                 $"JumpAttemptTakeoff AttemptId={learningSampleId}, Source={learningSource}, " +
+                $"ObservationMode=" +
+                $"{(compressedFixedStepWallTakeoff ? "CompressedFixedStepCatchUp" : "LiveUpwardFrame")}, " +
                 $"InputToTakeoff={learningTakeoffTime - learningInputDownTime:F3}s, " +
                 $"Position=({learningTakeoffPosition.x:F3},{learningTakeoffPosition.y:F3}), " +
                 $"Velocity=({learningTakeoffVelocity.x:F3},{learningTakeoffVelocity.y:F3}), " +
@@ -7143,8 +11709,11 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
                     $"PlannedHold={automaticPlannedHold:F3}s, " +
                     $"RemainingHold=" +
                     $"{Mathf.Max(0f, automaticPlannedHold - wallPhysicalHoldElapsed):F3}s. " +
-                    "The solved downstream landing, not lip clearance alone, " +
-                    "owns the remaining press duration.",
+                    (HasCommittedExitFaceFlight()
+                        ? "The committed downstream face/top outcome, not lip " +
+                          "clearance alone, owns the remaining press duration."
+                        : "The solved downstream landing, not lip clearance " +
+                          "alone, owns the remaining press duration."),
                     "Recovery");
             }
             wallRecoveryContactLatched = false;
@@ -7169,9 +11738,195 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
             }
             committedWallClimbActive = false;
         }
+        bool fixedStepWatchedExitSupport = false;
+        long fixedStepSupportStep = -1;
+        BonusBoardSegment fixedStepSupportSurface = default;
+        Vector3 fixedStepSupportPosition = default;
+        Vector2 fixedStepSupportVelocity = default;
+        float fixedStepSupportPlayerHalfWidth = 0f;
+        float fixedStepSupportAt = 0f;
+        bool fixedStepSupportFaceOrTop = false;
+        bool fixedStepSupportCollectionFace = false;
+        bool fixedStepSupportCompletionNarrow = false;
+        bool fixedStepSupportAutomaticTarget = false;
+        BonusBoardSegment fixedStepSupportTarget = default;
+        if (wallExitSupportFixedStepLatched)
+        {
+            bool samePlayer =
+                state.PlayerInstanceId != 0 &&
+                state.PlayerInstanceId ==
+                    wallExitSupportLatchedPlayerInstanceId;
+            bool sameAttempt =
+                automaticAttemptId == wallExitSupportLatchedAttemptId;
+            bool capturedAutomaticTarget =
+                wallExitSupportLatchedAutomaticTarget;
+            BonusBoardSegment currentExpectedTarget = capturedAutomaticTarget
+                ? BuildAutomaticTargetSegment()
+                : wallExitTarget;
+            bool currentExpectedTargetActive = capturedAutomaticTarget
+                ? automaticTargetRight > automaticTargetLeft + 0.05f
+                : wallExitTargetActive;
+            bool sameTarget =
+                currentExpectedTargetActive &&
+                Mathf.Abs(
+                    currentExpectedTarget.Left -
+                    wallExitSupportLatchedTarget.Left) <= 0.12f &&
+                Mathf.Abs(
+                    currentExpectedTarget.Right -
+                    wallExitSupportLatchedTarget.Right) <= 0.12f &&
+                Mathf.Abs(
+                    currentExpectedTarget.Top -
+                    wallExitSupportLatchedTarget.Top) <= 0.35f &&
+                StaticOrColliderIdentityMatches(
+                    currentExpectedTarget,
+                    wallExitSupportLatchedTarget);
+            bool currentCompletionNarrowMode =
+                !wallExitFaceInterceptCommitted &&
+                !wallExitCollectionFaceInterceptCommitted &&
+                IsSuccessfulCompletionTraversal(GetRoutingState(state)) &&
+                wallExitTargetActive &&
+                wallExitTarget.Width <= 2.25f;
+            bool currentAutomaticTargetMode =
+                !wallExitFaceInterceptCommitted &&
+                !wallExitCollectionFaceInterceptCommitted &&
+                !currentCompletionNarrowMode &&
+                !wallExitTargetActive &&
+                !wallExitContactWatchActive &&
+                !HasCommittedExitFaceFlight() &&
+                automaticManeuver == BonusManeuverKind.WallJumpClimb &&
+                automaticTargetRight > automaticTargetLeft + 0.05f;
+            bool sameMode =
+                wallExitFaceInterceptCommitted ==
+                    wallExitSupportLatchedFaceOrTop &&
+                wallExitCollectionFaceInterceptCommitted ==
+                    wallExitSupportLatchedCollectionFace &&
+                currentCompletionNarrowMode ==
+                    wallExitSupportLatchedCompletionNarrow &&
+                currentAutomaticTargetMode ==
+                    wallExitSupportLatchedAutomaticTarget;
+            bool sameOwnership =
+                automaticPredictionActive &&
+                learningSampleActive &&
+                string.Equals(
+                    learningSource,
+                    "Automatic",
+                    StringComparison.Ordinal) &&
+                !wallExitFaceContactRequired &&
+                (capturedAutomaticTarget
+                    ? currentAutomaticTargetMode
+                    : wallExitContactWatchActive ||
+                      HasCommittedExitFaceFlight());
+            fixedStepWatchedExitSupport =
+                samePlayer &&
+                sameAttempt &&
+                sameTarget &&
+                sameMode &&
+                sameOwnership;
+            if (fixedStepWatchedExitSupport)
+            {
+                fixedStepSupportStep =
+                    wallExitSupportLatchedFixedStep;
+                fixedStepSupportSurface =
+                    wallExitSupportLatchedSurface;
+                fixedStepSupportPosition =
+                    wallExitSupportLatchedPosition;
+                fixedStepSupportVelocity =
+                    wallExitSupportLatchedVelocity;
+                fixedStepSupportPlayerHalfWidth =
+                    wallExitSupportLatchedPlayerHalfWidth;
+                fixedStepSupportAt = wallExitSupportLatchedAt;
+                fixedStepSupportFaceOrTop =
+                    wallExitSupportLatchedFaceOrTop;
+                fixedStepSupportCollectionFace =
+                    wallExitSupportLatchedCollectionFace;
+                fixedStepSupportCompletionNarrow =
+                    wallExitSupportLatchedCompletionNarrow;
+                fixedStepSupportAutomaticTarget =
+                    wallExitSupportLatchedAutomaticTarget;
+                fixedStepSupportTarget =
+                    wallExitSupportLatchedTarget;
+                BonusRunnerLog.Debug(
+                    $"WatchedExitSupportFixedStepConsumed AttemptId=" +
+                    $"{automaticAttemptId}, CapturedFixedStep=" +
+                    $"{fixedStepSupportStep}, CurrentFixedStep=" +
+                    $"{JumpPhysicsFeedback.FixedStepSequence}, " +
+                    $"PhysicsStepAge=" +
+                    $"{Math.Max(0L, JumpPhysicsFeedback.FixedStepSequence - fixedStepSupportStep)}, " +
+                    $"CapturedPosition=" +
+                    $"({fixedStepSupportPosition.x:F3}," +
+                    $"{fixedStepSupportPosition.y:F3}), CurrentPosition=" +
+                    $"({state.PlayerPosition.x:F3}," +
+                    $"{state.PlayerPosition.y:F3}), Mode=" +
+                    $"{(fixedStepSupportCollectionFace ? "CollectionFaceTopMiss" : fixedStepSupportFaceOrTop ? "FaceOrTop" : fixedStepSupportCompletionNarrow ? "CompletionNarrow" : "AutomaticWallTarget")}. " +
+                    "The captured physics support, rather than the later " +
+                    "render position, resolves this watched landing.",
+                    "Recovery");
+            }
+            else
+            {
+                BonusRunnerLog.Debug(
+                    $"WatchedExitSupportFixedStepDiscarded " +
+                    $"CapturedAttempt=" +
+                    $"{wallExitSupportLatchedAttemptId}, CurrentAttempt=" +
+                    $"{automaticAttemptId}, SamePlayer={samePlayer}, " +
+                    $"SameTarget={sameTarget}, SameMode={sameMode}, " +
+                    $"SameOwnership={sameOwnership}. Route/life identity " +
+                    "changed before render consumption.",
+                    "Recovery");
+            }
+            ClearWatchedExitSupportFixedStepLatch();
+        }
+
+        Vector3 landingEvidencePosition = fixedStepWatchedExitSupport
+            ? fixedStepSupportPosition
+            : state.PlayerPosition;
+        Vector2 landingEvidenceVelocity = fixedStepWatchedExitSupport
+            ? fixedStepSupportVelocity
+            : state.PlayerVelocity;
+        bool landingEvidenceGrounded =
+            fixedStepWatchedExitSupport || state.IsGrounded;
+        bool landingEvidenceHoldingJump =
+            !fixedStepWatchedExitSupport && jumpController.IsHoldingJump;
+        long landingEvidenceFixedStep = fixedStepWatchedExitSupport
+            ? fixedStepSupportStep
+            : JumpPhysicsFeedback.FixedStepSequence;
+        float fixedStepLiveBodyOverlap = fixedStepWatchedExitSupport
+            ? Mathf.Max(
+                0f,
+                Mathf.Min(
+                    state.PlayerPosition.x +
+                        fixedStepSupportPlayerHalfWidth,
+                    fixedStepSupportSurface.Right) -
+                Mathf.Max(
+                    state.PlayerPosition.x -
+                        fixedStepSupportPlayerHalfWidth,
+                    fixedStepSupportSurface.Left))
+            : 0f;
+        bool liveStillOnFixedStepSupport =
+            fixedStepWatchedExitSupport &&
+            state.IsGrounded &&
+            Mathf.Abs(
+                state.PlayerPosition.y -
+                fixedStepSupportSurface.Top) <= 0.60f &&
+            fixedStepLiveBodyOverlap >= 0.15f;
+
         BonusBoardScanResult landingScan = default;
         bool landingSupportConfirmed = false;
-        if (state.IsGrounded)
+        if (fixedStepWatchedExitSupport)
+        {
+            landingScan = new BonusBoardScanResult(
+                true,
+                fixedStepSupportSurface,
+                false,
+                default,
+                fixedStepSupportSurface.Right -
+                    fixedStepSupportPosition.x,
+                0f,
+                0f,
+                "FixedStepWatchedExitSupportLatch");
+            landingSupportConfirmed = true;
+        }
+        else if (state.IsGrounded)
         {
             try
             {
@@ -7202,14 +11957,100 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
         }
 
         bool risingGroundPulse =
-            state.PlayerVelocity.y > 2.50f ||
-            jumpController.IsHoldingJump;
+            landingEvidenceVelocity.y > 2.50f ||
+            landingEvidenceHoldingJump;
         bool stableLandingFrame =
-            state.IsGrounded &&
+            landingEvidenceGrounded &&
             landingSupportConfirmed &&
             !risingGroundPulse &&
-            Mathf.Abs(state.PlayerVelocity.y) <= 2.50f;
-        if (stableLandingFrame)
+            Mathf.Abs(landingEvidenceVelocity.y) <= 2.50f;
+        BonusBoardSegment landingOutcomeTarget =
+            fixedStepWatchedExitSupport
+                ? fixedStepSupportTarget
+                : wallExitTarget;
+        bool landingOutcomeTargetActive =
+            fixedStepWatchedExitSupport || wallExitTargetActive;
+        bool landingMatchesWatchedExit =
+            landingOutcomeTargetActive &&
+            landingSupportConfirmed &&
+            Mathf.Abs(
+                landingScan.Current.Top -
+                landingOutcomeTarget.Top) <= 0.35f &&
+            landingEvidencePosition.x >=
+                landingOutcomeTarget.Left - 0.20f &&
+            landingEvidencePosition.x <=
+                landingOutcomeTarget.Right + 0.20f;
+        bool completionNarrowWatchedExit =
+            fixedStepWatchedExitSupport
+                ? fixedStepSupportCompletionNarrow
+                : IsSuccessfulCompletionTraversal(state) &&
+                  wallExitTargetActive &&
+                  wallExitTarget.Width <= 2.25f;
+        bool watchedExitOwnershipActive =
+            fixedStepWatchedExitSupport ||
+            wallExitContactWatchActive ||
+            HasCommittedExitFaceFlight();
+        bool faceOrTopOutcomeActive = fixedStepWatchedExitSupport
+            ? fixedStepSupportFaceOrTop
+            : wallExitFaceInterceptCommitted;
+        bool collectionFaceOutcomeActive = fixedStepWatchedExitSupport
+            ? fixedStepSupportCollectionFace
+            : wallExitCollectionFaceInterceptCommitted;
+        bool automaticTargetOutcomeActive =
+            fixedStepWatchedExitSupport &&
+            fixedStepSupportAutomaticTarget;
+        bool authoritativeWatchedExitSupportFrame =
+            watchedExitOwnershipActive &&
+            !wallExitFaceContactRequired &&
+            landingEvidenceGrounded &&
+            landingSupportConfirmed &&
+            !landingEvidenceHoldingJump &&
+            landingEvidenceVelocity.y <= 2.50f &&
+            landingMatchesWatchedExit &&
+            (faceOrTopOutcomeActive ||
+             collectionFaceOutcomeActive ||
+             completionNarrowWatchedExit ||
+             automaticTargetOutcomeActive);
+        bool authoritativeOptionalWatchedExitLanding =
+            authoritativeWatchedExitSupportFrame &&
+            !collectionFaceOutcomeActive &&
+            (faceOrTopOutcomeActive ||
+             completionNarrowWatchedExit ||
+             automaticTargetOutcomeActive);
+        bool authoritativeCollectionWatchedExitLanding =
+            authoritativeWatchedExitSupportFrame &&
+            collectionFaceOutcomeActive;
+        // The transition-road [256,258] support reports one authoritative
+        // Grounded/contact frame while VY is still about -4.7. Requiring a
+        // near-zero vertical sample rejects the only physical landing and the
+        // runner leaves the two-unit top before the next fixed step. This
+        // relaxed contact is legal only for an already prepared narrow chain;
+        // ordinary and wall landings retain the two-step stable proof.
+        bool urgentNarrowChainLanding =
+            landingEvidenceGrounded &&
+            landingSupportConfirmed &&
+            !risingGroundPulse &&
+            landingEvidenceVelocity.y <= 2.50f &&
+            learningSource == "Automatic" &&
+            secondStagePreviewActive &&
+            secondStageObservedAirborne &&
+            secondStageProjectedScan.IsValid &&
+            secondStageProjectedScan.HasNext &&
+            secondStageProjectedPlan.IsValid &&
+            secondStageExpectedSupport.Width <= 2.25f &&
+            Mathf.Abs(
+                landingScan.Current.Top -
+                secondStageExpectedSupport.Top) <= 0.35f &&
+            landingEvidencePosition.x >=
+                secondStageExpectedSupport.Left - 0.15f &&
+            landingEvidencePosition.x <=
+                secondStageExpectedSupport.Right + 0.15f;
+        bool landingConfirmationFrame =
+            stableLandingFrame ||
+            urgentNarrowChainLanding ||
+            authoritativeOptionalWatchedExitLanding ||
+            authoritativeCollectionWatchedExitLanding;
+        if (landingConfirmationFrame)
         {
             int supportColliderId =
                 landingScan.Current.ColliderInstanceId;
@@ -7227,7 +12068,7 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
                 landingCandidateColliderId = supportColliderId;
             }
 
-            long fixedStep = JumpPhysicsFeedback.FixedStepSequence;
+            long fixedStep = landingEvidenceFixedStep;
             if (fixedStep != landingCandidateLastFixedStep)
             {
                 landingCandidateLastFixedStep = fixedStep;
@@ -7238,24 +12079,92 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
         {
             ResetLandingConfirmation();
         }
+        int requiredStableLandingSteps =
+            urgentNarrowChainLanding ||
+            authoritativeOptionalWatchedExitLanding ||
+            authoritativeCollectionWatchedExitLanding
+                ? 1
+                : 2;
         bool verifiedLanding =
-            stableLandingFrame &&
-            landingCandidateStableFixedSteps >= 2;
+            landingConfirmationFrame &&
+            landingCandidateStableFixedSteps >=
+                requiredStableLandingSteps;
+        if (urgentNarrowChainLanding && verifiedLanding)
+        {
+            BonusRunnerLog.Debug(
+                $"UrgentNarrowLandingConfirmed AttemptId=" +
+                $"{automaticAttemptId}, Position=" +
+                $"({state.PlayerPosition.x:F3},{state.PlayerPosition.y:F3}), " +
+                $"Velocity=({state.PlayerVelocity.x:F3}," +
+                $"{state.PlayerVelocity.y:F3}), Support=" +
+                $"[{landingScan.Current.Left:F3}," +
+                $"{landingScan.Current.Right:F3}]@" +
+                $"{landingScan.Current.Top:F3}, PreparedNext=" +
+                $"{secondStageProjectedPlan.Reason}/" +
+                $"{secondStageProjectedPlan.Maneuver}, PreparedWindow=" +
+                $"[{secondStageProjectedPlan.LaunchWindowLeft:F3}," +
+                $"{secondStageProjectedPlan.LaunchWindowRight:F3}]. " +
+                "One authoritative fixed-step contact is sufficient because " +
+                "the platform residence time is shorter than the normal " +
+                "two-step wall-pulse rejection window.",
+                "Lookahead");
+        }
+        if (authoritativeOptionalWatchedExitLanding && verifiedLanding)
+        {
+            float remainingResidenceSeconds =
+                (landingOutcomeTarget.Right + 0.20f -
+                 landingEvidencePosition.x) /
+                Mathf.Max(1f, Mathf.Abs(landingEvidenceVelocity.x));
+            BonusRunnerLog.Debug(
+                $"AuthoritativeWatchedExitLandingConfirmed AttemptId=" +
+                $"{automaticAttemptId}, FixedStep=" +
+                $"{landingEvidenceFixedStep}, Mode=" +
+                $"{(faceOrTopOutcomeActive ? "FaceOrTopPending" : automaticTargetOutcomeActive ? "AutomaticWallTarget" : "CompletionNarrowWatch")}, " +
+                $"EvidenceSource=" +
+                $"{(fixedStepWatchedExitSupport ? "FixedStepLatch" : "RenderObservation")}, " +
+                $"Position=({landingEvidencePosition.x:F3}," +
+                $"{landingEvidencePosition.y:F3}), Velocity=" +
+                $"({landingEvidenceVelocity.x:F3}," +
+                $"{landingEvidenceVelocity.y:F3}), Support=" +
+                $"[{landingScan.Current.Left:F3}," +
+                $"{landingScan.Current.Right:F3}]@" +
+                $"{landingScan.Current.Top:F3}, WatchedExit=" +
+                $"[{landingOutcomeTarget.Left:F3}," +
+                $"{landingOutcomeTarget.Right:F3}]@" +
+                $"{landingOutcomeTarget.Top:F3}, StableFixedSteps=" +
+                $"{landingCandidateStableFixedSteps}/1, Holding=" +
+                $"{landingEvidenceHoldingJump}, " +
+                $"RemainingResidence={remainingResidenceSeconds:F3}s. " +
+                "One exact, non-rising static-support step resolves this " +
+                "optional watch before high horizontal speed leaves the top.",
+                "Recovery");
+        }
+        if (authoritativeCollectionWatchedExitLanding && verifiedLanding)
+        {
+            BonusRunnerLog.Debug(
+                $"AuthoritativeCollectionTopSupportObserved AttemptId=" +
+                $"{automaticAttemptId}, FixedStep=" +
+                $"{landingEvidenceFixedStep}, EvidenceSource=" +
+                $"{(fixedStepWatchedExitSupport ? "FixedStepLatch" : "RenderObservation")}, " +
+                $"Position=({landingEvidencePosition.x:F3}," +
+                $"{landingEvidencePosition.y:F3}), Velocity=" +
+                $"({landingEvidenceVelocity.x:F3}," +
+                $"{landingEvidenceVelocity.y:F3}), Support=" +
+                $"[{landingScan.Current.Left:F3}," +
+                $"{landingScan.Current.Right:F3}]@" +
+                $"{landingScan.Current.Top:F3}. One real non-rising " +
+                "support step is authoritative terrain recovery, but the " +
+                "later collection branch records it as a missed face lane.",
+                "Recovery");
+        }
         bool landingSupportMatchesTarget =
             landingSupportConfirmed &&
             Mathf.Abs(landingScan.Current.Top - automaticTargetTop) <= 0.35f &&
-            state.PlayerPosition.x >=
+            landingEvidencePosition.x >=
                 automaticTargetLeft + wallPlayerHalfWidth - 0.08f &&
-            state.PlayerPosition.x <= automaticTargetRight + 0.25f;
-        bool landingMatchesWatchedExit =
-            wallExitTargetActive &&
-            landingSupportConfirmed &&
-            Mathf.Abs(
-                landingScan.Current.Top -
-                wallExitTarget.Top) <= 0.35f &&
-            state.PlayerPosition.x >= wallExitTarget.Left - 0.20f &&
-            state.PlayerPosition.x <= wallExitTarget.Right + 0.20f;
-        if (wallExitContactWatchActive &&
+            landingEvidencePosition.x <= automaticTargetRight + 0.25f;
+        if ((wallExitContactWatchActive ||
+             HasCommittedExitFaceFlight()) &&
             verifiedLanding &&
             landingMatchesWatchedExit)
         {
@@ -7285,9 +12194,131 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
                 return;
             }
 
+            if (collectionFaceOutcomeActive)
+            {
+                long missedCollectionAttemptId = automaticAttemptId;
+                string missedCollectionPlan = automaticPlanReason;
+                BonusBoardSegment missedCollectionTarget = wallExitTarget;
+                BonusRunnerLog.Warning(
+                    $"CollectionFaceTopLandingMissed AttemptId=" +
+                    $"{missedCollectionAttemptId}, Plan=" +
+                    $"{missedCollectionPlan}, Position=" +
+                    $"({landingEvidencePosition.x:F3}," +
+                    $"{landingEvidencePosition.y:F3}), Velocity=" +
+                    $"({landingEvidenceVelocity.x:F3}," +
+                    $"{landingEvidenceVelocity.y:F3}), Support=" +
+                    $"[{landingScan.Current.Left:F3}," +
+                    $"{landingScan.Current.Right:F3}]@" +
+                    $"{landingScan.Current.Top:F3}, RequiredFace=" +
+                    $"X={missedCollectionTarget.Left:F3}, FaceDepth=" +
+                    $"{CommittedExitFaceDepth:F3}. " +
+                    "ExpectedResult=physical face contact for the lower " +
+                    "objective lane; ActualResult=top landing. " +
+                    "FailureDomain=RouteExecution; the real support is " +
+                    "preserved as outcome evidence; live support is checked " +
+                    "separately before grounded planning is re-armed.");
+                automaticTrajectoryCompatible = false;
+                if (learningSource == "Automatic")
+                    jumpController.Release();
+                if (fixedStepWatchedExitSupport)
+                {
+                    authoritativeLandingEvidenceActive = true;
+                    authoritativeLandingEvidenceHistorical = true;
+                    authoritativeLandingEvidenceSurface =
+                        fixedStepSupportSurface;
+                    authoritativeLandingEvidencePlayerHalfWidth =
+                        fixedStepSupportPlayerHalfWidth;
+                    authoritativeLandingEvidenceAt = fixedStepSupportAt;
+                    authoritativeLandingEvidenceFixedStep =
+                        fixedStepSupportStep;
+                }
+                FinishLearningSample(
+                    state with
+                    {
+                        PlayerPosition = landingEvidencePosition,
+                        PlayerVelocity = landingEvidenceVelocity,
+                        IsGrounded = true
+                    },
+                    "CollectionFaceTopLandingMissed");
+                ResetWallRecoveryState();
+                bool collectionCanResumeGroundPlanner =
+                    !fixedStepWatchedExitSupport ||
+                    liveStillOnFixedStepSupport;
+                automaticJumpArmed = collectionCanResumeGroundPlanner;
+                airborneAfterAutomaticJump =
+                    !collectionCanResumeGroundPlanner;
+                nextAutomaticAttemptTime = 0f;
+                ClearRoutePlanLock();
+                BonusRunnerLog.Debug(
+                    $"CollectionFaceTopLandingHandoff AttemptId=" +
+                    $"{missedCollectionAttemptId}, EvidenceSource=" +
+                    $"{(fixedStepWatchedExitSupport ? "FixedStepLatch" : "RenderObservation")}, " +
+                    $"LiveStillSupported={liveStillOnFixedStepSupport}, " +
+                    $"LiveBodyOverlap={fixedStepLiveBodyOverlap:F3}, " +
+                    $"NextState=" +
+                    $"{(collectionCanResumeGroundPlanner ? "GroundPlanner" : "HistoricalSupportOnly")}. " +
+                    "A historical top contact resolves the route outcome but " +
+                    "does not pretend the player is still grounded.",
+                    "Recovery");
+                return;
+            }
+
+            BonusBoardSegment resolvedExitTarget = wallExitTarget;
+            bool resolvedCommittedFaceIntercept =
+                faceOrTopOutcomeActive;
+            string landingConfirmationMode =
+                authoritativeOptionalWatchedExitLanding
+                    ? resolvedCommittedFaceIntercept
+                        ? "OneStepAuthoritativeFaceOrTop"
+                        : "OneStepAuthoritativeCompletionNarrow"
+                    : "TwoStepStable";
+
+            // The formal lip threshold is not guaranteed to run before a
+            // narrow/high-speed landing. Atomically make the actual watched
+            // support the learning target before closing the sample; otherwise
+            // a correct exit landing is scored against the old wall top.
+            automaticTargetSafeLeft = resolvedExitTarget.SafeLeft;
+            automaticTargetSafeRight = resolvedExitTarget.SafeRight;
+            automaticLandingAllowsRawBodyFit =
+                authoritativeOptionalWatchedExitLanding ||
+                wallExitTransferAcceptedRawBodyFit;
+            automaticLandingSafeTolerance =
+                authoritativeOptionalWatchedExitLanding
+                    ? Mathf.Max(
+                        wallExitTransferSafeTolerance,
+                        0.20f)
+                    : wallExitTransferSafeTolerance;
+            automaticTargetLeft = resolvedExitTarget.Left;
+            automaticTargetRight = resolvedExitTarget.Right;
+            automaticTargetTop = resolvedExitTarget.Top;
+            automaticTargetColliderId =
+                resolvedExitTarget.ColliderInstanceId;
+            automaticTargetColliderName =
+                resolvedExitTarget.ColliderName;
+            automaticTargetMapPieceName =
+                resolvedExitTarget.MapPieceName;
+            automaticTargetMapPieceOriginX =
+                resolvedExitTarget.MapPieceOriginX;
+            automaticTargetMapPieceInstanceId =
+                resolvedExitTarget.MapPieceInstanceId;
+            automaticTargetRegistryGeneration =
+                resolvedExitTarget.RegistryGeneration;
+            automaticTargetStaticSurfaceIndex =
+                resolvedExitTarget.StaticSurfaceIndex;
+            automaticTargetHeightDelta =
+                resolvedExitTarget.Top - automaticPlanTriggerPosition.y;
+            automaticPredictedLandingX = landingEvidencePosition.x;
+            automaticPredictedHorizontalTravel = Mathf.Max(
+                0f,
+                landingEvidencePosition.x - automaticPlanTriggerPosition.x);
+
             wallExitContactWatchActive = false;
+            wallExitContactWatchDeadlineFixedStep = -1;
             wallExitTargetActive = false;
             wallExitTarget = default;
+            ClearWallExitPreparedContract();
+            wallExitFaceInterceptCommitted = false;
+            wallExitCollectionFaceInterceptCommitted = false;
             wallExitFaceContactRequired = false;
             wallExitObjectiveCountAtCapture = 0;
             wallExitObjectiveMinimumY = float.NaN;
@@ -7295,25 +12326,121 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
             ResetMandatoryFacePlanState();
             BonusRunnerLog.Debug(
                 $"WallExitContactWatchResolved Result=VerifiedTargetLanding, " +
-                $"Position=({state.PlayerPosition.x:F3}," +
-                $"{state.PlayerPosition.y:F3}), Support=" +
+                $"ConfirmationMode={landingConfirmationMode}, " +
+                $"CommittedFaceIntercept=" +
+                $"{resolvedCommittedFaceIntercept}, " +
+                $"ObservedSupportAuthority=" +
+                $"{authoritativeOptionalWatchedExitLanding}, " +
+                $"Position=({landingEvidencePosition.x:F3}," +
+                $"{landingEvidencePosition.y:F3}), Support=" +
                 $"[{landingScan.Current.Left:F3}," +
                 $"{landingScan.Current.Right:F3}]@" +
                 $"{landingScan.Current.Top:F3}. No face fallback is needed; " +
                 "normal landing reset may release wall-route ownership.",
                 "Recovery");
+            if (authoritativeOptionalWatchedExitLanding)
+            {
+                long resolvedAttemptId = automaticAttemptId;
+                string resolvedPlan = automaticPlanReason;
+                if (learningSource == "Automatic")
+                    jumpController.Release();
+                if (fixedStepWatchedExitSupport)
+                {
+                    authoritativeLandingEvidenceActive = true;
+                    authoritativeLandingEvidenceHistorical = true;
+                    authoritativeLandingEvidenceSurface =
+                        fixedStepSupportSurface;
+                    authoritativeLandingEvidencePlayerHalfWidth =
+                        fixedStepSupportPlayerHalfWidth;
+                    authoritativeLandingEvidenceAt = fixedStepSupportAt;
+                    authoritativeLandingEvidenceFixedStep =
+                        fixedStepSupportStep;
+                }
+                FinishLearningSample(
+                    state with
+                    {
+                        PlayerPosition = landingEvidencePosition,
+                        PlayerVelocity = landingEvidenceVelocity,
+                        IsGrounded = true
+                    },
+                    "Landed");
+                ResetWallRecoveryState();
+                bool canResumeGroundPlanner =
+                    !fixedStepWatchedExitSupport ||
+                    liveStillOnFixedStepSupport;
+                automaticJumpArmed = canResumeGroundPlanner;
+                airborneAfterAutomaticJump = !canResumeGroundPlanner;
+                nextAutomaticAttemptTime = 0f;
+                ClearRoutePlanLock();
+                BonusRunnerLog.Debug(
+                    $"WallExitLandingOwnershipHandedOff AttemptId=" +
+                    $"{resolvedAttemptId}, Plan={resolvedPlan}, Mode=" +
+                    $"{landingConfirmationMode}, LiveStillSupported=" +
+                    $"{liveStillOnFixedStepSupport}, LiveBodyOverlap=" +
+                    $"{fixedStepLiveBodyOverlap:F3}, NextState=" +
+                    $"{(canResumeGroundPlanner ? "GroundPlanner" : "HistoricalSupportOnly")}, " +
+                    $"LandingPosition=({landingEvidencePosition.x:F3}," +
+                    $"{landingEvidencePosition.y:F3}), CurrentPosition=" +
+                    $"({state.PlayerPosition.x:F3}," +
+                    $"{state.PlayerPosition.y:F3}). The stale wall route is " +
+                    "closed, while only a still-live support can authorize an " +
+                    "immediate grounded decision.",
+                    "Recovery");
+                return;
+            }
+        }
+        if ((wallExitContactWatchActive ||
+             HasCommittedExitFaceFlight()) &&
+            verifiedLanding &&
+            landingSupportConfirmed &&
+            !landingMatchesWatchedExit)
+        {
+            BonusBoardSegment abandonedExitTarget = wallExitTarget;
+            bool abandonedMandatoryFace = wallExitFaceContactRequired;
+            bool abandonedCollectionFace =
+                wallExitCollectionFaceInterceptCommitted;
+            long completedAttemptId = automaticAttemptId;
+            string completedPlan = automaticPlanReason;
+            FinishLearningSample(state, "Landed");
+            ResetWallRecoveryState();
+            automaticJumpArmed = true;
+            airborneAfterAutomaticJump = false;
+            nextAutomaticAttemptTime = 0f;
+            ClearRoutePlanLock();
+            BonusRunnerLog.Warning(
+                $"WallExitIntermediateLandingReplan AttemptId=" +
+                $"{completedAttemptId}, Plan={completedPlan}, Position=" +
+                $"({state.PlayerPosition.x:F3}," +
+                $"{state.PlayerPosition.y:F3}), Velocity=" +
+                $"({state.PlayerVelocity.x:F3}," +
+                $"{state.PlayerVelocity.y:F3}), ActualSupport=" +
+                $"[{landingScan.Current.Left:F3}," +
+                $"{landingScan.Current.Right:F3}]@" +
+                $"{landingScan.Current.Top:F3}, AbandonedExit=" +
+                $"[{abandonedExitTarget.Left:F3}," +
+                $"{abandonedExitTarget.Right:F3}]@" +
+                $"{abandonedExitTarget.Top:F3}, MandatoryFace=" +
+                $"{abandonedMandatoryFace}, CollectionFace=" +
+                $"{abandonedCollectionFace}. A stable real support overrides " +
+                "the missed wall-exit prediction; all old contact watches " +
+                "are cleared and grounded planning resumes immediately.");
+            return;
         }
         bool confirmedTargetTopLanding =
-            committedWallClimbActive &&
+            (committedWallClimbActive || automaticTargetOutcomeActive) &&
             requiredWallPhasesComplete &&
             verifiedLanding &&
             landingSupportMatchesTarget;
-        if (learningTookOff && confirmedTargetTopLanding)
+        if ((learningTookOff || automaticTargetOutcomeActive) &&
+            confirmedTargetTopLanding)
         {
             BonusRunnerLog.Debug(
                 $"WallClimbStableLanding AttemptId={automaticAttemptId}, " +
-                $"Position=({state.PlayerPosition.x:F3},{state.PlayerPosition.y:F3}), " +
-                $"Velocity=({state.PlayerVelocity.x:F3},{state.PlayerVelocity.y:F3}), " +
+                $"Position=({landingEvidencePosition.x:F3}," +
+                $"{landingEvidencePosition.y:F3}), Velocity=" +
+                $"({landingEvidenceVelocity.x:F3}," +
+                $"{landingEvidenceVelocity.y:F3}), EvidenceSource=" +
+                $"{(automaticTargetOutcomeActive ? "FixedStepLatch" : "RenderObservation")}, " +
                 $"ImpulseConfirmed={wallRecoveryImpulseConfirmed}, " +
                 $"LipCrossed={wallRecoveryLipCrossed}, " +
                 $"TargetRaw=[{automaticTargetLeft:F3},{automaticTargetRight:F3}]" +
@@ -7321,8 +12448,46 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
                 "Recovery");
             wallRecoveryCommitmentUntil = 0f;
             jumpController.Release();
-            FinishLearningSample(state, "Landed");
-            nextAutomaticAttemptTime = Time.unscaledTime + 0.10f;
+            if (automaticTargetOutcomeActive)
+            {
+                authoritativeLandingEvidenceActive = true;
+                authoritativeLandingEvidenceHistorical = true;
+                authoritativeLandingEvidenceSurface =
+                    fixedStepSupportSurface;
+                authoritativeLandingEvidencePlayerHalfWidth =
+                    fixedStepSupportPlayerHalfWidth;
+                authoritativeLandingEvidenceAt = fixedStepSupportAt;
+                authoritativeLandingEvidenceFixedStep =
+                    fixedStepSupportStep;
+            }
+            FinishLearningSample(
+                state with
+                {
+                    PlayerPosition = landingEvidencePosition,
+                    PlayerVelocity = landingEvidenceVelocity,
+                    IsGrounded = true
+                },
+                "Landed");
+            if (automaticTargetOutcomeActive)
+            {
+                ResetWallRecoveryState();
+                automaticJumpArmed = liveStillOnFixedStepSupport;
+                airborneAfterAutomaticJump =
+                    !liveStillOnFixedStepSupport;
+                ClearRoutePlanLock();
+                BonusRunnerLog.Debug(
+                    $"WallTargetLandingFixedStepHandoff AttemptId=" +
+                    $"{automaticAttemptId}, CapturedFixedStep=" +
+                    $"{fixedStepSupportStep}, LiveStillSupported=" +
+                    $"{liveStillOnFixedStepSupport}, LiveBodyOverlap=" +
+                    $"{fixedStepLiveBodyOverlap:F3}, NextState=" +
+                    $"{(liveStillOnFixedStepSupport ? "GroundPlanner" : "HistoricalSupportOnly")}.",
+                    "Recovery");
+            }
+            nextAutomaticAttemptTime = liveStillOnFixedStepSupport ||
+                !automaticTargetOutcomeActive
+                    ? Time.unscaledTime + 0.10f
+                    : 0f;
             return;
         }
         bool possiblePlannedWallContact =
@@ -7363,7 +12528,15 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
                 $"Velocity=({state.PlayerVelocity.x:F3},{state.PlayerVelocity.y:F3}), " +
                 $"RisingGroundPulse={risingGroundPulse}, " +
                 $"SupportConfirmed={landingSupportConfirmed}, " +
-                $"StableFixedSteps={landingCandidateStableFixedSteps}/2, " +
+                $"StableFixedSteps={landingCandidateStableFixedSteps}/" +
+                $"{requiredStableLandingSteps}, " +
+                $"FixedStep={JumpPhysicsFeedback.FixedStepSequence}, " +
+                $"WatchActive={wallExitContactWatchActive}, " +
+                $"WatchMatch={landingMatchesWatchedExit}, " +
+                $"CommittedFaceIntercept=" +
+                $"{wallExitFaceInterceptCommitted}, CollectionFaceIntercept=" +
+                $"{wallExitCollectionFaceInterceptCommitted}, MandatoryFace=" +
+                $"{wallExitFaceContactRequired}, " +
                 $"SupportReason={(landingScan.Reason ?? "Unavailable")}, " +
                 $"TargetRaw=[{automaticTargetLeft:F3},{automaticTargetRight:F3}]" +
                 $"@{automaticTargetTop:F3}.",
@@ -7385,7 +12558,13 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
             return;
         }
 
+        // A committed face flight has its own physics-step deadline and is
+        // resolved later in the same frame by contact/landing/overflight
+        // authority. A long background render pause must not let this generic
+        // wall-clock watchdog erase that contract first.
         if (learningTookOff &&
+            !HasCommittedExitFaceFlight() &&
+            !IsAdoptedExitFaceAwaitingClimb() &&
             Time.unscaledTime - learningTakeoffTime >= 4f)
         {
             bool automaticSample = learningSource == "Automatic";
@@ -7395,15 +12574,19 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
                 jumpController.Release();
                 bool likelyPitLifecycle =
                     state.PlayerPosition.y < -3.50f;
-                pitDescentGuardActive = likelyPitLifecycle;
-                if (likelyPitLifecycle)
+                // A sample timeout must never clear a stronger lifecycle
+                // guard installed by player/map loss or a confirmed pit.
+                // Only the stable-respawn branch may release that ownership.
+                pitDescentGuardActive =
+                    pitDescentGuardActive || likelyPitLifecycle;
+                if (pitDescentGuardActive)
                 {
                     pitRespawnLastFixedStep = -1;
                     pitRespawnStableFixedSteps = 0;
                 }
                 ResetAutomaticControlState();
                 nextAutomaticAttemptTime = Time.unscaledTime +
-                    (likelyPitLifecycle ? 0.45f : 0.25f);
+                    (pitDescentGuardActive ? 0.45f : 0.25f);
             }
         }
     }
@@ -7429,16 +12612,43 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
 
         float totalRise =
             state.PlayerPosition.y - wallRecoveryImpulseStartY;
+        float deliveredFixedStepHold =
+            jumpController.LastReleaseHeldFixedSteps > 0
+                ? jumpController.LastReleaseHeldFixedSteps *
+                  Mathf.Clamp(
+                      automaticPlanPhysicsSnapshot.FixedDeltaTime,
+                      0.005f,
+                      0.05f)
+                : 0f;
+        bool currentPulseHasFixedStepEvidence =
+            jumpController.LastReleaseHeldFixedSteps > 0 &&
+            Mathf.Abs(
+                jumpController.LastPressStartedAt -
+                learningInputDownTime) <= 0.10f;
+        float deliveredHoldEvidence =
+            currentPulseHasFixedStepEvidence
+                ? deliveredFixedStepHold
+                : timeSinceInput;
+        bool compressedFixedStepImpulse =
+            currentPulseHasFixedStepEvidence &&
+            jumpController.LastReleaseHeldFixedSteps >= 2 &&
+            !state.IsGrounded &&
+            totalRise >= 0.30f;
         if (!wallRecoveryPrematureReleaseLogged &&
             automaticManeuver == BonusManeuverKind.WallJumpClimb &&
             !wallRecoveryLipCrossed &&
             !jumpController.IsHoldingJump &&
-            timeSinceInput + 0.015f < automaticPlannedHold)
+            deliveredHoldEvidence + 0.015f < automaticPlannedHold)
         {
             wallRecoveryPrematureReleaseLogged = true;
             BonusRunnerLog.Warning(
                 $"WallClimbHoldTruncated AttemptId={automaticAttemptId}, " +
-                $"Elapsed={timeSinceInput:F3}s, PlannedHold=" +
+                $"Elapsed={timeSinceInput:F3}s, FixedStepEquivalent=" +
+                $"{deliveredFixedStepHold:F3}s/" +
+                $"{jumpController.LastReleaseHeldFixedSteps}Steps, " +
+                $"DeliveredEvidence={deliveredHoldEvidence:F3}s, " +
+                $"EvidenceClock=" +
+                $"{(currentPulseHasFixedStepEvidence ? "PhysicsSteps" : "UnscaledFallback")}, PlannedHold=" +
                 $"{automaticPlannedHold:F3}s, LastPress=" +
                 $"{jumpController.LastPressStartedAt:F3}, LastRelease=" +
                 $"{jumpController.LastReleaseAt:F3}, Maneuver=" +
@@ -7448,15 +12658,20 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
                 $"{state.PlayerVelocity.y:F3}).");
         }
         if (!wallRecoveryImpulseConfirmed &&
-            wallRecoveryUpwardPhysicsSteps >= 2 &&
+            !wallRecoveryImpulseFailureLogged &&
+            (wallRecoveryUpwardPhysicsSteps >= 2 ||
+             compressedFixedStepImpulse) &&
             totalRise >= 0.30f &&
-            state.PlayerVelocity.y > 5f)
+            (state.PlayerVelocity.y > 5f ||
+             compressedFixedStepImpulse))
         {
             wallRecoveryImpulseConfirmed = true;
             BonusRunnerLog.Debug(
                 $"WallClimbImpulseConfirmed AttemptId={automaticAttemptId}, " +
                 $"Elapsed={timeSinceInput:F3}s, PhysicsRiseSteps=" +
-                $"{wallRecoveryUpwardPhysicsSteps}, " +
+                $"{wallRecoveryUpwardPhysicsSteps}, CompressedFixedStep=" +
+                $"{compressedFixedStepImpulse}, DeliveredFixedSteps=" +
+                $"{jumpController.LastReleaseHeldFixedSteps}, " +
                 $"StartY={wallRecoveryImpulseStartY:F3}, " +
                 $"CurrentY={state.PlayerPosition.y:F3}, " +
                 $"DeltaY={totalRise:F3}, StartVY=" +
@@ -7489,15 +12704,54 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
                 "Recovery");
         }
 
+        bool fixedStepBoundedWallPulsePending =
+            jumpController.IsHoldingJump &&
+            (HasCommittedExitFaceFlight() ||
+             wallMandatoryFaceSetupActive ||
+             wallMandatoryFaceInterceptCommitted);
+        long currentFixedStep = JumpPhysicsFeedback.FixedStepSequence;
         if (!wallRecoveryImpulseConfirmed &&
             !wallRecoveryImpulseFailureLogged &&
-            timeSinceInput >= 0.14f)
+            currentPulseHasFixedStepEvidence &&
+            !jumpController.IsHoldingJump &&
+            wallRecoveryImpulseReleaseObservedFixedStep < 0)
+        {
+            wallRecoveryImpulseReleaseObservedFixedStep = currentFixedStep;
+            BonusRunnerLog.Debug(
+                $"WallClimbImpulseDecisionDeferred AttemptId=" +
+                $"{automaticAttemptId}, ReleaseObservedFixedStep=" +
+                $"{wallRecoveryImpulseReleaseObservedFixedStep}, " +
+                $"UpwardSteps={wallRecoveryUpwardPhysicsSteps}, " +
+                $"DeltaY={totalRise:F3}, VY=" +
+                $"{state.PlayerVelocity.y:F3}. A released one-step pulse " +
+                "gets one subsequent physics step before failure is " +
+                "classified; render callbacks cannot reject it between " +
+                "the first and second upward observations.",
+                "Recovery");
+        }
+        bool postReleasePhysicsStepObserved =
+            wallRecoveryImpulseReleaseObservedFixedStep >= 0 &&
+            currentFixedStep >
+                wallRecoveryImpulseReleaseObservedFixedStep;
+        bool impulseFailureObservationReady =
+            fixedStepBoundedWallPulsePending
+                ? false
+                : currentPulseHasFixedStepEvidence
+                    ? !jumpController.IsHoldingJump &&
+                      postReleasePhysicsStepObserved
+                    : timeSinceInput >= 0.14f;
+        if (!wallRecoveryImpulseConfirmed &&
+            !wallRecoveryImpulseFailureLogged &&
+            impulseFailureObservationReady)
         {
             wallRecoveryImpulseFailureLogged = true;
             BonusRunnerLog.Warning(
                 $"WallClimbImpulseRejected AttemptId={automaticAttemptId}: " +
                 $"the second press did not produce two upward physics steps " +
-                $"within {timeSinceInput:F3}s. StartY=" +
+                $"after a post-release physics barrier within " +
+                $"{timeSinceInput:F3}s. ReleaseObservedFixedStep=" +
+                $"{wallRecoveryImpulseReleaseObservedFixedStep}, " +
+                $"CurrentFixedStep={currentFixedStep}, StartY=" +
                 $"{wallRecoveryImpulseStartY:F3}, CurrentY=" +
                 $"{state.PlayerPosition.y:F3}, DeltaY={totalRise:F3}, " +
                 $"StartVY={wallRecoveryImpulseStartVelocityY:F3}, " +
@@ -7528,12 +12782,39 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
 
     private void FinishLearningSample(BonusStageState state, string outcome)
     {
+        bool useAuthoritativeLandingEvidence =
+            authoritativeLandingEvidenceActive;
+        bool landingEvidenceWasHistorical =
+            authoritativeLandingEvidenceHistorical;
+        BonusBoardSegment capturedLandingSurface =
+            authoritativeLandingEvidenceSurface;
+        float capturedLandingPlayerHalfWidth =
+            authoritativeLandingEvidencePlayerHalfWidth;
+        float capturedLandingAt = authoritativeLandingEvidenceAt;
+        long capturedLandingFixedStep =
+            authoritativeLandingEvidenceFixedStep;
+        // The override belongs to exactly one completion call, including the
+        // early-return case where lifecycle cleanup already closed the sample.
+        authoritativeLandingEvidenceActive = false;
+        authoritativeLandingEvidenceHistorical = false;
+        authoritativeLandingEvidenceSurface = default;
+        authoritativeLandingEvidencePlayerHalfWidth = 0f;
+        authoritativeLandingEvidenceAt = 0f;
+        authoritativeLandingEvidenceFixedStep = -1;
         if (!learningSampleActive)
             return;
 
+        float sampleEndTime =
+            useAuthoritativeLandingEvidence && capturedLandingAt > 0f
+                ? capturedLandingAt
+                : Time.unscaledTime;
+
         float holdSeconds = learningInputReleased
             ? Mathf.Max(0f, learningInputUpTime - learningInputDownTime)
-            : Mathf.Max(0f, Time.unscaledTime - learningInputDownTime);
+            : Mathf.Max(0f, sampleEndTime - learningInputDownTime);
+        float controllerWallClockHold = float.NaN;
+        float controllerFixedStepHold = float.NaN;
+        int controllerHeldFixedSteps = 0;
         string holdMeasurement = learningSource == "Automatic"
             ? "Planned"
             : "PhysicalInput";
@@ -7543,14 +12824,34 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
             float actualReleaseTime =
                 jumpController.LastReleaseAt >= jumpController.LastPressStartedAt
                     ? jumpController.LastReleaseAt
-                    : Time.unscaledTime;
-            holdSeconds = Mathf.Max(
+                    : sampleEndTime;
+            controllerWallClockHold = Mathf.Max(
                 0f,
                 actualReleaseTime - jumpController.LastPressStartedAt);
+            holdSeconds = controllerWallClockHold;
             holdMeasurement = "ControllerActual";
+            if (jumpController.LastReleaseHeldFixedSteps > 0)
+            {
+                float fixedStepEquivalent =
+                    jumpController.LastReleaseHeldFixedSteps *
+                    Mathf.Clamp(
+                        automaticPlanPhysicsSnapshot.FixedDeltaTime,
+                        0.005f,
+                        0.05f);
+                controllerFixedStepHold = fixedStepEquivalent;
+                controllerHeldFixedSteps =
+                    jumpController.LastReleaseHeldFixedSteps;
+                // In a throttled/background frame, unscaled wall time can
+                // advance while no physics step is delivered. The native
+                // controller's counted fixed steps are the authoritative
+                // physical hold; wall-clock elapsed is retained separately
+                // for diagnosing focus stalls.
+                holdSeconds = fixedStepEquivalent;
+                holdMeasurement = "ControllerFixedStepEquivalent";
+            }
         }
         float flightSeconds = learningTookOff
-            ? Mathf.Max(0f, Time.unscaledTime - learningTakeoffTime)
+            ? Mathf.Max(0f, sampleEndTime - learningTakeoffTime)
             : 0f;
         float horizontalDistance = learningTookOff
             ? state.PlayerPosition.x - learningTakeoffPosition.x
@@ -7564,32 +12865,49 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
         float observedLandingTop = state.PlayerPosition.y;
         if (outcome == "Landed" && state.HasPlayer)
         {
-            try
+            if (useAuthoritativeLandingEvidence)
             {
-                PlayerMovement landingPlayer = PlayerMovement.instance;
-                if (landingPlayer != null)
-                {
-                    BonusBoardScanResult observedLanding = platformScanner.Scan(
-                        state.PlayerPosition,
-                        landingPlayer,
-                        Mathf.Abs(state.PlayerVelocity.x));
-                    landingSurfaceValid = observedLanding.IsValid;
-                    if (landingSurfaceValid)
-                        observedLandingTop = observedLanding.Current.Top;
-                    landingSurface = observedLanding.IsValid
-                        ? $"Raw=[{observedLanding.Current.Left:F3}," +
-                          $"{observedLanding.Current.Right:F3}] " +
-                          $"Safe=[{observedLanding.Current.SafeLeft:F3}," +
-                          $"{observedLanding.Current.SafeRight:F3}] " +
-                          $"Top={observedLanding.Current.Top:F3} Collider=" +
-                          $"{observedLanding.Current.ColliderInstanceId}:" +
-                          $"{observedLanding.Current.ColliderName}"
-                        : $"ScanInvalid:{observedLanding.Reason}";
-                }
+                landingSurfaceValid = true;
+                observedLandingTop = capturedLandingSurface.Top;
+                landingSurface =
+                    $"Evidence=FixedStepLatch@{capturedLandingFixedStep} " +
+                    $"Raw=[{capturedLandingSurface.Left:F3}," +
+                    $"{capturedLandingSurface.Right:F3}] Safe=" +
+                    $"[{capturedLandingSurface.SafeLeft:F3}," +
+                    $"{capturedLandingSurface.SafeRight:F3}] Top=" +
+                    $"{capturedLandingSurface.Top:F3} Collider=" +
+                    $"{capturedLandingSurface.ColliderInstanceId}:" +
+                    $"{capturedLandingSurface.ColliderName}";
             }
-            catch (System.Exception exception)
+            else
             {
-                landingSurface = $"ScanFailed:{exception.GetType().Name}";
+                try
+                {
+                    PlayerMovement landingPlayer = PlayerMovement.instance;
+                    if (landingPlayer != null)
+                    {
+                        BonusBoardScanResult observedLanding = platformScanner.Scan(
+                            state.PlayerPosition,
+                            landingPlayer,
+                            Mathf.Abs(state.PlayerVelocity.x));
+                        landingSurfaceValid = observedLanding.IsValid;
+                        if (landingSurfaceValid)
+                            observedLandingTop = observedLanding.Current.Top;
+                        landingSurface = observedLanding.IsValid
+                            ? $"Raw=[{observedLanding.Current.Left:F3}," +
+                              $"{observedLanding.Current.Right:F3}] " +
+                              $"Safe=[{observedLanding.Current.SafeLeft:F3}," +
+                              $"{observedLanding.Current.SafeRight:F3}] " +
+                              $"Top={observedLanding.Current.Top:F3} Collider=" +
+                              $"{observedLanding.Current.ColliderInstanceId}:" +
+                              $"{observedLanding.Current.ColliderName}"
+                            : $"ScanInvalid:{observedLanding.Reason}";
+                    }
+                }
+                catch (System.Exception exception)
+                {
+                    landingSurface = $"ScanFailed:{exception.GetType().Name}";
+                }
             }
         }
         string physicsFeedback = jumpPhysicsFeedback.CompleteSample(
@@ -7601,7 +12919,7 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
 
         float inputToLandingSeconds = Mathf.Max(
             0f,
-            Time.unscaledTime - learningInputDownTime);
+            sampleEndTime - learningInputDownTime);
         float inputToTakeoffSeconds = learningTookOff
             ? Mathf.Max(0f, learningTakeoffTime - learningInputDownTime)
             : float.PositiveInfinity;
@@ -7612,6 +12930,7 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
             learningMayLearnGroundKinematics &&
             outcome == "Landed" &&
             landingSurfaceValid &&
+            !landingEvidenceWasHistorical &&
             learningTookOff &&
             learningFirstApexCaptured &&
             inputToTakeoffSeconds <= 0.08f &&
@@ -7649,13 +12968,20 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
                 $"{learningFirstApexCaptured}, InputToTakeoff=" +
                 $"{inputToTakeoffSeconds:F3}s, TriggerToTakeoffX=" +
                 $"{triggerToTakeoffX:F3}, LearnGroundKinematics=" +
-                $"{learningMayLearnGroundKinematics}.",
+                $"{learningMayLearnGroundKinematics}, HistoricalEvidence=" +
+                $"{landingEvidenceWasHistorical}, EvidenceFixedStep=" +
+                $"{capturedLandingFixedStep}.",
                 "Physics");
         }
 
         BonusRunnerLog.Debug(
             $"JumpSample AttemptId={learningSampleId}, Source={learningSource}, Outcome={outcome}, Map={learningMap}, Section={learningSection}, " +
             $"Hold={holdSeconds:F3}s, HoldMeasurement={holdMeasurement}, " +
+            $"ControllerWallClockHold=" +
+            $"{(float.IsNaN(controllerWallClockHold) ? "Unavailable" : controllerWallClockHold.ToString("F3") + "s")}, " +
+            $"ControllerFixedStepHold=" +
+            $"{(float.IsNaN(controllerFixedStepHold) ? "Unavailable" : controllerFixedStepHold.ToString("F3") + "s")}/" +
+            $"{controllerHeldFixedSteps}Steps, " +
             $"Trigger=({learningTriggerPosition.x:F3},{learningTriggerPosition.y:F3}), " +
             $"Takeoff=({learningTakeoffPosition.x:F3},{learningTakeoffPosition.y:F3}), " +
             $"TakeoffVelocity=({learningTakeoffVelocity.x:F3},{learningTakeoffVelocity.y:F3}), " +
@@ -7665,6 +12991,10 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
             $"End=({state.PlayerPosition.x:F3},{state.PlayerPosition.y:F3}), " +
             $"EndVelocity=({state.PlayerVelocity.x:F3},{state.PlayerVelocity.y:F3}), " +
             $"HorizontalDistance={horizontalDistance:F3}, Flight={flightSeconds:F3}s; " +
+            $"EndEvidence=" +
+            $"{(useAuthoritativeLandingEvidence ? "FixedStepLatch" : "LiveRender")}, " +
+            $"EvidenceFixedStep={capturedLandingFixedStep}, " +
+            $"HistoricalEvidence={landingEvidenceWasHistorical}; " +
             $"LandingSurface[{landingSurface}]; " +
             $"{physicsFeedback}",
             "Learning");
@@ -7712,18 +13042,68 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
             {
                 float landingError =
                     state.PlayerPosition.x - automaticPredictedLandingX;
-                bool withinTargetX =
-                    state.PlayerPosition.x >= automaticTargetSafeLeft &&
-                    state.PlayerPosition.x <= automaticTargetSafeRight;
+                float acceptedSafeLeft =
+                    automaticTargetSafeLeft -
+                    automaticLandingSafeTolerance;
+                float acceptedSafeRight =
+                    automaticTargetSafeRight +
+                    automaticLandingSafeTolerance;
+                bool withinPreferredTargetX =
+                    state.PlayerPosition.x >= acceptedSafeLeft &&
+                    state.PlayerPosition.x <= acceptedSafeRight;
+                bool withinAuthorizedRawTargetX = false;
+                float actualRawBodyOverlap = 0f;
+                float requiredRawBodyOverlap = Mathf.Max(
+                    0.15f,
+                    Mathf.Abs(automaticTriggerSpeed) * Mathf.Clamp(
+                        automaticPlanPhysicsSnapshot.FixedDeltaTime,
+                        0.005f,
+                        0.05f));
                 bool supportMatched = false;
                 bool actualSupportAvailable = false;
                 BonusBoardSegment actualSupport = default;
                 string supportCheck = "Unavailable";
+                BonusBoardSegment expectedSupport = new(
+                    automaticTargetLeft,
+                    automaticTargetRight,
+                    automaticTargetTop,
+                    automaticTargetSafeLeft,
+                    automaticTargetSafeRight,
+                    automaticTargetColliderId,
+                    automaticTargetColliderName,
+                    automaticTargetMapPieceName,
+                    automaticTargetMapPieceOriginX,
+                    automaticTargetMapPieceInstanceId,
+                    automaticTargetRegistryGeneration,
+                    automaticTargetStaticSurfaceIndex);
                 try
                 {
-                    PlayerMovement player = PlayerMovement.instance;
-                    if (player != null)
+                    float bodyMinimumX = 0f;
+                    float bodyMaximumX = 0f;
+                    bool bodyBoundsAvailable = false;
+                    string evidenceSource;
+                    if (useAuthoritativeLandingEvidence)
                     {
+                        actualSupportAvailable = true;
+                        actualSupport = capturedLandingSurface;
+                        float halfWidth = Mathf.Max(
+                            0.15f,
+                            capturedLandingPlayerHalfWidth);
+                        bodyMinimumX = state.PlayerPosition.x - halfWidth;
+                        bodyMaximumX = state.PlayerPosition.x + halfWidth;
+                        bodyBoundsAvailable = true;
+                        evidenceSource =
+                            $"FixedStepLatch@{capturedLandingFixedStep}";
+                    }
+                    else
+                    {
+                        PlayerMovement player = PlayerMovement.instance;
+                        if (player == null)
+                        {
+                            supportCheck = "PlayerUnavailable";
+                            throw new InvalidOperationException(
+                                "Player unavailable for live landing scan.");
+                        }
                         BonusBoardScanResult landingScan = platformScanner.Scan(
                             state.PlayerPosition,
                             player,
@@ -7731,46 +13111,66 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
                         actualSupportAvailable = landingScan.IsValid;
                         if (actualSupportAvailable)
                             actualSupport = landingScan.Current;
-                        bool topMatched = landingScan.IsValid &&
-                            Mathf.Abs(
-                                landingScan.Current.Top - automaticTargetTop) <= 0.35f;
+                        if (player.playerCollider != null)
+                        {
+                            Bounds playerBounds = player.playerCollider.bounds;
+                            bodyMinimumX = playerBounds.min.x;
+                            bodyMaximumX = playerBounds.max.x;
+                            bodyBoundsAvailable = true;
+                        }
+                        evidenceSource = "RenderColliderScan";
+                        if (!actualSupportAvailable)
+                            supportCheck = $"ScanInvalid:{landingScan.Reason}";
+                    }
+
+                    if (actualSupportAvailable)
+                    {
+                        if (automaticLandingAllowsRawBodyFit &&
+                            bodyBoundsAvailable)
+                        {
+                            actualRawBodyOverlap = Mathf.Max(
+                                0f,
+                                Mathf.Min(
+                                    bodyMaximumX,
+                                    automaticTargetRight) -
+                                Mathf.Max(
+                                    bodyMinimumX,
+                                    automaticTargetLeft));
+                            withinAuthorizedRawTargetX =
+                                actualRawBodyOverlap >=
+                                    requiredRawBodyOverlap;
+                        }
+                        bool topMatched = Mathf.Abs(
+                            actualSupport.Top - automaticTargetTop) <= 0.35f;
                         bool rawBoundsMatched =
-                            state.PlayerPosition.x >= automaticTargetLeft - 0.10f &&
-                            state.PlayerPosition.x <= automaticTargetRight + 0.10f;
-                        BonusBoardSegment expectedSupport = new(
-                            automaticTargetLeft,
-                            automaticTargetRight,
-                            automaticTargetTop,
-                            automaticTargetSafeLeft,
-                            automaticTargetSafeRight,
-                            automaticTargetColliderId,
-                            automaticTargetColliderName,
-                            automaticTargetMapPieceName,
-                            automaticTargetMapPieceOriginX,
-                            automaticTargetMapPieceInstanceId,
-                            automaticTargetRegistryGeneration,
-                            automaticTargetStaticSurfaceIndex);
-                        bool identityMatched = landingScan.IsValid &&
+                            (state.PlayerPosition.x >= automaticTargetLeft - 0.10f &&
+                             state.PlayerPosition.x <= automaticTargetRight + 0.10f) ||
+                            withinAuthorizedRawTargetX;
+                        bool identityMatched =
                             StaticOrColliderIdentityMatches(
-                                landingScan.Current,
+                                actualSupport,
                                 expectedSupport);
                         supportMatched =
                             topMatched && rawBoundsMatched && identityMatched;
-                        supportCheck = landingScan.IsValid
-                            ? $"TopMatch={topMatched},BoundsMatch={rawBoundsMatched}," +
-                              $"IdentityMatch={identityMatched},ActualSupport=" +
-                              $"{landingScan.Current.ColliderInstanceId}:{landingScan.Current.ColliderName}," +
-                              $"MapPiece={landingScan.Current.MapPieceName}#" +
-                              $"{landingScan.Current.MapPieceInstanceId}," +
-                              $"Generation={landingScan.Current.RegistryGeneration}," +
-                              $"Surface={landingScan.Current.StaticSurfaceIndex}"
-                            : $"ScanInvalid:{landingScan.Reason}";
+                        supportCheck =
+                            $"Evidence={evidenceSource},TopMatch={topMatched}," +
+                            $"BoundsMatch={rawBoundsMatched}," +
+                            $"IdentityMatch={identityMatched},ActualSupport=" +
+                            $"{actualSupport.ColliderInstanceId}:" +
+                            $"{actualSupport.ColliderName},MapPiece=" +
+                            $"{actualSupport.MapPieceName}#" +
+                            $"{actualSupport.MapPieceInstanceId},Generation=" +
+                            $"{actualSupport.RegistryGeneration},Surface=" +
+                            $"{actualSupport.StaticSurfaceIndex}";
                     }
                 }
                 catch (System.Exception exception)
                 {
                     supportCheck = $"CheckFailed:{exception.GetType().Name}";
                 }
+                bool withinTargetX =
+                    withinPreferredTargetX ||
+                    withinAuthorizedRawTargetX;
                 bool landedOnTarget = withinTargetX && supportMatched;
                 float actualTriggerTravel =
                     state.PlayerPosition.x - learningTriggerPosition.x;
@@ -7797,7 +13197,7 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
                         : landedOnTarget
                             ? "Success"
                             : !withinTargetX
-                                ? state.PlayerPosition.x < automaticTargetSafeLeft
+                                ? state.PlayerPosition.x < acceptedSafeLeft
                                     ? "ShortOfSafeRange"
                                     : "BeyondSafeRange"
                                 : "WrongSupport";
@@ -7833,10 +13233,11 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
                       $"{actualSupport.RegistryGeneration}/S" +
                       $"{actualSupport.StaticSurfaceIndex}"
                     : "Unavailable";
-                // Touching the raw collider while the player's center is
-                // outside the safe interval is an unstable edge catch, not a
-                // successful route. Do not let it reinforce the same
-                // oversized jump on repeated three-pillar patterns.
+                // Raw support is normally diagnostic-only. A route whose
+                // wall-exit solver explicitly selected RawBodyFit is the one
+                // exception; the accepted mode/tolerance must survive into
+                // outcome scoring or a planned physical landing is falsely
+                // labelled BeyondSafeRange.
                 if (supportMatched && !landedOnTarget)
                 {
                     jumpPhysicsFeedback.ObserveLandingError(
@@ -7893,6 +13294,14 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
                     $"LandingErrorX={landingError:F3} PredictedToActualErrorX={errorFromPredictedX:F3}, " +
                     $"SafeMarginLeft={targetLeftMargin:F3} SafeMarginRight={targetRightMargin:F3}, " +
                     $"SupportTopErrorY={actualSupportTopError:F3}, " +
+                    $"LandingAcceptance[SafeTolerance=" +
+                    $"{automaticLandingSafeTolerance:F3}," +
+                    $"RawBodyFitAuthorized=" +
+                    $"{automaticLandingAllowsRawBodyFit}," +
+                    $"RawOverlap={actualRawBodyOverlap:F3}/" +
+                    $"{requiredRawBodyOverlap:F3}," +
+                    $"WithinSafeTolerance={withinPreferredTargetX}," +
+                    $"WithinAuthorizedRaw={withinAuthorizedRawTargetX}], " +
                     $"WithinTargetX={withinTargetX}, SupportMatched={supportMatched}, " +
                     $"LandedOnTarget={landedOnTarget}, HazardAtPlan={automaticHazardAtPlan}, " +
                     $"SphereProgress={sphereProgress}, " +

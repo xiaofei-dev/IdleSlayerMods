@@ -12,6 +12,11 @@ internal static class AscendingHeightsQuickSkipPreModalPatch
     [HarmonyPrefix]
     private static void Prefix(AscendingHeightsMap __0)
     {
+        // Authorize only the slider belonging to this Ascending Heights
+        // launch. The delayed runtime observer will ignore every other
+        // minigame's PopupSlider.
+        AscendingHeightsSliderSkipBridge.MarkExpected(Time.unscaledTime);
+
         // Apply before the game calculates its target label, starting boost,
         // finish spawn point and completion condition. Applying this from the
         // runtime Update loop is too late for those cached values.

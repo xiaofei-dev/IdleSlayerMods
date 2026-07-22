@@ -96,6 +96,11 @@ The `Craftables > Enabled` setting is the master switch for every craftable
 option and any material purchase requested by those craftables. The detailed
 settings below it are evaluated only while this switch is enabled.
 
+Ascendant Badge Boost is armed whenever its one-use effect is available and
+Dragon Scales are strictly above 50% of the current unlocked capacity. This
+threshold is fixed. Dragon Scales are never bought; other missing recipe
+materials follow `Buy Missing With Jewels`.
+
 Timed items begin refilling at 3 minutes and stop at 6 minutes by default.
 Rage Pills use their own minimum interval.
 
@@ -116,12 +121,22 @@ Manifest uses Simurgh Feathers and is unaffected by the Scrap reserve.
 
 ## Manual Armory Box Opening
 
-In the craftables screen, highlight one of the five Armory boxes and press the
-configured `Select Box Key` (`I` by default) to select it. Press the configured
-`Open Boxes Key` (`O` by default) to open up to `Boxes Per Press` boxes (`10`
-by default) without the slow modal animation. The two keys must differ. Normal
-crafting costs and reward rolls are retained. The operation stops when
-materials or Armory slots run out and is independent from `T`.
+In the craftables screen, highlight one of the five Armory boxes, the Dragon
+Egg, or the Simurgh Egg and press the configured `Select Box Key` (`B` by
+default). Press `Open Boxes Key` (`N` by default) to open up to `Boxes Per
+Press` selected boxes or eggs (`10` by default) without the slow modal
+animation. The two keys must differ. Normal crafting costs and reward rolls
+are retained. Armory boxes stop when materials or Armory slots run out; eggs
+stop when their material runs out. This feature is independent from `T`.
+
+## Casino Crawler Eyes
+
+Enable `Casino Crawler Eyes > Enabled`, open the Village Casino Crawler Eye
+purchase screen, and press `M` to purchase the configured amount. The default
+is 1,000 Eyes per press. Purchases run as sequential native 10-eye transactions
+and stop safely when Jewels of Soul are insufficient or the screen is closed.
+This manual feature is independent from `T` and can spend substantial premium
+currency.
 
 ## Silver Boxes
 
@@ -146,6 +161,10 @@ slots are preserved.
 After a new Daily set is generated, the mod can reroll selected inconvenient
 objectives. Existing Daily Quests and later manual rerolls do not trigger the
 filter.
+
+The filtered objectives include material collection and crafting temporary
+craftables, along with the other event and minigame objectives documented in
+the complete quest-maintenance guide.
 
 ## Eggs
 

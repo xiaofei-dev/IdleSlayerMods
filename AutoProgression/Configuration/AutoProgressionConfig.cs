@@ -6,7 +6,7 @@ namespace AutoProgression.Configuration;
 
 internal sealed class AutoProgressionConfig(string configName) : BaseConfig(configName)
 {
-    internal const int CurrentConfigurationVersion = 23;
+    internal const int CurrentConfigurationVersion = 25;
     private const string LegacySection = "AutoProgression";
 
     internal MelonPreferences_Entry<int> ConfigurationVersion;
@@ -24,6 +24,9 @@ internal sealed class AutoProgressionConfig(string configName) : BaseConfig(conf
     internal MelonPreferences_Entry<int> ArmoryBoxesPerPress;
     internal MelonPreferences_Entry<string> ArmoryBoxSelectKey;
     internal MelonPreferences_Entry<string> ArmoryBoxOpenKey;
+    internal MelonPreferences_Entry<bool> EnableCrawlerEyeBulkPurchase;
+    internal MelonPreferences_Entry<string> CrawlerEyePurchaseKey;
+    internal MelonPreferences_Entry<int> CrawlerEyesPerPress;
     internal MelonPreferences_Entry<bool> EnableAutomaticSilverBoxClaim;
     internal MelonPreferences_Entry<bool> EnableQuestAutomation;
     internal MelonPreferences_Entry<bool> AutoClaimCompletedQuests;
@@ -104,13 +107,23 @@ internal sealed class AutoProgressionConfig(string configName) : BaseConfig(conf
 
         ArmoryBoxesPerPress = BindMigrated(
             "Armory Boxes", "Boxes Per Press", "Armory Boxes - Boxes Per Press", 10,
-            "Maximum number of the selected Armory box opened in the background per trigger.", migrateLegacyValues);
+            "Maximum number of the selected Armory box or egg opened in the background per trigger.", migrateLegacyValues);
         ArmoryBoxSelectKey = BindMigrated(
-            "Armory Boxes", "Select Box Key", "Armory Boxes - Select Box Key", "I",
-            "Key used to record the currently highlighted one of the five Armory boxes. This must differ from Open Boxes Key.", migrateLegacyValues);
+            "Armory Boxes", "Select Box Key", "Armory Boxes - Select Box Key", "B",
+            "Key used to record the currently highlighted Armory box, Dragon Egg, or Simurgh Egg. This must differ from Open Boxes Key.", migrateLegacyValues);
         ArmoryBoxOpenKey = BindMigrated(
-            "Armory Boxes", "Open Boxes Key", "Armory Boxes - Open Boxes Key", "O",
-            "Key used to open the selected Armory box. This must differ from Select Box Key. This manual feature is independent from the T automation toggle.", migrateLegacyValues);
+            "Armory Boxes", "Open Boxes Key", "Armory Boxes - Open Boxes Key", "N",
+            "Key used to open the selected Armory box or egg. This must differ from Select Box Key. This manual feature is independent from the T automation toggle.", migrateLegacyValues);
+
+        EnableCrawlerEyeBulkPurchase = BindMigrated(
+            "Casino Crawler Eyes", "Enabled", "Casino Crawler Eyes - Enabled", false,
+            "WARNING: This option spends Jewels of Soul. Enable the manual bulk-purchase key while the Village Casino Crawler Eye purchase screen is open. This feature is independent from the T automation toggle.", migrateLegacyValues);
+        CrawlerEyePurchaseKey = BindMigrated(
+            "Casino Crawler Eyes", "Purchase Key", "Casino Crawler Eyes - Purchase Key", "M",
+            "Key used to start one sequential Crawler Eye bulk purchase.", migrateLegacyValues);
+        CrawlerEyesPerPress = BindMigrated(
+            "Casino Crawler Eyes", "Eyes Per Press", "Casino Crawler Eyes - Eyes Per Press", 1000,
+            "Requested number of Crawler Eyes purchased per trigger. Values are rounded down to a multiple of 10.", migrateLegacyValues);
 
         EnableAutomaticSilverBoxClaim = BindMigrated(
             "Silver Boxes", "Auto Claim Reward", "Silver Boxes - Auto Claim Reward", true,
@@ -300,6 +313,12 @@ internal sealed class AutoProgressionConfig(string configName) : BaseConfig(conf
 
     private void MigrateChangedDefaults()
     {
+        if (ArmoryBoxSelectKey.Value is "I" or "[")
+            ArmoryBoxSelectKey.Value = "B";
+        if (ArmoryBoxOpenKey.Value is "O" or "]")
+            ArmoryBoxOpenKey.Value = "N";
+        if (CrawlerEyePurchaseKey.Value is "\\" or "|")
+            CrawlerEyePurchaseKey.Value = "M";
         if (AutomaticAscensionSoulBonusPercent.Value == 100f)
             AutomaticAscensionSoulBonusPercent.Value = 50f;
         if (AutomaticAscensionCheckIntervalMinutes.Value == 15f)
@@ -329,6 +348,9 @@ internal sealed class AutoProgressionConfig(string configName) : BaseConfig(conf
         "Minions - Automatic Maximum-Level Prestige",
         "Egg Opening - Dragon Egg Reserve Amount",
         "Egg Opening - Simurgh Egg Reserve Amount",
+        "Casino Crawler Eyes - Enabled",
+        "Casino Crawler Eyes - Purchase Key",
+        "Casino Crawler Eyes - Eyes Per Press",
         "Quests - Enabled",
         "Quests - Auto Claim Completed Quests",
         "Quests - Regenerate Daily Quests",

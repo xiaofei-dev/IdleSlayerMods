@@ -9,12 +9,13 @@ namespace AutoAdventurer.Configuration;
 
 internal sealed class AutoAdventurerConfig(string configName) : BaseConfig(configName)
 {
-    internal const int CurrentConfigurationVersion = 30;
+    internal const int CurrentConfigurationVersion = 33;
     private const string MainSection = "AutoAdventurer";
     private const string RageSection = "Automatic Rage";
     private const string GameplaySection = "Gameplay";
     private const string SilverBoxAutomationSection = "Silver Box Automation";
-    private const string AutoBoostSection = "Auto Boost";
+    private const string AutoBoostSection = "Auto Movement & Combat";
+    private const string LegacyAutoBoostSection = "Auto Boost";
     private const string QuestAutomationSection = "Quest Automation";
 
     internal MelonPreferences_Entry<int> ConfigurationVersion;
@@ -29,6 +30,9 @@ internal sealed class AutoAdventurerConfig(string configName) : BaseConfig(confi
     internal MelonPreferences_Entry<string> AutoBoostToggleKey;
     internal MelonPreferences_Entry<double> AutoBoostActivationDelaySeconds;
     internal MelonPreferences_Entry<bool> WindDashRequireGrounded;
+    internal MelonPreferences_Entry<bool> AutoJump;
+    internal MelonPreferences_Entry<bool> AutoShootArrows;
+    internal MelonPreferences_Entry<string> ArrowAttackFrequency;
     internal MelonPreferences_Entry<string> QuestAutomationToggleKey;
     internal MelonPreferences_Entry<bool> QuestCompletionNotifications;
     internal MelonPreferences_Entry<bool> AutoAlignElementalDivinities;
@@ -74,6 +78,51 @@ internal sealed class AutoAdventurerConfig(string configName) : BaseConfig(confi
             "Global setting with no hotkey or manual trigger. Automatically confirm the timing slider shown before supported bonus minigames whenever it appears.");
         AutoBoss = Bind(GameplaySection, "Auto Boss", true,
             "Global setting with no hotkey or manual trigger. Automatically reduce bosses to 1 HP, advance boss dialogue, perform the finishing attack, and close supported result screens whenever a boss encounter appears.");
+
+        // L-controlled movement helpers belong directly below the global
+        // gameplay settings in newly generated configurations.
+        bool migrateAutoMovementSection =
+            ConfigurationVersion.Value < 33;
+        string autoMovementToggleKey = migrateAutoMovementSection
+            ? ReadLegacyValue(LegacyAutoBoostSection, "Toggle Key", "L")
+            : "L";
+        bool autoJump = migrateAutoMovementSection
+            ? ReadLegacyBoolean(LegacyAutoBoostSection, "Auto Jump", true)
+            : true;
+        bool autoShootArrows = migrateAutoMovementSection
+            ? ReadLegacyBoolean(LegacyAutoBoostSection,
+                "Auto Shoot Arrows", true)
+            : true;
+        string arrowAttackFrequency = migrateAutoMovementSection
+            ? NormalizeArrowAttackFrequency(ReadLegacyValue(
+                LegacyAutoBoostSection, "Arrow Attack Frequency", "Medium"))
+            : "Medium";
+        double boostActivationDelay = migrateAutoMovementSection
+            ? ReadLegacyNumber(LegacyAutoBoostSection,
+                "Activation Delay Seconds", 0.1d)
+            : 0.1d;
+        bool windDashRequireGrounded = migrateAutoMovementSection
+            ? ReadLegacyBoolean(LegacyAutoBoostSection,
+                "Wind Dash Require Grounded", true)
+            : true;
+
+        AutoBoostToggleKey = Bind(AutoBoostSection, "Toggle Key", autoMovementToggleKey,
+            "Keyboard key used to enable or disable smart movement automation in the central Runner/Rage scene. While enabled, the mod can perform minimum-height jumps and arrow attacks, detects whether Boost or Wind Dash is selected, activates that ability automatically, and follows later ability changes without another toggle. Bonus stages and other minigames are excluded.");
+        AutoJump = Bind(AutoBoostSection, "Auto Jump", autoJump,
+            "While L automation is enabled, repeatedly perform the shortest possible jump in the central Runner/Rage scene.");
+        AutoShootArrows = Bind(AutoBoostSection, "Auto Shoot Arrows", autoShootArrows,
+            "While L automation is enabled, repeatedly request arrow attacks in the central Runner/Rage scene. The game remains responsible for bow availability and attack cooldown.");
+        ArrowAttackFrequency = Bind(AutoBoostSection,
+            "Arrow Attack Frequency", arrowAttackFrequency,
+            "Arrow request frequency used by Auto Shoot Arrows. Supported values: Light, Medium, High, Extra High, or Ultra (every rendered frame). Invalid values fall back to Medium.");
+        AutoBoostActivationDelaySeconds = Bind(AutoBoostSection,
+            "Activation Delay Seconds", boostActivationDelay,
+            "Wait this long after the currently selected Boost or Wind Dash ability reaches zero cooldown before activating that selected ability.");
+        WindDashRequireGrounded = Bind(AutoBoostSection,
+            "Wind Dash Require Grounded", windDashRequireGrounded,
+            "Require the player to be at ground level before automatically activating Wind Dash, preventing it from passing over portals or elite enemies.");
+        if (migrateAutoMovementSection)
+            DeleteLegacyAutoBoostEntries();
 
         bool migrateSilverRelease = ConfigurationVersion.Value < 24 &&
             MelonPreferences.HasEntry(QuestAutomationSection,
@@ -192,29 +241,6 @@ internal sealed class AutoAdventurerConfig(string configName) : BaseConfig(confi
             "Post Rage Protection Seconds", postRageProtectionSeconds,
             "After Rage ends, protect the map for this long while checking quests, boxes, events, minigame triggers, and portals before allowing travel or another Rage activation.");
 
-        AutoBoostToggleKey = Bind(AutoBoostSection, "Toggle Key", "L",
-            "Keyboard key used to enable or disable smart Auto Boost. While enabled, the mod detects whether the player currently selected Boost or Wind Dash, activates that ability automatically, and follows later ability changes without another toggle.");
-        bool migrateBoostActivationDelay = ConfigurationVersion.Value < 19 &&
-            MelonPreferences.HasEntry(AutoBoostSection,
-                "Activation Delay Seconds");
-        double boostActivationDelay = migrateBoostActivationDelay
-            ? Math.Round(MelonPreferences.GetEntryValue<float>(
-                AutoBoostSection, "Activation Delay Seconds"), 3)
-            : ReadLegacyNumber(AutoBoostSection,
-                "Activation Delay Seconds", 0.1d);
-        if (migrateBoostActivationDelay)
-            MelonPreferences.GetCategory(AutoBoostSection)?
-                .DeleteEntry("Activation Delay Seconds");
-        else if (migrateAllNumericValues)
-            MelonPreferences.GetCategory(AutoBoostSection)?
-                .DeleteEntry("Activation Delay Seconds");
-        AutoBoostActivationDelaySeconds = Bind(AutoBoostSection,
-            "Activation Delay Seconds", boostActivationDelay,
-            "Wait this long after the currently selected Boost or Wind Dash ability reaches zero cooldown before activating that selected ability.");
-        WindDashRequireGrounded = Bind(AutoBoostSection,
-            "Wind Dash Require Grounded", true,
-            "Require the player to be at ground level before automatically activating Wind Dash, preventing it from passing over portals or elite enemies.");
-
         if (ConfigurationVersion.Value != CurrentConfigurationVersion ||
             removeLegacyQuestDebug)
         {
@@ -256,6 +282,48 @@ internal sealed class AutoAdventurerConfig(string configName) : BaseConfig(confi
             return Math.Max(0d, parsed);
 
         return fallback;
+    }
+
+    private static string NormalizeArrowAttackFrequency(string value)
+    {
+        if (string.Equals(value, "Extreme", StringComparison.OrdinalIgnoreCase))
+            return "Ultra";
+        if (string.Equals(value, "Low", StringComparison.OrdinalIgnoreCase))
+            return "Light";
+        if (string.Equals(value, "Extra High", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(value, "ExtraHigh", StringComparison.OrdinalIgnoreCase))
+            return "Extra High";
+        if (string.Equals(value, "Light", StringComparison.OrdinalIgnoreCase))
+            return "Light";
+        if (string.Equals(value, "Medium", StringComparison.OrdinalIgnoreCase))
+            return "Medium";
+        if (string.Equals(value, "High", StringComparison.OrdinalIgnoreCase))
+            return "High";
+        if (string.Equals(value, "Ultra", StringComparison.OrdinalIgnoreCase))
+            return "Ultra";
+        return "Medium";
+    }
+
+    private static bool ReadLegacyBoolean(string section, string key,
+        bool fallback)
+    {
+        string raw = ReadLegacyValue(section, key,
+            fallback ? "true" : "false");
+        return bool.TryParse(raw, out bool value) ? value : fallback;
+    }
+
+    private static void DeleteLegacyAutoBoostEntries()
+    {
+        MelonPreferences_Category category =
+            MelonPreferences.GetCategory(LegacyAutoBoostSection);
+        if (category == null) return;
+
+        category.DeleteEntry("Toggle Key");
+        category.DeleteEntry("Activation Delay Seconds");
+        category.DeleteEntry("Wind Dash Require Grounded");
+        category.DeleteEntry("Auto Jump");
+        category.DeleteEntry("Auto Shoot Arrows");
+        category.DeleteEntry("Arrow Attack Frequency");
     }
 
     private static double ReadLegacyNumber(string section, string key,

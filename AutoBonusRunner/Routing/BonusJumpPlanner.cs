@@ -12,7 +12,9 @@ internal enum BonusManeuverKind
     EnterTrenchThenWallJump,
     ApproachJumpThenWallJump,
     WallJumpClimb,
+    GroundedContactEscape,
     SphereCollectionJump,
+    SphereSweepToLowerLanding,
     HazardClearanceJump
 }
 
@@ -96,7 +98,8 @@ internal sealed class BonusJumpPlanner
         Vector2 playerVelocity,
         JumpPhysicsSnapshot physics,
         BonusHazard hazard = default,
-        IReadOnlyList<Vector2> sphereObjectives = null)
+        IReadOnlyList<Vector2> sphereObjectives = null,
+        int sectionIndex = -1)
     {
         scan = SelectLowerRouteWhenItContinues(scan);
         if (!scan.IsValid)
@@ -161,6 +164,24 @@ internal sealed class BonusJumpPlanner
                 physics,
                 out BonusJumpPlan naturalDrop))
         {
+            // A verified natural drop is the safety baseline.  It may be
+            // replaced only by a live-speed jump that lands on the same
+            // verified lower support and intersects additional active sphere
+            // triggers.  This recovers the dense high-platform rows without
+            // weakening the terrain contract.
+            if (sectionIndex == 3 &&
+                TryPlanSphereSweepToLowerLanding(
+                    scan,
+                    playerPosition,
+                    speed,
+                    physics,
+                    hazard,
+                    sphereObjectives,
+                    naturalDrop,
+                    out BonusJumpPlan sphereSweep))
+            {
+                return sphereSweep;
+            }
             return naturalDrop;
         }
 
@@ -254,6 +275,8 @@ internal sealed class BonusJumpPlanner
             MaximumHoldSeconds);
         BonusJumpPlan best = default;
         float bestScore = float.NegativeInfinity;
+        BonusJumpPlan narrowSourceRecovery = default;
+        float narrowSourceRecoveryScore = float.NegativeInfinity;
         StringBuilder evaluations = new();
         evaluations.Append(
             $"Obstacle={obstacle.Kind}[{obstacle.Evidence}] | ");
@@ -319,6 +342,87 @@ internal sealed class BonusJumpPlanner
 
             if (usableRight - usableLeft < 0.02f)
             {
+                // A two-unit landing can be physically real while its player
+                // centre is just outside the scanner's extra-safe inset. The
+                // retained V0.43 trace repeatedly landed on those narrow
+                // supports, then rejected every next jump because the
+                // safe-source/safe-target windows missed by only a few
+                // hundredths. Evaluate the live grounded centre as a bounded
+                // recovery launch before declaring that no intersection
+                // exists. The target still has to be a safe-centre landing
+                // and the complete trajectory still has to clear hazards.
+                bool narrowChainGeometry =
+                    scan.Current.Width <= 2.25f &&
+                    scan.Next.Width <= 2.25f &&
+                    scan.Gap >= 0.50f;
+                bool liveCentreStillOnRawSource =
+                    playerPosition.x >= scan.Current.Left - 0.12f &&
+                    playerPosition.x <= scan.Current.Right + 0.12f;
+                float liveRecoveryLandingX = playerPosition.x + travel;
+                bool liveRecoveryLandingSafe =
+                    liveRecoveryLandingX >=
+                        scan.Next.SafeLeft - LandingRecoveryTolerance &&
+                    liveRecoveryLandingX <=
+                        scan.Next.SafeRight + LandingRecoveryTolerance;
+                string recoveryHazardCheck = "RecoveryGeometryRejected";
+                bool liveRecoveryTrajectorySafe =
+                    narrowChainGeometry &&
+                    liveCentreStillOnRawSource &&
+                    liveRecoveryLandingSafe &&
+                    TrajectoryClearsHazard(
+                        hazard,
+                        playerPosition.x,
+                        liveRecoveryLandingX,
+                        scan.Current.Top,
+                        hold,
+                        flightSeconds,
+                        physics,
+                        out recoveryHazardCheck);
+                if (liveRecoveryTrajectorySafe)
+                {
+                    int recoverySphereHits = CountTrajectorySphereHits(
+                        sphereObjectives,
+                        playerPosition.x,
+                        liveRecoveryLandingX,
+                        scan.Current.Top,
+                        speed,
+                        hold,
+                        flightSeconds,
+                        physics);
+                    float recoveryCenter =
+                        (scan.Next.SafeLeft + scan.Next.SafeRight) * 0.5f;
+                    float recoveryScore =
+                        -Mathf.Abs(liveRecoveryLandingX - recoveryCenter) * 2f -
+                        Mathf.Abs(hold - preferredHold);
+                    AppendEvaluation(
+                        evaluations,
+                        $"H={hold:F2}:EH={effectiveHold:F2},T={flightSeconds:F3}," +
+                        $"D={travel:F2},ImmediateNarrowSourceRecovery," +
+                        $"LiveLaunch={playerPosition.x:F2}," +
+                        $"LiveLanding={liveRecoveryLandingX:F2}," +
+                        $"SphereHits={recoverySphereHits}," +
+                        recoveryHazardCheck);
+                    if (recoveryScore > narrowSourceRecoveryScore)
+                    {
+                        narrowSourceRecoveryScore = recoveryScore;
+                        narrowSourceRecovery = new BonusJumpPlan(
+                            true,
+                            true,
+                            hold,
+                            flightSeconds,
+                            travel,
+                            playerPosition.x,
+                            liveRecoveryLandingX,
+                            playerPosition.x,
+                            playerPosition.x,
+                            "NarrowSupportImmediateChain",
+                            string.Empty,
+                            BonusManeuverKind.GroundJumpToLanding,
+                            recoverySphereHits);
+                    }
+                    continue;
+                }
+
                 AppendEvaluation(evaluations,
                     $"H={hold:F2}:EH={effectiveHold:F2},T={flightSeconds:F3},D={travel:F2},NoIntersection");
                 continue;
@@ -493,6 +597,13 @@ internal sealed class BonusJumpPlanner
         string evaluationSummary = evaluations.ToString();
         if (best.IsValid)
             return best with { CandidateSummary = evaluationSummary };
+        if (narrowSourceRecovery.IsValid)
+        {
+            return narrowSourceRecovery with
+            {
+                CandidateSummary = evaluationSummary
+            };
+        }
 
         return Invalid(
             obstacle.Kind == BonusObstacleKind.RaisedLanding
@@ -879,6 +990,204 @@ internal sealed class BonusJumpPlanner
         return true;
     }
 
+    private static bool TryPlanSphereSweepToLowerLanding(
+        BonusBoardScanResult scan,
+        Vector3 playerPosition,
+        float speed,
+        JumpPhysicsSnapshot physics,
+        BonusHazard hazard,
+        IReadOnlyList<Vector2> sphereObjectives,
+        BonusJumpPlan naturalDrop,
+        out BonusJumpPlan plan)
+    {
+        plan = default;
+        if (!scan.HasNext ||
+            scan.HeightDelta >= -0.35f ||
+            speed < 1f ||
+            sphereObjectives == null ||
+            sphereObjectives.Count == 0 ||
+            playerPosition.x < scan.Current.Left - 0.12f ||
+            playerPosition.x > scan.Current.SafeRight +
+                LandingRecoveryTolerance)
+        {
+            return false;
+        }
+
+        // The player's body already overlaps objectives whose centre is no
+        // more than 1.15 units above the feet. Those are passive run/drop
+        // pickups, not evidence that a jump adds souls. Score only objectives
+        // that require real ascent so this optimization cannot perturb stable
+        // earlier sections for zero net gain.
+        Vector2[] elevatedAhead = sphereObjectives
+            .Where(sphere =>
+                sphere.x >= playerPosition.x - TriggerTolerance &&
+                sphere.x <= scan.Current.Right + 0.40f &&
+                sphere.y > scan.Current.Top + 1.15f)
+            .OrderBy(sphere => sphere.x)
+            .ThenBy(sphere => sphere.y)
+            .Take(48)
+            .ToArray();
+        if (elevatedAhead.Length == 0)
+            return false;
+
+        BonusJumpPlan best = default;
+        int bestHits = -1;
+        float bestHold = float.PositiveInfinity;
+        float bestFlight = float.PositiveInfinity;
+        float bestLandingMargin = float.NegativeInfinity;
+        StringBuilder evaluations = new();
+        evaluations.Append(
+            $"SphereSweepToLowerLanding[Objectives=" +
+            $"{elevatedAhead.Length},LaunchX={playerPosition.x:F3}," +
+            $"Source=[{scan.Current.Left:F3},{scan.Current.Right:F3}]" +
+            $"@{scan.Current.Top:F3},Target=[{scan.Next.SafeLeft:F3}," +
+            $"{scan.Next.SafeRight:F3}]@{scan.Next.Top:F3}," +
+            $"NaturalBaseline={naturalDrop.CandidateSummary}] | ");
+
+        foreach (float hold in HoldCandidates)
+        {
+            if (hold > physics.EffectiveHoldCapSeconds + 0.001f ||
+                !TryPredictFlightTime(
+                    hold,
+                    scan.HeightDelta,
+                    physics,
+                    out float flightSeconds,
+                    out float effectiveHold,
+                    out float maximumRise))
+            {
+                AppendEvaluation(
+                    evaluations,
+                    $"H={hold:F3}:VerticalReject");
+                continue;
+            }
+
+            flightSeconds *= physics.FlightTimeScale;
+            flightSeconds = CalibrateBaseSpeedFlightDuration(
+                speed,
+                hold,
+                scan.HeightDelta,
+                flightSeconds,
+                physics,
+                out string flightSource);
+            float travel = PredictHorizontalTravel(
+                speed,
+                flightSeconds,
+                hold,
+                scan.HeightDelta,
+                physics,
+                out string travelSource);
+            travel = ApplyLandingBias(
+                travel,
+                scan.HeightDelta,
+                hold,
+                physics,
+                ref travelSource);
+            float landingX = playerPosition.x + travel;
+            bool insideVerifiedTarget =
+                landingX >= scan.Next.SafeLeft - 0.05f &&
+                landingX <= scan.Next.SafeRight + 0.05f;
+            if (!insideVerifiedTarget)
+            {
+                AppendEvaluation(
+                    evaluations,
+                    $"H={hold:F3}:EH={effectiveHold:F3}," +
+                    $"MaxRise={maximumRise:F3},T={flightSeconds:F3}," +
+                    $"D={travel:F3},X={landingX:F3}," +
+                    "RejectedOutsideVerifiedTarget");
+                continue;
+            }
+
+            bool trajectorySafe = TrajectoryClearsHazard(
+                hazard,
+                playerPosition.x,
+                landingX,
+                scan.Current.Top,
+                hold,
+                flightSeconds,
+                physics,
+                out string hazardCheck);
+            if (!trajectorySafe)
+            {
+                AppendEvaluation(
+                    evaluations,
+                    $"H={hold:F3}:X={landingX:F3}," +
+                    $"RejectedHazard[{hazardCheck}]");
+                continue;
+            }
+
+            int hits = CountTrajectorySphereHits(
+                elevatedAhead,
+                playerPosition.x,
+                landingX,
+                scan.Current.Top,
+                speed,
+                hold,
+                flightSeconds,
+                physics);
+            AppendEvaluation(
+                evaluations,
+                $"H={hold:F3}:EH={effectiveHold:F3}," +
+                $"MaxRise={maximumRise:F3},T={flightSeconds:F3}," +
+                $"D={travel:F3},X={landingX:F3},Hits={hits}," +
+                $"Flight={flightSource},Travel={travelSource}," +
+                $"{hazardCheck}");
+            if (hits <= 0)
+                continue;
+
+            float landingMargin = Mathf.Min(
+                landingX - scan.Next.SafeLeft,
+                scan.Next.SafeRight - landingX);
+            // This is a strict route policy, not a blended score.  The old
+            // weighted score let a little extra landing margin outweigh a
+            // substantially lighter press even when both paths collected the
+            // same spheres.  That produced unnecessarily high/long sweeps in
+            // the normal final section.  First preserve pickup count, then
+            // choose the lightest equivalent action, and use flight time and
+            // landing margin only as deterministic tie-breakers.
+            bool better =
+                hits > bestHits ||
+                hits == bestHits &&
+                (hold < bestHold - 0.0005f ||
+                 Mathf.Abs(hold - bestHold) <= 0.0005f &&
+                 (flightSeconds < bestFlight - 0.0005f ||
+                  Mathf.Abs(flightSeconds - bestFlight) <= 0.0005f &&
+                  landingMargin > bestLandingMargin + 0.0005f));
+            if (!better)
+                continue;
+
+            bestHits = hits;
+            bestHold = hold;
+            bestFlight = flightSeconds;
+            bestLandingMargin = landingMargin;
+            best = new BonusJumpPlan(
+                true,
+                true,
+                hold,
+                flightSeconds,
+                travel,
+                playerPosition.x,
+                landingX,
+                playerPosition.x - TriggerTolerance,
+                playerPosition.x + TriggerTolerance,
+                "SphereSweepToLowerLanding",
+                string.Empty,
+                BonusManeuverKind.SphereSweepToLowerLanding,
+                hits);
+        }
+
+        if (!best.IsValid)
+            return false;
+
+        plan = best with
+        {
+            CandidateSummary = evaluations +
+                $" | Selected[H={best.HoldSeconds:F3}," +
+                $"Landing={best.PredictedLandingX:F3}," +
+                $"ExpectedHits={best.ExpectedSphereHits}]"
+        };
+        return true;
+    }
+
     private BonusJumpPlan PlanWallApproach(
         BonusBoardScanResult scan,
         Vector3 playerPosition,
@@ -1105,6 +1414,17 @@ internal sealed class BonusJumpPlanner
             float liveContactTimeFromNow = liveDistanceToFace > 0f
                 ? SolveWallContactTravelTime(speed, liveDistanceToFace)
                 : 0f;
+            // Keep the authored deep-entry band for an on-time launch: it
+            // deliberately sends the body low enough to collect the trench
+            // lane.  If a prior landing puts the runner beyond that launch
+            // window, however, requiring the same narrow band turns a still
+            // reachable physical wall face into an invalid Wait and causes a
+            // guaranteed fall.  Relax only this missed-window salvage to any
+            // safe below-lip body contact on the verified face.
+            float salvageMinimumFaceClearance =
+                requireBelowSourceContact
+                    ? 0.75f
+                    : minimumFaceClearance;
             float salvageHold = 0f;
             float salvageContactFeetY = float.NegativeInfinity;
             float salvageScore = float.PositiveInfinity;
@@ -1137,7 +1457,7 @@ internal sealed class BonusJumpPlanner
                     physics);
                 float candidateClearance = scan.Next.Top - candidateFeetY;
                 bool hitsFaceBand =
-                    candidateClearance >= minimumFaceClearance &&
+                    candidateClearance >= salvageMinimumFaceClearance &&
                     candidateClearance <= maximumFaceClearance;
                 if (!hitsFaceBand)
                 {
@@ -1183,6 +1503,9 @@ internal sealed class BonusJumpPlanner
                 $" | WallApproachMissed[TargetTop={scan.Next.Top:F2}," +
                 $"Rise={scan.HeightDelta:F2},WallX={wallContactX:F2}," +
                 $"ContactBandFeet=[{scan.Next.Top - maximumFaceClearance:F2}," +
+                $"{scan.Next.Top - salvageMinimumFaceClearance:F2}]," +
+                $"NominalContactBandFeet=" +
+                $"[{scan.Next.Top - maximumFaceClearance:F2}," +
                 $"{scan.Next.Top - minimumFaceClearance:F2}]," +
                 $"NominalH={chosenApproachHold:F3}," +
                 $"NominalWindow=[{usableLeft:F2},{usableRight:F2}]," +
@@ -1207,7 +1530,7 @@ internal sealed class BonusJumpPlanner
                 out float salvageEffectiveHold,
                 out float salvageMaximumRise);
             string salvageProfile = requireBelowSourceContact
-                ? "DeepTrenchEntry"
+                ? "LateBelowLipPhysicalFaceRecovery"
                 : preferLowerTrenchContact
                     ? "LowerTrenchEntry"
                     : "UpperFaceContact";
@@ -1218,7 +1541,7 @@ internal sealed class BonusJumpPlanner
                 $"ContactFeetY={salvageContactFeetY:F2}," +
                 $"Action=ImmediateJump,{salvageHazardCheck}]";
             string salvageReason = requireBelowSourceContact
-                ? "LateDeepTrenchEntrySalvage"
+                ? "LateDeepTrenchPhysicalFaceSalvage"
                 : preferLowerTrenchContact
                     ? "LateTrenchEntrySalvage"
                     : "LateWallApproachSalvage";
@@ -1633,6 +1956,391 @@ internal sealed class BonusJumpPlanner
     }
 
     /// <summary>
+    /// Plans an escape from a flush raised obstacle after physics has reduced
+    /// live VX to zero.  The horizontal model deliberately uses the last
+    /// accepted pre-contact speed: the game restores that motion as soon as
+    /// the jump clears the face.  This is not a generic wall/trench fallback;
+    /// callers must prove grounded contact with an AdjacentWall whose gap is
+    /// effectively zero.
+    /// </summary>
+    internal bool TryPlanGroundedContactEscape(
+        BonusBoardScanResult scan,
+        Vector3 playerPosition,
+        float preContactSpeed,
+        JumpPhysicsSnapshot physics,
+        BonusHazard hazard,
+        bool requireStrictSafeLanding,
+        out BonusJumpPlan selectedPlan,
+        out BonusBoardSegment selectedTarget,
+        out string rejectionSummary)
+    {
+        selectedPlan = default;
+        selectedTarget = default;
+        rejectionSummary = string.Empty;
+        BonusObstacleAssessment obstacle =
+            BonusObstacleClassifier.Classify(scan);
+        if (!scan.IsValid || !scan.HasNext ||
+            obstacle.Kind != BonusObstacleKind.AdjacentWall ||
+            scan.Gap > 0.10f ||
+            scan.HeightDelta <= 0.35f ||
+            preContactSpeed <= 1f || preContactSpeed >= 80f)
+        {
+            rejectionSummary =
+                $"EligibilityRejected[ScanValid={scan.IsValid}," +
+                $"HasNext={scan.HasNext},Obstacle={obstacle.Kind}," +
+                $"Gap={scan.Gap:F3},Rise={scan.HeightDelta:F3}," +
+                $"PreContactVX={preContactSpeed:F3}]";
+            return false;
+        }
+
+        float maximumHold = Mathf.Clamp(
+            physics.EffectiveHoldCapSeconds,
+            MinimumHoldSeconds,
+            MaximumHoldSeconds);
+        TryPredictFlightTime(
+            maximumHold,
+            0f,
+            physics,
+            out _,
+            out _,
+            out float maximumRise);
+        if (scan.HeightDelta > maximumRise - 0.05f)
+        {
+            rejectionSummary =
+                $"RiseUnreachable[Rise={scan.HeightDelta:F3}," +
+                $"MaximumRise={maximumRise:F3}," +
+                $"MaximumHold={maximumHold:F3}]";
+            return false;
+        }
+
+        List<BonusBoardSegment> targets = new();
+        if (scan.Alternatives != null)
+        {
+            targets.AddRange(scan.Alternatives.Where(candidate =>
+                candidate.Width >= 0.75f &&
+                candidate.Right > scan.Next.Right + 0.10f &&
+                candidate.Left >= scan.Next.Right - 0.15f &&
+                candidate.Top >= scan.Current.Top - 15.25f &&
+                candidate.Top <= scan.Current.Top + maximumRise - 0.05f));
+        }
+        targets.Add(scan.Next);
+        targets = targets
+            .GroupBy(candidate =>
+                $"{candidate.Left:F2}:{candidate.Right:F2}:" +
+                $"{candidate.Top:F2}")
+            .Select(group => group.First())
+            .OrderBy(candidate => candidate.Left)
+            .ToList();
+
+        StringBuilder evaluations = new();
+        float bestScore = float.NegativeInfinity;
+        float bestFallbackMiss = float.PositiveInfinity;
+        BonusJumpPlan fallbackPlan = default;
+        BonusBoardSegment fallbackTarget = default;
+        foreach (BonusBoardSegment target in targets)
+        {
+            float targetCenter =
+                (target.SafeLeft + target.SafeRight) * 0.5f;
+            float inferredHalfWidth = Mathf.Max(
+                0.15f,
+                target.SafeLeft - target.Left - 0.15f);
+            float physicalLeft = target.Left - inferredHalfWidth + 0.05f;
+            float physicalRight = target.Right + inferredHalfWidth - 0.05f;
+            bool downstreamTarget =
+                target.Right > scan.Next.Right + 0.10f;
+
+            foreach (float hold in HoldCandidates)
+            {
+                if (hold > maximumHold + 0.001f ||
+                    !TryPredictFlightTime(
+                        hold,
+                        target.Top - scan.Current.Top,
+                        physics,
+                        out float flightSeconds,
+                        out float effectiveHold,
+                        out float candidateMaximumRise) ||
+                    candidateMaximumRise < scan.HeightDelta + 0.05f)
+                {
+                    continue;
+                }
+
+                flightSeconds *= physics.FlightTimeScale;
+                flightSeconds = CalibrateBaseSpeedFlightDuration(
+                    preContactSpeed,
+                    hold,
+                    target.Top - scan.Current.Top,
+                    flightSeconds,
+                    physics,
+                    out string flightSource);
+                float travel = PredictHorizontalTravel(
+                    preContactSpeed,
+                    flightSeconds,
+                    hold,
+                    target.Top - scan.Current.Top,
+                    physics,
+                    out string travelSource);
+                travel = ApplyLandingBias(
+                    travel,
+                    target.Top - scan.Current.Top,
+                    hold,
+                    physics,
+                    ref travelSource);
+                float landingX = playerPosition.x + travel;
+                if (!TrajectoryClearsHazard(
+                        hazard,
+                        playerPosition.x,
+                        landingX,
+                        scan.Current.Top,
+                        hold,
+                        flightSeconds,
+                        physics,
+                        out string hazardCheck))
+                {
+                    evaluations.Append(
+                        $"T=[{target.Left:F2},{target.Right:F2}]" +
+                        $"H={hold:F3}:HazardReject[{hazardCheck}] | ");
+                    continue;
+                }
+
+                float safeTolerance = requireStrictSafeLanding
+                    ? 0.02f
+                    : LandingRecoveryTolerance;
+                bool insideSafe =
+                    landingX >= target.SafeLeft - safeTolerance &&
+                    landingX <= target.SafeRight + safeTolerance;
+                float footprintLeft = landingX - inferredHalfWidth;
+                float footprintRight = landingX + inferredHalfWidth;
+                float overlap = Mathf.Max(
+                    0f,
+                    Mathf.Min(footprintRight, target.Right) -
+                    Mathf.Max(footprintLeft, target.Left));
+                bool rawBodyFit =
+                    !requireStrictSafeLanding && overlap >= 0.15f;
+                bool accepted = insideSafe || rawBodyFit;
+                float rawMiss = landingX < physicalLeft
+                    ? physicalLeft - landingX
+                    : landingX > physicalRight
+                        ? landingX - physicalRight
+                        : 0f;
+                evaluations.Append(
+                    $"T=[{target.Left:F2},{target.Right:F2}]@" +
+                    $"{target.Top:F2},H={hold:F3},EH={effectiveHold:F3}," +
+                    $"TFlight={flightSeconds:F3},D={travel:F3}," +
+                    $"X={landingX:F3},Safe=[{target.SafeLeft:F3}," +
+                    $"{target.SafeRight:F3}],Footprint=[{footprintLeft:F3}," +
+                    $"{footprintRight:F3}],Overlap={overlap:F3}," +
+                    $"Source={flightSource};{travelSource}," +
+                    $"Result={(insideSafe ? "Safe" : rawBodyFit ? "RawBodyFit" : "Reject")} | ");
+
+                BonusJumpPlan candidate = new(
+                    true,
+                    true,
+                    hold,
+                    flightSeconds,
+                    travel,
+                    playerPosition.x,
+                    landingX,
+                    playerPosition.x,
+                    playerPosition.x,
+                    insideSafe
+                        ? "GroundedContactEscapeSafeLanding"
+                        : rawBodyFit
+                            ? "GroundedContactEscapeRawBodyFit"
+                            : "GroundedContactEscapeClosestSupport",
+                    string.Empty,
+                    BonusManeuverKind.GroundedContactEscape);
+
+                if (!accepted)
+                {
+                    if (rawMiss < bestFallbackMiss)
+                    {
+                        bestFallbackMiss = rawMiss;
+                        fallbackPlan = candidate;
+                        fallbackTarget = target;
+                    }
+                    continue;
+                }
+
+                float centerError = Mathf.Abs(landingX - targetCenter);
+                float score =
+                    (insideSafe ? 200f : 100f) +
+                    (downstreamTarget ? 40f : 0f) +
+                    Mathf.Min(15f, target.Width) * 1.5f -
+                    centerError * 2f +
+                    // At an ordinary-speed confirmed collision, retained
+                    // traces and user testing show undershoot/insufficient
+                    // clearance, while a longer press always breaks contact.
+                    // Prefer the longest hold that still has verified support
+                    // beneath its predicted footprint. Boosted routes keep the
+                    // centre/short-hold bias because overshoot is their known
+                    // failure mode.
+                    (requireStrictSafeLanding ? -hold : hold * 125f);
+                if (score <= bestScore)
+                    continue;
+
+                bestScore = score;
+                selectedPlan = candidate;
+                selectedTarget = target;
+            }
+        }
+
+        if (selectedPlan.IsValid)
+        {
+            selectedPlan = selectedPlan with
+            {
+                CandidateSummary = evaluations.ToString()
+            };
+            rejectionSummary = "None";
+            return true;
+        }
+
+        // A confirmed face contact must remain live even at boost speed.  The
+        // game can always leave this state with a jump, while waiting here
+        // leaves VX pinned to zero forever.  Prefer a strict safe interval
+        // above; if model uncertainty leaves no such interval, use the
+        // hazard-cleared candidate whose physical footprint misses mapped
+        // support by the least amount.  The runtime still has a confirmed-wall
+        // executor as a final fallback when no ballistic candidate survives.
+        if (requireStrictSafeLanding)
+        {
+            if (fallbackPlan.IsValid)
+            {
+                selectedPlan = fallbackPlan with
+                {
+                    Reason = "GroundedContactEscapeStrictClosestSupport",
+                    CandidateSummary = evaluations +
+                        $"StrictLivenessFallback[Miss={bestFallbackMiss:F3}]"
+                };
+                selectedTarget = fallbackTarget;
+                rejectionSummary = "None:StrictLivenessFallback";
+                return true;
+            }
+
+            rejectionSummary =
+                $"StrictSafeLandingAndHazardClearedFallbackUnavailable Candidates[" +
+                $"{evaluations}]";
+            return false;
+        }
+
+        // Remaining stopped is never a useful action in Idle Slayer.  If no
+        // conservative corridor survives model uncertainty, choose the hold
+        // whose predicted footprint is closest to verified support.  At
+        // ordinary speed bias the native-cap press, because retained traces
+        // show only undershoot.
+        if (!requireStrictSafeLanding)
+        {
+            BonusBoardSegment fallbackPreferredTarget = targets
+                .Where(target => target.Right > scan.Next.Right + 0.10f)
+                .OrderByDescending(target => target.Width)
+                .ThenBy(target => target.Left)
+                .FirstOrDefault();
+            if (fallbackPreferredTarget.Width > 0.05f &&
+                TryPredictFlightTime(
+                    maximumHold,
+                    fallbackPreferredTarget.Top - scan.Current.Top,
+                    physics,
+                    out float fallbackFlight,
+                    out _,
+                    out _))
+            {
+                fallbackFlight *= physics.FlightTimeScale;
+                fallbackFlight = CalibrateBaseSpeedFlightDuration(
+                    preContactSpeed,
+                    maximumHold,
+                    fallbackPreferredTarget.Top - scan.Current.Top,
+                    fallbackFlight,
+                    physics,
+                    out string fallbackFlightSource);
+                float fallbackTravel = PredictHorizontalTravel(
+                    preContactSpeed,
+                    fallbackFlight,
+                    maximumHold,
+                    fallbackPreferredTarget.Top - scan.Current.Top,
+                    physics,
+                    out string fallbackTravelSource);
+                fallbackTravel = ApplyLandingBias(
+                    fallbackTravel,
+                    fallbackPreferredTarget.Top - scan.Current.Top,
+                    maximumHold,
+                    physics,
+                    ref fallbackTravelSource);
+                float fallbackLandingX =
+                    playerPosition.x + fallbackTravel;
+                if (TrajectoryClearsHazard(
+                        hazard,
+                        playerPosition.x,
+                        fallbackLandingX,
+                        scan.Current.Top,
+                        maximumHold,
+                        fallbackFlight,
+                        physics,
+                        out string fallbackHazardCheck))
+                {
+                    float inferredHalfWidth = Mathf.Max(
+                        0.15f,
+                        fallbackPreferredTarget.SafeLeft -
+                        fallbackPreferredTarget.Left - 0.15f);
+                    float physicalLeft =
+                        fallbackPreferredTarget.Left -
+                        inferredHalfWidth + 0.05f;
+                    float physicalRight =
+                        fallbackPreferredTarget.Right +
+                        inferredHalfWidth - 0.05f;
+                    bestFallbackMiss = fallbackLandingX < physicalLeft
+                        ? physicalLeft - fallbackLandingX
+                        : fallbackLandingX > physicalRight
+                            ? fallbackLandingX - physicalRight
+                            : 0f;
+                    fallbackPlan = new(
+                        true,
+                        true,
+                        maximumHold,
+                        fallbackFlight,
+                        fallbackTravel,
+                        playerPosition.x,
+                        fallbackLandingX,
+                        playerPosition.x,
+                        playerPosition.x,
+                        "GroundedContactEscapeNativeCap",
+                        string.Empty,
+                        BonusManeuverKind.GroundedContactEscape);
+                    fallbackTarget = fallbackPreferredTarget;
+                    evaluations.Append(
+                        $"NativeCap[T=[{fallbackPreferredTarget.Left:F2}," +
+                        $"{fallbackPreferredTarget.Right:F2}]," +
+                        $"X={fallbackLandingX:F3}," +
+                        $"Source={fallbackFlightSource};" +
+                        $"{fallbackTravelSource},Hazard=" +
+                        $"{fallbackHazardCheck}] | ");
+                }
+                else
+                {
+                    evaluations.Append(
+                        $"NativeCapHazardReject[" +
+                        $"{fallbackHazardCheck}] | ");
+                }
+            }
+        }
+
+        if (!fallbackPlan.IsValid)
+        {
+            rejectionSummary =
+                $"NoHazardSafeFallback Candidates[{evaluations}]";
+            return false;
+        }
+
+        selectedPlan = fallbackPlan with
+        {
+            CandidateSummary = evaluations +
+                $"Fallback[Miss={bestFallbackMiss:F3}," +
+                $"Strict={requireStrictSafeLanding}]"
+        };
+        selectedTarget = fallbackTarget;
+        rejectionSummary = "None";
+        return true;
+    }
+
+    /// <summary>
     /// Chooses a released wall press by its downstream landing, not merely by
     /// whether it can rise above the wall lip. Horizontal motion is blocked
     /// while attached to the face and resumes only after the predicted lip
@@ -1650,16 +2358,20 @@ internal sealed class BonusJumpPlanner
         float releaseTravelBias,
         float minimumHoldSeconds,
         float maximumHoldSeconds,
+        float safeEdgeTolerance,
+        bool allowRawBodyFitLanding,
         out float selectedHold,
         out float predictedFlightSeconds,
         out float predictedHorizontalTravel,
         out float predictedLandingX,
+        out bool selectedRawBodyFit,
         out string summary)
     {
         selectedHold = 0f;
         predictedFlightSeconds = 0f;
         predictedHorizontalTravel = 0f;
         predictedLandingX = contactX;
+        selectedRawBodyFit = false;
         StringBuilder evaluations = new();
         float bestScore = float.PositiveInfinity;
         float maximumUsefulHold = Mathf.Clamp(
@@ -1763,7 +2475,28 @@ internal sealed class BonusJumpPlanner
             // a body-fit landing while covering render/fixed-step quantization
             // at the wall lip.  The demonstrated Ground-7 transfer lands only
             // 0.067 units outside the preferred inset and is physically stable.
-            bool inside = leftMargin >= -0.20f && rightMargin >= -0.20f;
+            float inferredHalfWidth = Mathf.Max(
+                0.15f,
+                downstreamTarget.SafeLeft - downstreamTarget.Left - 0.15f);
+            float footprintLeft = landingX - inferredHalfWidth;
+            float footprintRight = landingX + inferredHalfWidth;
+            float rawOverlap = Mathf.Max(
+                0f,
+                Mathf.Min(footprintRight, downstreamTarget.Right) -
+                Mathf.Max(footprintLeft, downstreamTarget.Left));
+            float requiredRawOverlap = Mathf.Max(
+                0.15f,
+                Mathf.Abs(horizontalSpeed) * Mathf.Clamp(
+                    physics.FixedDeltaTime,
+                    0.005f,
+                    0.05f));
+            bool insideSafe =
+                leftMargin >= -safeEdgeTolerance &&
+                rightMargin >= -safeEdgeTolerance;
+            bool rawBodyFit =
+                allowRawBodyFitLanding &&
+                rawOverlap >= requiredRawOverlap;
+            bool inside = insideSafe || rawBodyFit;
             evaluations.Append(
                 $"H={hold:F3}:RawT={rawFlightSeconds:F3}," +
                 $"Scale={physics.FlightTimeScale:F3},T={flightSeconds:F3}," +
@@ -1772,7 +2505,11 @@ internal sealed class BonusJumpPlanner
                 $"D={travel:F3},X={landingX:F3}," +
                 $"ReleaseTravelBias={boundedReleaseTravelBias:F3}," +
                 $"Margins=[{leftMargin:F3},{rightMargin:F3}]," +
-                $"{(inside ? "Safe" : "Reject")} | ");
+                $"SafeTolerance={safeEdgeTolerance:F3},Footprint=" +
+                $"[{footprintLeft:F3},{footprintRight:F3}]," +
+                $"RawOverlap={rawOverlap:F3}/" +
+                $"{requiredRawOverlap:F3}," +
+                $"{(insideSafe ? "Safe" : rawBodyFit ? "RawBodyFit" : "Reject")} | ");
             if (!inside)
                 continue;
 
@@ -1790,9 +2527,14 @@ internal sealed class BonusJumpPlanner
             predictedFlightSeconds = flightSeconds;
             predictedHorizontalTravel = travel;
             predictedLandingX = landingX;
+            selectedRawBodyFit = !insideSafe && rawBodyFit;
         }
 
-        summary = evaluations.ToString();
+        summary = bestScore < float.PositiveInfinity
+            ? evaluations +
+              $"Selected[H={selectedHold:F3},X={predictedLandingX:F3}," +
+              $"Mode={(selectedRawBodyFit ? "RawBodyFit" : "SafeTolerance")}]."
+            : evaluations.ToString();
         return bestScore < float.PositiveInfinity;
     }
 
@@ -1915,6 +2657,8 @@ internal sealed class BonusJumpPlanner
         JumpPhysicsSnapshot physics,
         float minimumHoldSeconds,
         float maximumHoldSeconds,
+        bool preserveHoldThroughLip,
+        int horizontalTimingToleranceSteps,
         out float selectedHold,
         out float lipCrossingSeconds,
         out float topClearSeconds,
@@ -1967,6 +2711,10 @@ internal sealed class BonusJumpPlanner
             out float gravity,
             out float heldVelocity,
             out float fixedStep);
+        int timingToleranceSteps = Mathf.Clamp(
+            horizontalTimingToleranceSteps,
+            0,
+            1);
 
         foreach (float hold in HoldCandidates)
         {
@@ -1976,12 +2724,16 @@ internal sealed class BonusJumpPlanner
                 continue;
             }
 
-            GetWallHeldStepEnvelope(
-                hold,
-                physics,
-                fixedStep,
-                out int candidateMinimumSteps,
-                out int candidateMaximumSteps);
+            // This result is delivered by JumpController's fixed-step ceiling,
+            // so the actuator produces exactly ceil(hold/fixedDelta) powered
+            // PlayerMovement ticks.  The former +/- one-step timer envelope
+            // rejected valid face intercepts that the controller can deliver
+            // deterministically.
+            int exactHeldSteps = Mathf.Max(
+                1,
+                Mathf.CeilToInt(hold / fixedStep - 0.0001f));
+            int candidateMinimumSteps = exactHeldSteps;
+            int candidateMaximumSteps = exactHeldSteps;
             bool legal = true;
             float worstTopMargin = float.PositiveInfinity;
             float worstFaceMargin = float.PositiveInfinity;
@@ -2016,6 +2768,8 @@ internal sealed class BonusJumpPlanner
                         gravity,
                         heldVelocity,
                         fixedStep,
+                        preserveHoldThroughLip,
+                        timingToleranceSteps,
                         out float stepLipSeconds,
                         out float stepTopSeconds,
                         out float stepTargetSeconds,
@@ -2094,6 +2848,8 @@ internal sealed class BonusJumpPlanner
         float gravity,
         float heldVelocity,
         float fixedStep,
+        bool preserveHoldThroughLip,
+        int timingToleranceSteps,
         out float lipCrossingSeconds,
         out float topClearSeconds,
         out float targetContactSeconds,
@@ -2183,9 +2939,12 @@ internal sealed class BonusJumpPlanner
                 boostHorizontalDeceleration,
                 targetTravel,
                 fixedStep));
-        int earliestReleaseHeldStep = lipReachedWhileHeld
-            ? lipStep
-            : heldSteps;
+        int earliestReleaseHeldStep =
+            preserveHoldThroughLip
+                ? heldSteps
+                : lipReachedWhileHeld
+                    ? lipStep
+                    : heldSteps;
         int latestReleaseHeldStep = heldSteps;
         float minimumTopY = float.PositiveInfinity;
         float maximumTopY = float.NegativeInfinity;
@@ -2203,8 +2962,13 @@ internal sealed class BonusJumpPlanner
                 : 0;
             // One horizontal fixed-step of timing tolerance covers collision
             // resolution at the old lip and a small live-speed quantisation
-            // error without reverting to a render-time hold envelope.
-            for (int timingOffset = -1; timingOffset <= 1; timingOffset++)
+            // error without reverting to a render-time hold envelope. A caller
+            // that already owns exact physical contact and exact fixed-step
+            // actuation may explicitly request the zero-offset solution as a
+            // bounded fallback after the robust envelope has failed.
+            for (int timingOffset = -timingToleranceSteps;
+                 timingOffset <= timingToleranceSteps;
+                 timingOffset++)
             {
                 int topSteps = Mathf.Max(1, baseTopSteps + timingOffset);
                 int targetSteps = Mathf.Max(
@@ -2264,9 +3028,11 @@ internal sealed class BonusJumpPlanner
             WallFaceMaximumContactVelocityY;
         reason = $"DiscreteLip[Step={lipStep},Y={lipFeetY:F3}," +
                  $"VY={lipVelocityY:F3},Held={lipReachedWhileHeld}]," +
+                 $"ReleaseMode=" +
+                 $"{(preserveHoldThroughLip ? "FixedStepCeiling" : "LipToCeilingEnvelope")}," +
                  $"ReleaseHeldSteps=[{earliestReleaseHeldStep}," +
                  $"{latestReleaseHeldStep}],XSteps[Clear={baseTopSteps}," +
-                 $"Face={baseTargetSteps},Tolerance=+/-1,V0=" +
+                 $"Face={baseTargetSteps},Tolerance=+/-{timingToleranceSteps},V0=" +
                  $"{horizontalSpeed:F3},Base={baseHorizontalSpeed:F3}," +
                  $"Decel={boostHorizontalDeceleration:F3}]," +
                  $"ClearY=[{minimumTopY:F3},{maximumTopY:F3}]," +
