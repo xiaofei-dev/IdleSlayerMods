@@ -15,7 +15,7 @@ every setting and behavior, see the [Complete Manual](MANUAL.md).
 - Maintains supported timed craftables and refreshes Rage with Rage Pills.
 - Uses Scrap and Dragon Scale overflow without exceeding the configured
   maximum effect duration.
-- Opens Dragon and Simurgh Eggs in the background while preserving reserves.
+- Optionally opens Dragon and Simurgh Eggs in the background while preserving reserves.
 - Claims completed Daily and Weekly Quests and regenerates exhausted sets.
 - Filters selected newly generated Daily Quests and selects the 180,000-kill
   Rage Weekly Quest.
@@ -62,9 +62,9 @@ Random Box magnet upgrades is a persistent protection and remains active while
 
 Before pressing `T`, review these settings:
 
-1. Disable `Use Paid 500x Bonuses` unless you want automatic Jewel spending.
-2. Disable `Buy Missing With Jewels` unless craftables may buy materials.
-3. Set the Dragon and Simurgh Egg reserves you want to keep.
+1. Enable `Use Paid 500x Bonuses` only if you want automatic Jewel spending.
+2. Enable `Craftables` and `Buy Missing With Jewels` only if craftables may buy materials.
+3. Enable egg opening if desired, then set the Dragon and Simurgh Egg reserves you want to keep.
 4. Review the normal Ascension threshold and post-Ascension Buy All setting.
 5. Confirm the Scrap and Dragon Scale overflow thresholds.
 
@@ -84,7 +84,7 @@ materials follow the global Jewel setting.
 ## Normal Ascension
 
 The default threshold is 50%: pending Slayer Points must reach the configured
-percentage of lifetime Slayer Points. Checks occur every 1 minute by default
+percentage of lifetime Slayer Points. Checks occur every 5 minutes by default
 and once immediately after enabling AutoProgression.
 
 Only normal Ascension is used. Afterward, the mod can repeatedly invoke the
@@ -96,7 +96,12 @@ The `Craftables > Enabled` setting is the master switch for every craftable
 option and any material purchase requested by those craftables. The detailed
 settings below it are evaluated only while this switch is enabled.
 
-Timed items begin refilling at 3 minutes and stop at 15 minutes by default.
+Ascendant Badge Boost is armed whenever its one-use effect is available and
+Dragon Scales are strictly above 50% of the current unlocked capacity. This
+threshold is fixed. Dragon Scales are never bought; other missing recipe
+materials follow `Buy Missing With Jewels`.
+
+Timed items begin refilling at 3 minutes and stop at 6 minutes by default.
 Rage Pills use their own minimum interval.
 
 Scrap and Dragon Scale overflow items are triggered by inventory percentage,
@@ -116,12 +121,22 @@ Manifest uses Simurgh Feathers and is unaffected by the Scrap reserve.
 
 ## Manual Armory Box Opening
 
-In the craftables screen, highlight one of the five Armory boxes and press the
-configured `Select Box Key` (`I` by default) to select it. Press the configured
-`Open Boxes Key` (`O` by default) to open up to `Boxes Per Press` boxes (`10`
-by default) without the slow modal animation. The two keys must differ. Normal
-crafting costs and reward rolls are retained. The operation stops when
-materials or Armory slots run out and is independent from `T`.
+In the craftables screen, highlight one of the five Armory boxes, the Dragon
+Egg, or the Simurgh Egg and press the configured `Select Box Key` (`B` by
+default). Press `Open Boxes Key` (`N` by default) to open up to `Boxes Per
+Press` selected boxes or eggs (`10` by default) without the slow modal
+animation. The two keys must differ. Normal crafting costs and reward rolls
+are retained. Armory boxes stop when materials or Armory slots run out; eggs
+stop when their material runs out. This feature is independent from `T`.
+
+## Casino Crawler Eyes
+
+Enable `Casino Crawler Eyes > Enabled`, open the Village Casino Crawler Eye
+purchase screen, and press `M` to purchase the configured amount. The default
+is 1,000 Eyes per press. Purchases run as sequential native 10-eye transactions
+and stop safely when Jewels of Soul are insufficient or the screen is closed.
+This manual feature is independent from `T` and can spend substantial premium
+currency.
 
 ## Silver Boxes
 
@@ -147,9 +162,14 @@ After a new Daily set is generated, the mod can reroll selected inconvenient
 objectives. Existing Daily Quests and later manual rerolls do not trigger the
 filter.
 
+The filtered objectives include material collection and crafting temporary
+craftables, along with the other event and minigame objectives documented in
+the complete quest-maintenance guide.
+
 ## Eggs
 
-Eggs open in the background without the normal animation:
+Set `Egg Opening > Enabled = true` to open eggs in the background without the
+normal animation. This feature is disabled by default:
 
 - Simurgh Eggs open while above their reserve.
 - Dragon Eggs open while above their reserve and Dragon Scale storage is not
@@ -166,6 +186,12 @@ again when its Slayer Point cost is lower than the available balance.
 Prestige is unlocked. A standing Minion must have a level above 1 and a maximum
 level of at least 70. The service raises that Minion to its maximum level for
 the prestige action.
+
+When this setting is enabled, manually triggered prestige uses the selected
+Minion's maximum level even when its maximum level is below 70 and while the
+global `T` automation toggle is off. The 70 maximum-level threshold applies
+only to automatic prestige. Disabling the setting restores the game's normal
+manual prestige behavior.
 
 With both settings enabled, the order is claim, prestige when eligible, then
 send. With only automatic prestige enabled, manually claiming a mission leaves

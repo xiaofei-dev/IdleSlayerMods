@@ -1,0 +1,944 @@
+{
+  "source": "G:\\SteamLibrary\\steamapps\\common\\Idle Slayer\\Idle Slayer_Data\\resources.assets",
+  "object_counts": {
+    "Material": 122,
+    "Texture2D": 661,
+    "Shader": 39,
+    "TextAsset": 37,
+    "PhysicsMaterial2D": 4,
+    "AnimationClip": 417,
+    "AudioClip": 146,
+    "AnimatorController": 73,
+    "Font": 2,
+    "Sprite": 6565,
+    "AnimatorOverrideController": 132,
+    "GameObject": 5541,
+    "Transform": 3275,
+    "MeshRenderer": 10,
+    "Rigidbody2D": 310,
+    "CircleCollider2D": 76,
+    "PolygonCollider2D": 65,
+    "BoxCollider2D": 957,
+    "Animator": 922,
+    "LineRenderer": 5,
+    "ParticleSystem": 279,
+    "ParticleSystemRenderer": 279,
+    "SpriteRenderer": 1806,
+    "CanvasRenderer": 1232,
+    "Canvas": 262,
+    "RectTransform": 2266,
+    "CanvasGroup": 29,
+    "SpriteMask": 24,
+    "TilemapCollider2D": 220,
+    "Grid": 170,
+    "TilemapRenderer": 457,
+    "SpriteAtlas": 43,
+    "Tilemap": 457,
+    "MonoBehaviour": 8212
+  },
+  "read_errors": {
+    "ValueError": 7842
+  },
+  "matches": [
+    {
+      "path_id": 10301,
+      "type": "GameObject",
+      "data": {
+        "m_Component": [
+          {
+            "component": {
+              "m_FileID": 0,
+              "m_PathID": 15073
+            }
+          },
+          {
+            "component": {
+              "m_FileID": 0,
+              "m_PathID": 19380
+            }
+          },
+          {
+            "component": {
+              "m_FileID": 0,
+              "m_PathID": 19755
+            }
+          }
+        ],
+        "m_Layer": 0,
+        "m_Name": "Bonus Particles",
+        "m_Tag": 0,
+        "m_IsActive": true
+      }
+    },
+    {
+      "path_id": 10310,
+      "type": "GameObject",
+      "data": {
+        "m_Component": [
+          {
+            "component": {
+              "m_FileID": 0,
+              "m_PathID": 16695
+            }
+          },
+          {
+            "component": {
+              "m_FileID": 0,
+              "m_PathID": 19495
+            }
+          },
+          {
+            "component": {
+              "m_FileID": 0,
+              "m_PathID": 19740
+            }
+          }
+        ],
+        "m_Layer": 0,
+        "m_Name": "Bonus Particles 2",
+        "m_Tag": 0,
+        "m_IsActive": true
+      }
+    },
+    {
+      "path_id": 10574,
+      "type": "GameObject",
+      "data": {
+        "m_Component": [
+          {
+            "component": {
+              "m_FileID": 0,
+              "m_PathID": 24009
+            }
+          },
+          {
+            "component": {
+              "m_FileID": 0,
+              "m_PathID": 22917
+            }
+          },
+          {
+            "component": {
+              "m_FileID": 0,
+              "m_PathID": 33741
+            }
+          },
+          {
+            "component": {
+              "m_FileID": 0,
+              "m_PathID": 33757
+            }
+          },
+          {
+            "component": {
+              "m_FileID": 0,
+              "m_PathID": 32354
+            }
+          }
+        ],
+        "m_Layer": 5,
+        "m_Name": "CpS Bonus",
+        "m_Tag": 0,
+        "m_IsActive": true
+      }
+    },
+    {
+      "path_id": 11215,
+      "type": "GameObject",
+      "data": {
+        "m_Component": [
+          {
+            "component": {
+              "m_FileID": 0,
+              "m_PathID": 15859
+            }
+          }
+        ],
+        "m_Layer": 0,
+        "m_Name": "Bonus Stage 2 Background",
+        "m_Tag": 0,
+        "m_IsActive": true
+      }
+    },
+    {
+      "path_id": 11216,
+      "type": "GameObject",
+      "data": {
+        "m_Component": [
+          {
+            "component": {
+              "m_FileID": 0,
+              "m_PathID": 15860
+            }
+          }
+        ],
+        "m_Layer": 0,
+        "m_Name": "Bonus Stage 3 Background",
+        "m_Tag": 0,
+        "m_IsActive": true
+      }
+    },
+    {
+      "path_id": 11217,
+      "type": "GameObject",
+      "data": {
+        "m_Component": [
+          {
+            "component": {
+              "m_FileID": 0,
+              "m_PathID": 15861
+            }
+          }
+        ],
+        "m_Layer": 0,
+        "m_Name": "Bonus Stage 1 Background Floating Islands",
+        "m_Tag": 0,
+        "m_IsActive": true
+      }
+    },
+    {
+      "path_id": 11218,
+      "type": "GameObject",
+      "data": {
+        "m_Component": [
+          {
+            "component": {
+              "m_FileID": 0,
+              "m_PathID": 15862
+            }
+          }
+        ],
+        "m_Layer": 0,
+        "m_Name": "Bonus Stage 1 Background Pillars",
+        "m_Tag": 0,
+        "m_IsActive": true
+      }
+    },
+    {
+      "path_id": 11325,
+      "type": "GameObject",
+      "data": {
+        "m_Component": [
+          {
+            "component": {
+              "m_FileID": 0,
+              "m_PathID": 16925
+            }
+          },
+          {
+            "component": {
+              "m_FileID": 0,
+              "m_PathID": 18172
+            }
+          },
+          {
+            "component": {
+              "m_FileID": 0,
+              "m_PathID": 32305
+            }
+          }
+        ],
+        "m_Layer": 0,
+        "m_Name": "Bonus Reward Detector",
+        "m_Tag": 0,
+        "m_IsActive": true
+      }
+    },
+    {
+      "path_id": 11636,
+      "type": "GameObject",
+      "data": {
+        "m_Component": [
+          {
+            "component": {
+              "m_FileID": 0,
+              "m_PathID": 25003
+            }
+          },
+          {
+            "component": {
+              "m_FileID": 0,
+              "m_PathID": 22404
+            }
+          },
+          {
+            "component": {
+              "m_FileID": 0,
+              "m_PathID": 31734
+            }
+          },
+          {
+            "component": {
+              "m_FileID": 0,
+              "m_PathID": 32628
+            }
+          },
+          {
+            "component": {
+              "m_FileID": 0,
+              "m_PathID": 31539
+            }
+          },
+          {
+            "component": {
+              "m_FileID": 0,
+              "m_PathID": 31461
+            }
+          }
+        ],
+        "m_Layer": 5,
+        "m_Name": "CpS Bonus",
+        "m_Tag": 0,
+        "m_IsActive": true
+      }
+    },
+    {
+      "path_id": 12132,
+      "type": "GameObject",
+      "data": {
+        "m_Component": [
+          {
+            "component": {
+              "m_FileID": 0,
+              "m_PathID": 25163
+            }
+          },
+          {
+            "component": {
+              "m_FileID": 0,
+              "m_PathID": 22709
+            }
+          },
+          {
+            "component": {
+              "m_FileID": 0,
+              "m_PathID": 33844
+            }
+          },
+          {
+            "component": {
+              "m_FileID": 0,
+              "m_PathID": 32359
+            }
+          },
+          {
+            "component": {
+              "m_FileID": 0,
+              "m_PathID": 31827
+            }
+          }
+        ],
+        "m_Layer": 5,
+        "m_Name": "CpS Bonus",
+        "m_Tag": 0,
+        "m_IsActive": true
+      }
+    },
+    {
+      "path_id": 12254,
+      "type": "GameObject",
+      "data": {
+        "m_Component": [
+          {
+            "component": {
+              "m_FileID": 0,
+              "m_PathID": 25220
+            }
+          },
+          {
+            "component": {
+              "m_FileID": 0,
+              "m_PathID": 22515
+            }
+          },
+          {
+            "component": {
+              "m_FileID": 0,
+              "m_PathID": 33183
+            }
+          },
+          {
+            "component": {
+              "m_FileID": 0,
+              "m_PathID": 34447
+            }
+          }
+        ],
+        "m_Layer": 5,
+        "m_Name": "Bonuses",
+        "m_Tag": 0,
+        "m_IsActive": true
+      }
+    },
+    {
+      "path_id": 12255,
+      "type": "GameObject",
+      "data": {
+        "m_Component": [
+          {
+            "component": {
+              "m_FileID": 0,
+              "m_PathID": 25221
+            }
+          },
+          {
+            "component": {
+              "m_FileID": 0,
+              "m_PathID": 22516
+            }
+          },
+          {
+            "component": {
+              "m_FileID": 0,
+              "m_PathID": 33184
+            }
+          },
+          {
+            "component": {
+              "m_FileID": 0,
+              "m_PathID": 34448
+            }
+          }
+        ],
+        "m_Layer": 5,
+        "m_Name": "Bonuses",
+        "m_Tag": 0,
+        "m_IsActive": true
+      }
+    },
+    {
+      "path_id": 12256,
+      "type": "GameObject",
+      "data": {
+        "m_Component": [
+          {
+            "component": {
+              "m_FileID": 0,
+              "m_PathID": 25222
+            }
+          },
+          {
+            "component": {
+              "m_FileID": 0,
+              "m_PathID": 22517
+            }
+          },
+          {
+            "component": {
+              "m_FileID": 0,
+              "m_PathID": 33185
+            }
+          },
+          {
+            "component": {
+              "m_FileID": 0,
+              "m_PathID": 34449
+            }
+          }
+        ],
+        "m_Layer": 5,
+        "m_Name": "Bonuses",
+        "m_Tag": 0,
+        "m_IsActive": true
+      }
+    },
+    {
+      "path_id": 12257,
+      "type": "GameObject",
+      "data": {
+        "m_Component": [
+          {
+            "component": {
+              "m_FileID": 0,
+              "m_PathID": 25223
+            }
+          },
+          {
+            "component": {
+              "m_FileID": 0,
+              "m_PathID": 22518
+            }
+          },
+          {
+            "component": {
+              "m_FileID": 0,
+              "m_PathID": 33186
+            }
+          },
+          {
+            "component": {
+              "m_FileID": 0,
+              "m_PathID": 34450
+            }
+          }
+        ],
+        "m_Layer": 5,
+        "m_Name": "Bonuses",
+        "m_Tag": 0,
+        "m_IsActive": true
+      }
+    },
+    {
+      "path_id": 12258,
+      "type": "GameObject",
+      "data": {
+        "m_Component": [
+          {
+            "component": {
+              "m_FileID": 0,
+              "m_PathID": 25224
+            }
+          },
+          {
+            "component": {
+              "m_FileID": 0,
+              "m_PathID": 22519
+            }
+          },
+          {
+            "component": {
+              "m_FileID": 0,
+              "m_PathID": 33187
+            }
+          },
+          {
+            "component": {
+              "m_FileID": 0,
+              "m_PathID": 34451
+            }
+          }
+        ],
+        "m_Layer": 5,
+        "m_Name": "Bonuses",
+        "m_Tag": 0,
+        "m_IsActive": true
+      }
+    },
+    {
+      "path_id": 12259,
+      "type": "GameObject",
+      "data": {
+        "m_Component": [
+          {
+            "component": {
+              "m_FileID": 0,
+              "m_PathID": 25225
+            }
+          },
+          {
+            "component": {
+              "m_FileID": 0,
+              "m_PathID": 22520
+            }
+          },
+          {
+            "component": {
+              "m_FileID": 0,
+              "m_PathID": 33188
+            }
+          },
+          {
+            "component": {
+              "m_FileID": 0,
+              "m_PathID": 34452
+            }
+          }
+        ],
+        "m_Layer": 5,
+        "m_Name": "Bonuses",
+        "m_Tag": 0,
+        "m_IsActive": true
+      }
+    },
+    {
+      "path_id": 12260,
+      "type": "GameObject",
+      "data": {
+        "m_Component": [
+          {
+            "component": {
+              "m_FileID": 0,
+              "m_PathID": 25226
+            }
+          },
+          {
+            "component": {
+              "m_FileID": 0,
+              "m_PathID": 22521
+            }
+          },
+          {
+            "component": {
+              "m_FileID": 0,
+              "m_PathID": 33189
+            }
+          },
+          {
+            "component": {
+              "m_FileID": 0,
+              "m_PathID": 34453
+            }
+          }
+        ],
+        "m_Layer": 5,
+        "m_Name": "Bonuses",
+        "m_Tag": 0,
+        "m_IsActive": true
+      }
+    },
+    {
+      "path_id": 12261,
+      "type": "GameObject",
+      "data": {
+        "m_Component": [
+          {
+            "component": {
+              "m_FileID": 0,
+              "m_PathID": 25227
+            }
+          },
+          {
+            "component": {
+              "m_FileID": 0,
+              "m_PathID": 22522
+            }
+          },
+          {
+            "component": {
+              "m_FileID": 0,
+              "m_PathID": 33190
+            }
+          },
+          {
+            "component": {
+              "m_FileID": 0,
+              "m_PathID": 34454
+            }
+          }
+        ],
+        "m_Layer": 5,
+        "m_Name": "Bonuses",
+        "m_Tag": 0,
+        "m_IsActive": true
+      }
+    },
+    {
+      "path_id": 12262,
+      "type": "GameObject",
+      "data": {
+        "m_Component": [
+          {
+            "component": {
+              "m_FileID": 0,
+              "m_PathID": 25228
+            }
+          },
+          {
+            "component": {
+              "m_FileID": 0,
+              "m_PathID": 22523
+            }
+          },
+          {
+            "component": {
+              "m_FileID": 0,
+              "m_PathID": 33191
+            }
+          },
+          {
+            "component": {
+              "m_FileID": 0,
+              "m_PathID": 34455
+            }
+          }
+        ],
+        "m_Layer": 5,
+        "m_Name": "Bonuses",
+        "m_Tag": 0,
+        "m_IsActive": true
+      }
+    },
+    {
+      "path_id": 12263,
+      "type": "GameObject",
+      "data": {
+        "m_Component": [
+          {
+            "component": {
+              "m_FileID": 0,
+              "m_PathID": 25229
+            }
+          },
+          {
+            "component": {
+              "m_FileID": 0,
+              "m_PathID": 22524
+            }
+          },
+          {
+            "component": {
+              "m_FileID": 0,
+              "m_PathID": 33192
+            }
+          },
+          {
+            "component": {
+              "m_FileID": 0,
+              "m_PathID": 34456
+            }
+          }
+        ],
+        "m_Layer": 5,
+        "m_Name": "Bonuses",
+        "m_Tag": 0,
+        "m_IsActive": true
+      }
+    },
+    {
+      "path_id": 12461,
+      "type": "GameObject",
+      "data": {
+        "m_Component": [
+          {
+            "component": {
+              "m_FileID": 0,
+              "m_PathID": 25351
+            }
+          },
+          {
+            "component": {
+              "m_FileID": 0,
+              "m_PathID": 22863
+            }
+          },
+          {
+            "component": {
+              "m_FileID": 0,
+              "m_PathID": 32987
+            }
+          },
+          {
+            "component": {
+              "m_FileID": 0,
+              "m_PathID": 34144
+            }
+          },
+          {
+            "component": {
+              "m_FileID": 0,
+              "m_PathID": 31730
+            }
+          }
+        ],
+        "m_Layer": 5,
+        "m_Name": "Souls Bonus",
+        "m_Tag": 0,
+        "m_IsActive": true
+      }
+    },
+    {
+      "path_id": 12699,
+      "type": "GameObject",
+      "data": {
+        "m_Component": [
+          {
+            "component": {
+              "m_FileID": 0,
+              "m_PathID": 24728
+            }
+          },
+          {
+            "component": {
+              "m_FileID": 0,
+              "m_PathID": 22390
+            }
+          },
+          {
+            "component": {
+              "m_FileID": 0,
+              "m_PathID": 32771
+            }
+          },
+          {
+            "component": {
+              "m_FileID": 0,
+              "m_PathID": 33253
+            }
+          },
+          {
+            "component": {
+              "m_FileID": 0,
+              "m_PathID": 34697
+            }
+          },
+          {
+            "component": {
+              "m_FileID": 0,
+              "m_PathID": 32384
+            }
+          }
+        ],
+        "m_Layer": 5,
+        "m_Name": "Souls Bonus",
+        "m_Tag": 0,
+        "m_IsActive": true
+      }
+    },
+    {
+      "path_id": 13129,
+      "type": "GameObject",
+      "data": {
+        "m_Component": [
+          {
+            "component": {
+              "m_FileID": 0,
+              "m_PathID": 16354
+            }
+          },
+          {
+            "component": {
+              "m_FileID": 0,
+              "m_PathID": 20451
+            }
+          }
+        ],
+        "m_Layer": 0,
+        "m_Name": "Bonus stage background pillars",
+        "m_Tag": 0,
+        "m_IsActive": true
+      }
+    },
+    {
+      "path_id": 13201,
+      "type": "GameObject",
+      "data": {
+        "m_Component": [
+          {
+            "component": {
+              "m_FileID": 0,
+              "m_PathID": 15572
+            }
+          },
+          {
+            "component": {
+              "m_FileID": 0,
+              "m_PathID": 18239
+            }
+          },
+          {
+            "component": {
+              "m_FileID": 0,
+              "m_PathID": 31804
+            }
+          }
+        ],
+        "m_Layer": 0,
+        "m_Name": "Bonus Reward Detector",
+        "m_Tag": 0,
+        "m_IsActive": true
+      }
+    },
+    {
+      "path_id": 13202,
+      "type": "GameObject",
+      "data": {
+        "m_Component": [
+          {
+            "component": {
+              "m_FileID": 0,
+              "m_PathID": 15573
+            }
+          },
+          {
+            "component": {
+              "m_FileID": 0,
+              "m_PathID": 18240
+            }
+          },
+          {
+            "component": {
+              "m_FileID": 0,
+              "m_PathID": 31805
+            }
+          }
+        ],
+        "m_Layer": 0,
+        "m_Name": "Bonus Reward Detector",
+        "m_Tag": 0,
+        "m_IsActive": true
+      }
+    },
+    {
+      "path_id": 13203,
+      "type": "GameObject",
+      "data": {
+        "m_Component": [
+          {
+            "component": {
+              "m_FileID": 0,
+              "m_PathID": 15574
+            }
+          },
+          {
+            "component": {
+              "m_FileID": 0,
+              "m_PathID": 18241
+            }
+          },
+          {
+            "component": {
+              "m_FileID": 0,
+              "m_PathID": 31806
+            }
+          }
+        ],
+        "m_Layer": 0,
+        "m_Name": "Bonus Reward Detector",
+        "m_Tag": 0,
+        "m_IsActive": true
+      }
+    },
+    {
+      "path_id": 13228,
+      "type": "GameObject",
+      "data": {
+        "m_Component": [
+          {
+            "component": {
+              "m_FileID": 0,
+              "m_PathID": 25106
+            }
+          },
+          {
+            "component": {
+              "m_FileID": 0,
+              "m_PathID": 21751
+            }
+          },
+          {
+            "component": {
+              "m_FileID": 0,
+              "m_PathID": 31766
+            }
+          },
+          {
+            "component": {
+              "m_FileID": 0,
+              "m_PathID": 33742
+            }
+          },
+          {
+            "component": {
+              "m_FileID": 0,
+              "m_PathID": 32088
+            }
+          }
+        ],
+        "m_Layer": 5,
+        "m_Name": "Souls Bonus",
+        "m_Tag": 0,
+        "m_IsActive": true
+      }
+    }
+  ]
+}

@@ -8,13 +8,18 @@ Egg opening remains controlled separately.
 
 Whetstone, Alternate Dimension Staff, Bidimensional Staff, and Deathwave
 Scepter use a shared refill policy. By default, refilling starts below 3
-minutes and continues toward 15 minutes, at most one item action per second.
+minutes and continues toward 6 minutes, at most one item action per second.
 Deathwave Scepter also preserves the configured Simurgh Feather reserve.
 
 Rage Pill is checked without the normal item startup delay and uses its own
 minimum interval. It may refresh Rage while Rage Mode is already active.
 
 ## Inventory-Overflow Craftables
+
+Ascendant Badge Boost is a one-use effect rather than a timed stack. It is
+crafted whenever its native condition permits use and Dragon Scales are above
+the fixed 50% capacity threshold. Dragon Scales are never purchased; other
+eligible missing materials follow the global Jewel purchase setting.
 
 - Shards Necklace consumes excess Scrap.
 - Random Box Staff, Necklace of Collectables, CpS Compass, and Souls Compass

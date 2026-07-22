@@ -437,6 +437,7 @@ public sealed partial class AutoClimberRuntime
         platformEnemyColliderMember = null;
         detectedEnemyIds.Clear();
         attemptedEnemyInterceptIds.Clear();
+        activeAirborneEnemyInterceptKey = 0L;
         observedGenerationResetKeys.Clear();
         failureTrace.Clear();
 

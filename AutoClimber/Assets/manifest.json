@@ -1,7 +1,7 @@
 {
   "name": "AutoClimber",
   "author": "Tashi",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "description": "Automatically completes Ascending Heights with safe route planning, super-jump priority, recovery, optional enemy hunting for quests, Frozen Shard and reward collection, auto-retry, background play, and Normal, Skip, or quest-aware Auto modes.",
   "nexus_id": "38",
   "donate_url": "https://www.paypal.com/donate/?business=HK85PL8AREEXY&no_recurring=0&currency_code=USD",

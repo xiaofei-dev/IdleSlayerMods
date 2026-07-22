@@ -69,6 +69,7 @@ internal sealed class PlatformCandidate
 
     public bool HasEnemy;
     public int EnemyInstanceId;
+    public long EnemyLogicalKey;
     public float EnemyOffsetX;
     public float EnemyOffsetY;
     public float EnemyWidth;

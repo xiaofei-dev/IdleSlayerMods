@@ -12,6 +12,11 @@ internal static class AscendingHeightsQuickSkipPreModalPatch
     [HarmonyPrefix]
     private static void Prefix(AscendingHeightsMap __0)
     {
+        // Authorize only the slider belonging to this Ascending Heights
+        // launch. The delayed runtime observer will ignore every other
+        // minigame's PopupSlider.
+        AscendingHeightsSliderSkipBridge.MarkExpected(Time.unscaledTime);
+
         // Apply before the game calculates its target label, starting boost,
         // finish spawn point and completion condition. Applying this from the
         // runtime Update loop is too late for those cached values.
@@ -109,15 +114,111 @@ internal static class BackgroundMovementBridge
 
 internal static class EnemyDiagnosticsBridge
 {
-    private static readonly HashSet<int> ConfirmedDeathIds =
-        new HashSet<int>();
+    private sealed class EnemyTrack
+    {
+        public int Generation;
+        public int PlatformId;
+        public int PlatformGeneration;
+        public float LastX;
+        public float LastY;
+        public float LastObservedTime;
+        public long LogicalKey;
+    }
+
+    private const float ReusePositionDistance = 6.0f;
+    private const float ReuseObservationGap = 0.35f;
+
+    private static readonly Dictionary<int, EnemyTrack> EnemyTracks =
+        new Dictionary<int, EnemyTrack>();
+
+    private static readonly HashSet<long> ConfirmedDeathKeys =
+        new HashSet<long>();
 
     internal static int RunConfirmedDeaths { get; private set; }
 
     internal static void BeginRun()
     {
-        ConfirmedDeathIds.Clear();
+        EnemyTracks.Clear();
+        ConfirmedDeathKeys.Clear();
         RunConfirmedDeaths = 0;
+    }
+
+    internal static long Observe(
+        int enemyInstanceId,
+        int platformInstanceId,
+        int platformGeneration,
+        Vector3 position)
+    {
+        if (enemyInstanceId == 0)
+        {
+            return 0L;
+        }
+
+        EnemyTrack track;
+
+        if (!EnemyTracks.TryGetValue(
+                enemyInstanceId,
+                out track))
+        {
+            track = new EnemyTrack
+            {
+                Generation = 1
+            };
+
+            EnemyTracks[enemyInstanceId] = track;
+        }
+        else
+        {
+            float distance = Vector2.Distance(
+                new Vector2(track.LastX, track.LastY),
+                new Vector2(position.x, position.y)
+            );
+
+            float verticalDistance =
+                Mathf.Abs(position.y - track.LastY);
+
+            // Global observations and local platform association can briefly
+            // disagree about the nearest platform while the same enemy moves
+            // horizontally. Platform binding alone must not create a new
+            // enemy generation. Real pooled reuse changes vertical location
+            // substantially, or reappears far away after an observation gap.
+            bool verticalReuse =
+                verticalDistance > ReusePositionDistance;
+
+            bool reappearedElsewhere =
+                Time.time - track.LastObservedTime >
+                    ReuseObservationGap &&
+                distance > ReusePositionDistance;
+
+            if (verticalReuse ||
+                reappearedElsewhere)
+            {
+                track.Generation++;
+            }
+        }
+
+        if (platformInstanceId != 0)
+        {
+            track.PlatformId = platformInstanceId;
+            track.PlatformGeneration = platformGeneration;
+        }
+        track.LastX = position.x;
+        track.LastY = position.y;
+        track.LastObservedTime = Time.time;
+        track.LogicalKey = BuildLogicalKey(
+            enemyInstanceId,
+            track.Generation
+        );
+
+        return track.LogicalKey;
+    }
+
+    private static long BuildLogicalKey(
+        int enemyInstanceId,
+        int generation)
+    {
+        return ((long)(uint)enemyInstanceId << 32) |
+               (uint)generation;
     }
 
     internal static void RecordDeath(
@@ -131,7 +232,13 @@ internal static class EnemyDiagnosticsBridge
 
         int instanceId = enemy.GetInstanceID();
 
-        if (!ConfirmedDeathIds.Add(instanceId))
+        EnemyTrack track;
+        long logicalKey =
+            EnemyTracks.TryGetValue(instanceId, out track)
+                ? track.LogicalKey
+                : BuildLogicalKey(instanceId, 1);
+
+        if (!ConfirmedDeathKeys.Add(logicalKey))
         {
             return;
         }
@@ -159,6 +266,8 @@ internal static class EnemyDiagnosticsBridge
         {
             ClimberLog.Debug(
                 $"Enemy defeated: Id={instanceId}, " +
+                $"Generation={(track != null ? track.Generation : 1)}, " +
+                $"Key={logicalKey}, " +
                 $"Name={enemyName}, " +
                 $"X={position.x:F2}, Y={position.y:F2}, " +
                 $"RunEnemyDefeats={RunConfirmedDeaths}"
@@ -166,10 +275,10 @@ internal static class EnemyDiagnosticsBridge
         }
     }
 
-    internal static bool WasHit(int enemyInstanceId)
+    internal static bool WasHit(long enemyLogicalKey)
     {
-        return enemyInstanceId != 0 &&
-               ConfirmedDeathIds.Contains(enemyInstanceId);
+        return enemyLogicalKey != 0L &&
+               ConfirmedDeathKeys.Contains(enemyLogicalKey);
     }
 }
 

@@ -5,7 +5,7 @@ namespace AutoClimber.Configuration;
 
 internal sealed class AutoClimberConfig(string configName) : BaseConfig(configName)
 {
-    private const int CurrentConfigurationVersion = 9;
+    private const int CurrentConfigurationVersion = 10;
     private const string MainSection = "AutoClimber";
     private const string AutomationSection = "Automation";
 
@@ -14,6 +14,7 @@ internal sealed class AutoClimberConfig(string configName) : BaseConfig(configNa
     internal MelonPreferences_Entry<bool> EnabledOnStartup;
     internal MelonPreferences_Entry<string> ToggleKey;
     internal MelonPreferences_Entry<bool> EnableAutoRetry;
+    internal MelonPreferences_Entry<bool> SkipStartSlider;
     internal MelonPreferences_Entry<bool> TargetEnemies;
     internal MelonPreferences_Entry<string> Mode;
 
@@ -84,6 +85,12 @@ internal sealed class AutoClimberConfig(string configName) : BaseConfig(configNa
             "Auto Retry Enabled",
             autoRetryEnabled,
             "Continue after a failed run when enabled; automatically choose No and exit when disabled."
+        );
+        SkipStartSlider = Bind(
+            AutomationSection,
+            "Skip Start Slider",
+            true,
+            "Wait one second after the Ascending Heights start slider appears, then confirm it automatically if it is still visible."
         );
         TargetEnemies = Bind(
             AutomationSection,

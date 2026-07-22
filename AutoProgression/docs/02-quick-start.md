@@ -12,8 +12,9 @@ The runtime starts disabled. The toggle does not overwrite configuration.
 
 - `Use Paid 500x Bonuses`
 - `Buy Missing With Jewels`
+- `Egg Opening > Enabled`
 - normal Ascension threshold
-- Dragon and Simurgh Egg reserves
+- Dragon and Simurgh Egg automation and reserves
 - Scrap and Dragon Scale overflow thresholds
 - automatic Minion maximum-level prestige behavior
 

@@ -1,39 +1,67 @@
 using System;
+using System.Globalization;
+using System.IO;
 using IdleSlayerMods.Common.Config;
 using MelonLoader;
+using MelonLoader.Utils;
 
 namespace AutoAdventurer.Configuration;
 
 internal sealed class AutoAdventurerConfig(string configName) : BaseConfig(configName)
 {
-    internal const int CurrentConfigurationVersion = 26;
+    internal const int CurrentConfigurationVersion = 33;
     private const string MainSection = "AutoAdventurer";
     private const string RageSection = "Automatic Rage";
     private const string GameplaySection = "Gameplay";
     private const string SilverBoxAutomationSection = "Silver Box Automation";
-    private const string AutoBoostSection = "Auto Boost";
+    private const string AutoBoostSection = "Auto Movement & Combat";
+    private const string LegacyAutoBoostSection = "Auto Boost";
     private const string QuestAutomationSection = "Quest Automation";
 
     internal MelonPreferences_Entry<int> ConfigurationVersion;
     internal MelonPreferences_Entry<bool> DebugMode;
     internal MelonPreferences_Entry<string> ToggleKey;
     internal MelonPreferences_Entry<string> StopKey;
-    internal MelonPreferences_Entry<float> ActivationCheckIntervalSeconds;
-    internal MelonPreferences_Entry<float> MaximumRageDurationSeconds;
-    internal MelonPreferences_Entry<float> PostRageObservationSeconds;
+    internal MelonPreferences_Entry<double> ActivationCheckIntervalSeconds;
+    internal MelonPreferences_Entry<double> MaximumRageDurationSeconds;
+    internal MelonPreferences_Entry<double> PostRageObservationSeconds;
     internal MelonPreferences_Entry<bool> SkipBonusStartSlider;
     internal MelonPreferences_Entry<bool> AutoBoss;
     internal MelonPreferences_Entry<string> AutoBoostToggleKey;
     internal MelonPreferences_Entry<double> AutoBoostActivationDelaySeconds;
     internal MelonPreferences_Entry<bool> WindDashRequireGrounded;
+    internal MelonPreferences_Entry<bool> AutoJump;
+    internal MelonPreferences_Entry<bool> AutoShootArrows;
+    internal MelonPreferences_Entry<string> ArrowAttackFrequency;
     internal MelonPreferences_Entry<string> QuestAutomationToggleKey;
     internal MelonPreferences_Entry<bool> QuestCompletionNotifications;
     internal MelonPreferences_Entry<bool> AutoAlignElementalDivinities;
     internal MelonPreferences_Entry<bool> EnableSilverBoxControl;
     internal MelonPreferences_Entry<bool> AutoReleaseSilverBoxLock;
     internal MelonPreferences_Entry<double> PermanentSilverBoxReleaseAboveDivinityPoints;
-    internal MelonPreferences_Entry<float> MinimumDimensionStayMinutes;
-    internal MelonPreferences_Entry<float> MaximumQuestTimeMinutes;
+    internal MelonPreferences_Entry<double> MinimumDimensionStayMinutes;
+    internal MelonPreferences_Entry<double> MaximumQuestTimeMinutes;
+
+    internal double MinimumDimensionStayMinutesValue =>
+        Math.Max(0d, MinimumDimensionStayMinutes.Value);
+
+    internal double MaximumQuestTimeMinutesValue =>
+        Math.Max(0d, MaximumQuestTimeMinutes.Value);
+
+    internal float ActivationCheckIntervalSecondsValue =>
+        (float)Math.Max(0d, ActivationCheckIntervalSeconds.Value);
+
+    internal float MaximumRageDurationSecondsValue =>
+        (float)Math.Max(0d, MaximumRageDurationSeconds.Value);
+
+    internal float PostRageObservationSecondsValue =>
+        (float)Math.Max(0d, PostRageObservationSeconds.Value);
+
+    internal double AutoBoostActivationDelaySecondsValue =>
+        Math.Max(0d, AutoBoostActivationDelaySeconds.Value);
+
+    internal double PermanentSilverBoxReleaseAboveDivinityPointsValue =>
+        Math.Max(0d, PermanentSilverBoxReleaseAboveDivinityPoints.Value);
 
     protected override void SetBindings()
     {
@@ -51,6 +79,51 @@ internal sealed class AutoAdventurerConfig(string configName) : BaseConfig(confi
         AutoBoss = Bind(GameplaySection, "Auto Boss", true,
             "Global setting with no hotkey or manual trigger. Automatically reduce bosses to 1 HP, advance boss dialogue, perform the finishing attack, and close supported result screens whenever a boss encounter appears.");
 
+        // L-controlled movement helpers belong directly below the global
+        // gameplay settings in newly generated configurations.
+        bool migrateAutoMovementSection =
+            ConfigurationVersion.Value < 33;
+        string autoMovementToggleKey = migrateAutoMovementSection
+            ? ReadLegacyValue(LegacyAutoBoostSection, "Toggle Key", "L")
+            : "L";
+        bool autoJump = migrateAutoMovementSection
+            ? ReadLegacyBoolean(LegacyAutoBoostSection, "Auto Jump", true)
+            : true;
+        bool autoShootArrows = migrateAutoMovementSection
+            ? ReadLegacyBoolean(LegacyAutoBoostSection,
+                "Auto Shoot Arrows", true)
+            : true;
+        string arrowAttackFrequency = migrateAutoMovementSection
+            ? NormalizeArrowAttackFrequency(ReadLegacyValue(
+                LegacyAutoBoostSection, "Arrow Attack Frequency", "Medium"))
+            : "Medium";
+        double boostActivationDelay = migrateAutoMovementSection
+            ? ReadLegacyNumber(LegacyAutoBoostSection,
+                "Activation Delay Seconds", 0.1d)
+            : 0.1d;
+        bool windDashRequireGrounded = migrateAutoMovementSection
+            ? ReadLegacyBoolean(LegacyAutoBoostSection,
+                "Wind Dash Require Grounded", true)
+            : true;
+
+        AutoBoostToggleKey = Bind(AutoBoostSection, "Toggle Key", autoMovementToggleKey,
+            "Keyboard key used to enable or disable smart movement automation in the central Runner/Rage scene. While enabled, the mod can perform minimum-height jumps and arrow attacks, detects whether Boost or Wind Dash is selected, activates that ability automatically, and follows later ability changes without another toggle. Bonus stages and other minigames are excluded.");
+        AutoJump = Bind(AutoBoostSection, "Auto Jump", autoJump,
+            "While L automation is enabled, repeatedly perform the shortest possible jump in the central Runner/Rage scene.");
+        AutoShootArrows = Bind(AutoBoostSection, "Auto Shoot Arrows", autoShootArrows,
+            "While L automation is enabled, repeatedly request arrow attacks in the central Runner/Rage scene. The game remains responsible for bow availability and attack cooldown.");
+        ArrowAttackFrequency = Bind(AutoBoostSection,
+            "Arrow Attack Frequency", arrowAttackFrequency,
+            "Arrow request frequency used by Auto Shoot Arrows. Supported values: Light, Medium, High, Extra High, or Ultra (every rendered frame). Invalid values fall back to Medium.");
+        AutoBoostActivationDelaySeconds = Bind(AutoBoostSection,
+            "Activation Delay Seconds", boostActivationDelay,
+            "Wait this long after the currently selected Boost or Wind Dash ability reaches zero cooldown before activating that selected ability.");
+        WindDashRequireGrounded = Bind(AutoBoostSection,
+            "Wind Dash Require Grounded", windDashRequireGrounded,
+            "Require the player to be at ground level before automatically activating Wind Dash, preventing it from passing over portals or elite enemies.");
+        if (migrateAutoMovementSection)
+            DeleteLegacyAutoBoostEntries();
+
         bool migrateSilverRelease = ConfigurationVersion.Value < 24 &&
             MelonPreferences.HasEntry(QuestAutomationSection,
                 "Auto Release Silver Box Lock");
@@ -63,7 +136,8 @@ internal sealed class AutoAdventurerConfig(string configName) : BaseConfig(confi
                 "Permanent Release Above Divinity Points")
             ? MelonPreferences.GetEntryValue<double>(QuestAutomationSection,
                 "Permanent Release Above Divinity Points")
-            : 0d;
+            : ReadLegacyNumber(SilverBoxAutomationSection,
+                "Permanent Release Above Divinity Points", 0d);
         bool migrateSilverMasterSwitch = ConfigurationVersion.Value < 26 &&
             MelonPreferences.HasEntry(SilverBoxAutomationSection,
                 "Enable Silver Box Control");
@@ -77,6 +151,9 @@ internal sealed class AutoAdventurerConfig(string configName) : BaseConfig(confi
         AutoReleaseSilverBoxLock = Bind(SilverBoxAutomationSection,
             "Auto Release Silver Box Lock", autoReleaseSilverBoxLock,
             "Global setting independent from Quest Automation and its P hotkey. When an active normal quest requires Silver Random Boxes, disable Silver Bank so those boxes can spawn.");
+        if (ConfigurationVersion.Value < 30)
+            MelonPreferences.GetCategory(SilverBoxAutomationSection)?
+                .DeleteEntry("Permanent Release Above Divinity Points");
         PermanentSilverBoxReleaseAboveDivinityPoints = Bind(
             SilverBoxAutomationSection,
             "Permanent Release Above Divinity Points",
@@ -103,16 +180,27 @@ internal sealed class AutoAdventurerConfig(string configName) : BaseConfig(confi
         bool removeLegacyAutoClaim = ConfigurationVersion.Value < 20 &&
             MelonPreferences.HasEntry(QuestAutomationSection,
                 "Auto Claim Completed Quests");
-        MinimumDimensionStayMinutes = Bind(QuestAutomationSection,
-            "Minimum Dimension Stay Minutes", 0f,
-            "Stay in a dimension for at least this long after automatic travel before changing dimension again. Actual travel timing is still limited by the game's Portal cooldown and Portal availability.");
+        bool migrateTimingValues = ConfigurationVersion.Value < 30;
+        double minimumDimensionStayMinutes = ReadLegacyNumber(
+            QuestAutomationSection, "Minimum Dimension Stay Minutes", 10d);
         bool migrateQuestTime = ConfigurationVersion.Value < 17 &&
             MelonPreferences.HasEntry(QuestAutomationSection,
                 "Quest Lock Rescan Minutes");
-        float maximumQuestTime = migrateQuestTime
+        double maximumQuestTime = migrateQuestTime
             ? MelonPreferences.GetEntryValue<float>(QuestAutomationSection,
                 "Quest Lock Rescan Minutes")
-            : 5f;
+            : ReadLegacyNumber(QuestAutomationSection,
+                "Maximum Quest Time Minutes", 5d);
+        if (migrateTimingValues)
+        {
+            MelonPreferences.GetCategory(QuestAutomationSection)?
+                .DeleteEntry("Minimum Dimension Stay Minutes");
+            MelonPreferences.GetCategory(QuestAutomationSection)?
+                .DeleteEntry("Maximum Quest Time Minutes");
+        }
+        MinimumDimensionStayMinutes = Bind(QuestAutomationSection,
+            "Minimum Dimension Stay Minutes", minimumDimensionStayMinutes,
+            "Stay in a dimension for at least this many minutes after automatic travel before changing dimension again. Actual travel timing is still limited by the game's Portal cooldown and Portal availability.");
         MaximumQuestTimeMinutes = Bind(QuestAutomationSection,
             "Maximum Quest Time Minutes", maximumQuestTime,
             "Allow one selected quest to run for at most this many minutes before releasing it and fully rescanning. Set to 0 to disable the maximum time limit.");
@@ -121,41 +209,37 @@ internal sealed class AutoAdventurerConfig(string configName) : BaseConfig(confi
             "Keyboard key used to enable or disable Automatic Rage.");
         StopKey = Bind(RageSection, "Stop Key", "J",
             "Keyboard key used to end the current Rage Mode immediately.");
-        ActivationCheckIntervalSeconds = Bind(RageSection,
-            "Activation Check Interval Seconds", 12f,
-            "How often Automatic Rage checks whether Rage Mode is ready to activate.");
-        MaximumRageDurationSeconds = Bind(RageSection,
-            "Maximum Rage Duration Seconds", 20f,
-            "End an automatically started Rage Mode after this many seconds. Set to 0 to disable the time limit.");
+        bool migrateAllNumericValues = ConfigurationVersion.Value < 30;
+        double activationCheckIntervalSeconds = ReadLegacyNumber(RageSection,
+            "Activation Check Interval Seconds", 12d);
+        double maximumRageDurationSeconds = ReadLegacyNumber(RageSection,
+            "Maximum Rage Duration Seconds", 20d);
         bool migratePostRageProtection = ConfigurationVersion.Value < 18 &&
             MelonPreferences.HasEntry(RageSection,
                 "Post Rage Observation Seconds");
-        float postRageProtectionSeconds = migratePostRageProtection
+        double postRageProtectionSeconds = migratePostRageProtection
             ? MelonPreferences.GetEntryValue<float>(RageSection,
                 "Post Rage Observation Seconds")
-            : 8f;
+            : ReadLegacyNumber(RageSection,
+                "Post Rage Protection Seconds", 8d);
+        if (migrateAllNumericValues)
+        {
+            MelonPreferences.GetCategory(RageSection)?
+                .DeleteEntry("Activation Check Interval Seconds");
+            MelonPreferences.GetCategory(RageSection)?
+                .DeleteEntry("Maximum Rage Duration Seconds");
+            MelonPreferences.GetCategory(RageSection)?
+                .DeleteEntry("Post Rage Protection Seconds");
+        }
+        ActivationCheckIntervalSeconds = Bind(RageSection,
+            "Activation Check Interval Seconds", activationCheckIntervalSeconds,
+            "How often Automatic Rage checks whether Rage Mode is ready to activate.");
+        MaximumRageDurationSeconds = Bind(RageSection,
+            "Maximum Rage Duration Seconds", maximumRageDurationSeconds,
+            "End an automatically started Rage Mode after this many seconds. Set to 0 to disable the time limit.");
         PostRageObservationSeconds = Bind(RageSection,
             "Post Rage Protection Seconds", postRageProtectionSeconds,
             "After Rage ends, protect the map for this long while checking quests, boxes, events, minigame triggers, and portals before allowing travel or another Rage activation.");
-
-        AutoBoostToggleKey = Bind(AutoBoostSection, "Toggle Key", "L",
-            "Keyboard key used to enable or disable smart Auto Boost. While enabled, the mod detects whether the player currently selected Boost or Wind Dash, activates that ability automatically, and follows later ability changes without another toggle.");
-        bool migrateBoostActivationDelay = ConfigurationVersion.Value < 19 &&
-            MelonPreferences.HasEntry(AutoBoostSection,
-                "Activation Delay Seconds");
-        double boostActivationDelay = migrateBoostActivationDelay
-            ? Math.Round(MelonPreferences.GetEntryValue<float>(
-                AutoBoostSection, "Activation Delay Seconds"), 3)
-            : 0.1d;
-        if (migrateBoostActivationDelay)
-            MelonPreferences.GetCategory(AutoBoostSection)?
-                .DeleteEntry("Activation Delay Seconds");
-        AutoBoostActivationDelaySeconds = Bind(AutoBoostSection,
-            "Activation Delay Seconds", boostActivationDelay,
-            "Wait this long after the currently selected Boost or Wind Dash ability reaches zero cooldown before activating that selected ability.");
-        WindDashRequireGrounded = Bind(AutoBoostSection,
-            "Wind Dash Require Grounded", true,
-            "Require the player to be at ground level before automatically activating Wind Dash, preventing it from passing over portals or elite enemies.");
 
         if (ConfigurationVersion.Value != CurrentConfigurationVersion ||
             removeLegacyQuestDebug)
@@ -182,5 +266,114 @@ internal sealed class AutoAdventurerConfig(string configName) : BaseConfig(confi
             ConfigurationVersion.Value = CurrentConfigurationVersion;
             MelonPreferences.Save();
         }
+    }
+
+    private static double ParseNonNegativeNumber(string rawValue, double fallback)
+    {
+        if (string.IsNullOrWhiteSpace(rawValue)) return fallback;
+
+        string value = rawValue.Trim();
+        if (double.TryParse(value, NumberStyles.Float,
+                CultureInfo.InvariantCulture, out double parsed) ||
+            double.TryParse(value, NumberStyles.Float,
+                CultureInfo.CurrentCulture, out parsed) ||
+            double.TryParse(value.Replace(',', '.'), NumberStyles.Float,
+                CultureInfo.InvariantCulture, out parsed))
+            return Math.Max(0d, parsed);
+
+        return fallback;
+    }
+
+    private static string NormalizeArrowAttackFrequency(string value)
+    {
+        if (string.Equals(value, "Extreme", StringComparison.OrdinalIgnoreCase))
+            return "Ultra";
+        if (string.Equals(value, "Low", StringComparison.OrdinalIgnoreCase))
+            return "Light";
+        if (string.Equals(value, "Extra High", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(value, "ExtraHigh", StringComparison.OrdinalIgnoreCase))
+            return "Extra High";
+        if (string.Equals(value, "Light", StringComparison.OrdinalIgnoreCase))
+            return "Light";
+        if (string.Equals(value, "Medium", StringComparison.OrdinalIgnoreCase))
+            return "Medium";
+        if (string.Equals(value, "High", StringComparison.OrdinalIgnoreCase))
+            return "High";
+        if (string.Equals(value, "Ultra", StringComparison.OrdinalIgnoreCase))
+            return "Ultra";
+        return "Medium";
+    }
+
+    private static bool ReadLegacyBoolean(string section, string key,
+        bool fallback)
+    {
+        string raw = ReadLegacyValue(section, key,
+            fallback ? "true" : "false");
+        return bool.TryParse(raw, out bool value) ? value : fallback;
+    }
+
+    private static void DeleteLegacyAutoBoostEntries()
+    {
+        MelonPreferences_Category category =
+            MelonPreferences.GetCategory(LegacyAutoBoostSection);
+        if (category == null) return;
+
+        category.DeleteEntry("Toggle Key");
+        category.DeleteEntry("Activation Delay Seconds");
+        category.DeleteEntry("Wind Dash Require Grounded");
+        category.DeleteEntry("Auto Jump");
+        category.DeleteEntry("Auto Shoot Arrows");
+        category.DeleteEntry("Arrow Attack Frequency");
+    }
+
+    private static double ReadLegacyNumber(string section, string key,
+        double fallback) => ParseNonNegativeNumber(
+            ReadLegacyValue(section, key,
+                fallback.ToString("R", CultureInfo.InvariantCulture)), fallback);
+
+    private static string ReadLegacyValue(string section, string key,
+        string fallback)
+    {
+        try
+        {
+            string path = Path.Combine(MelonEnvironment.UserDataDirectory,
+                "AutoAdventurer.cfg");
+            if (!File.Exists(path)) return fallback;
+
+            bool inQuestAutomationSection = false;
+            foreach (string sourceLine in File.ReadLines(path))
+            {
+                string line = sourceLine.Trim();
+                if (line.StartsWith("[", StringComparison.Ordinal))
+                {
+                    inQuestAutomationSection =
+                        string.Equals(line, $"[\"{section}\"]",
+                            StringComparison.Ordinal) ||
+                        string.Equals(line, $"[{section}]",
+                            StringComparison.Ordinal);
+                    continue;
+                }
+
+                if (!inQuestAutomationSection) continue;
+                string prefix = $"\"{key}\"";
+                if (!line.StartsWith(prefix, StringComparison.Ordinal)) continue;
+                int equalsIndex = line.IndexOf('=');
+                if (equalsIndex < 0) continue;
+
+                string raw = line[(equalsIndex + 1)..].Trim();
+                int commentIndex = raw.IndexOf('#');
+                if (commentIndex >= 0) raw = raw[..commentIndex].Trim();
+                if (raw.Length >= 2 && raw[0] == '"' && raw[^1] == '"')
+                    raw = raw[1..^1];
+                return string.IsNullOrWhiteSpace(raw) ? fallback : raw;
+            }
+        }
+        catch (Exception exception)
+        {
+            Plugin.Logger.Warning(
+                $"Could not migrate legacy timing setting '{key}'; using {fallback}. {exception.GetType().Name}: {exception.Message}");
+        }
+
+        return fallback;
     }
 }

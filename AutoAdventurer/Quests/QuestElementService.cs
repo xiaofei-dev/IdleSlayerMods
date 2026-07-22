@@ -61,34 +61,11 @@ internal sealed class QuestElementService
                 AddActiveElementQuest(cached[index], quests, seen);
         }
 
-        // The UI cache can lag behind newly unlocked normal quests until the
-        // quest panel is rebuilt. Supplement only explicit elemental quests
-        // whose required bundle is already unlocked; this avoids treating the
-        // future definitions in allQuests as active objectives.
-        var all = PlayerInventory.instance?.allQuests;
-        if (all != null)
-        {
-            for (int index = 0; index < all.Count; index++)
-            {
-                Quest quest = all[index];
-                if (quest == null || quest is DailyQuest ||
-                    quest is WeeklyQuest || !CanUseQuest(quest)) continue;
-                try
-                {
-                    Upgrade requiredBundle = quest.bundleRequired;
-                    bool unlocked = requiredBundle == null ||
-                        requiredBundle.bought ||
-                        (requiredBundle.isSpecialUnlock &&
-                         requiredBundle.specialUnlocked);
-                    if (unlocked)
-                        AddActiveElementQuest(quest, quests, seen);
-                }
-                catch
-                {
-                    // Retry transient IL2CPP quest data on the next scan.
-                }
-            }
-        }
+        // Do not supplement from PlayerInventory.allQuests here. That is the
+        // game's complete catalogue, not an active-task list: it can contain
+        // future elemental definitions that would wrongly override a manual
+        // element choice every five seconds. The live quest-list cache is the
+        // only authority for changing an elemental Dark Divinity.
 
         return TryAlign(quests);
     }
@@ -114,7 +91,11 @@ internal sealed class QuestElementService
     private static void AddActiveElementQuest(
         Quest quest, List<Quest> result, HashSet<string> seen)
     {
-        if (!CanUseQuest(quest) || quest.isClaimed) return;
+        // Element switching is intentionally a normal-quest helper. Daily
+        // and Weekly objectives must never override the player's manually
+        // selected element when there is no active normal quest.
+        if (quest is DailyQuest || quest is WeeklyQuest ||
+            !CanUseQuest(quest) || quest.isClaimed) return;
         try
         {
             if (quest.IsCompleted()) return;
@@ -162,13 +143,25 @@ internal sealed class QuestElementService
         Divinity desired = null;
         foreach (Quest quest in quests)
         {
-            EnemyType candidateType = GetRequiredElementType(quest, elemental);
-            Divinity candidateDivinity = FindForType(elemental, candidateType);
-            if (candidateType == null || candidateDivinity == null) continue;
-            chosenQuest = quest;
-            requiredType = candidateType;
-            desired = candidateDivinity;
-            break;
+            try
+            {
+                EnemyType candidateType = GetRequiredElementType(
+                    quest, elemental);
+                Divinity candidateDivinity = FindForType(
+                    elemental, candidateType);
+                if (candidateType == null || candidateDivinity == null)
+                    continue;
+                chosenQuest = quest;
+                requiredType = candidateType;
+                desired = candidateDivinity;
+                break;
+            }
+            catch
+            {
+                // A completed/replaced quest can retain an invalid IL2CPP
+                // enemy wrapper for a few frames. Skip only that definition
+                // so it cannot abort every subsequent five-second scan.
+            }
         }
 
         if (chosenQuest == null)

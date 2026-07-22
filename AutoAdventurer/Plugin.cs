@@ -19,11 +19,22 @@ public class Plugin : MelonMod
     {
         ModHelper.ModHelperMounted += instance => ModHelperInstance = instance;
         HarmonyInstance.PatchAll();
+        WarnIfConfigurationIsMissing();
         Config = new(AutoAdventurerInfo.PluginGuid);
         AdventurerLog.User(
             $"Plugin {AutoAdventurerInfo.PluginGuid} v{AutoAdventurerInfo.PluginVersion} " +
             $"(internal {AutoAdventurerInfo.InternalVersion}) loaded; " +
             $"configuration schema v{AutoAdventurerConfig.CurrentConfigurationVersion}.");
+    }
+
+    private static void WarnIfConfigurationIsMissing()
+    {
+        string path = System.IO.Path.Combine(
+            MelonLoader.Utils.MelonEnvironment.UserDataDirectory,
+            $"{AutoAdventurerInfo.PluginGuid}.cfg");
+        if (!System.IO.File.Exists(path))
+            AdventurerLog.User(
+                $"Configuration file was not found at '{path}'. Default settings will be used and a new file will be created when the game saves preferences. Verify that your Mod Manager edits this exact file.");
     }
 
     public override void OnSceneWasLoaded(int buildIndex, string sceneName)

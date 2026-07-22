@@ -11,6 +11,11 @@ runtime to be active.
   above 1 and a maximum level of at least 70. When Minion Prestige is unlocked,
   the eligible Minion is raised to maximum level for that prestige action.
 
+When maximum-level prestige is enabled, every manually triggered Minion
+prestige uses that Minion's maximum level, including Minions below the automatic
+70 maximum-level threshold. This manual enhancement is controlled by the
+setting directly and does not require the global `T` automation toggle.
+
 When both are enabled, the order is claim, prestige, then send. When only
 automatic prestige is enabled, a mission must be claimed manually before its
 standing Minion can be processed. Locked Minions and an unavailable Prestige
@@ -19,7 +24,7 @@ system are skipped safely.
 ## Background Egg Opening
 
 Eggs are opened directly in the background without playing the normal opening
-animation.
+animation when `Egg Opening > Enabled` is turned on. It is disabled by default.
 
 - Dragon Eggs open only above their reserve and only while Dragon Scale
   storage is not full.
@@ -36,6 +41,6 @@ effect duration and updates the next check conservatively. This also tolerates
 time-changing effects.
 
 > `Use Paid 500x Bonuses` directly spends Jewels of Soul. It is intended only
-> for players who explicitly want that behavior.
+> for players who explicitly want that behavior and is disabled by default.
 
 [Back to the Complete Manual](../MANUAL.md)

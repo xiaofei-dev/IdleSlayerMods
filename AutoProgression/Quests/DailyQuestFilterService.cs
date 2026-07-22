@@ -245,6 +245,7 @@ internal sealed class DailyQuestFilterService
             QuestType.UseRageMode or
             QuestType.BonusStage or
             QuestType.BonusStageSections or
+            QuestType.CraftTemporaryItems or
             QuestType.GetMaterials or
             QuestType.CompleteAscendingHeights or
             QuestType.CompleteGrappleRuns;

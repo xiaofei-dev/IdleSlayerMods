@@ -1,5 +1,6 @@
 using System;
 using AutoProgression.Diagnostics;
+using AutoProgression.Runtime;
 using Il2Cpp;
 using UnityEngine;
 
@@ -7,7 +8,7 @@ namespace AutoProgression.Armory;
 
 internal sealed class ArmoryBoxOpeningService
 {
-    private TemporaryCraftableItem selectedBox;
+    private TemporaryCraftableItem selectedItem;
     private bool invalidSelectKeyLogged;
     private bool invalidOpenKeyLogged;
     private bool duplicateKeysLogged;
@@ -16,12 +17,12 @@ internal sealed class ArmoryBoxOpeningService
     {
         KeyCode selectKey = ResolveKey(
             Plugin.Config.ArmoryBoxSelectKey.Value,
-            KeyCode.I,
+            KeyCode.B,
             "select",
             ref invalidSelectKeyLogged);
         KeyCode openKey = ResolveKey(
             Plugin.Config.ArmoryBoxOpenKey.Value,
-            KeyCode.O,
+            KeyCode.N,
             "open",
             ref invalidOpenKeyLogged);
 
@@ -37,11 +38,11 @@ internal sealed class ArmoryBoxOpeningService
         }
 
         duplicateKeysLogged = false;
-        if (Input.GetKeyDown(selectKey)) SelectHighlightedBox();
-        if (Input.GetKeyDown(openKey)) OpenSelectedBoxes();
+        if (Input.GetKeyDown(selectKey)) SelectHighlightedItem();
+        if (Input.GetKeyDown(openKey)) OpenSelectedItems();
     }
 
-    private void SelectHighlightedBox()
+    private void SelectHighlightedItem()
     {
         TemporaryCraftableItem selected = null;
         foreach (TemporaryCraftableItemButton button in
@@ -58,24 +59,24 @@ internal sealed class ArmoryBoxOpeningService
             break;
         }
 
-        if (!IsArmoryBox(selected))
+        if (!IsSupportedItem(selected))
         {
-            Notify("Select one of the five Armory boxes first.", false);
+            Notify("Select an Armory box, Dragon Egg, or Simurgh Egg first.", false);
             return;
         }
 
-        selectedBox = selected;
+        selectedItem = selected;
         string name = GetDisplayName(selected);
-        ProgressionLog.User($"Armory box selected: {name}.");
-        Notify($"Selected Armory box: {name}", true);
+        ProgressionLog.User($"Bulk-opening item selected: {name}.");
+        Notify($"Selected: {name}", true);
     }
 
-    private void OpenSelectedBoxes()
+    private void OpenSelectedItems()
     {
-        if (!IsArmoryBox(selectedBox))
+        if (!IsSupportedItem(selectedItem))
         {
-            selectedBox = null;
-            Notify("No Armory box selected.", false);
+            selectedItem = null;
+            Notify("No Armory box or egg selected.", false);
             return;
         }
 
@@ -88,18 +89,18 @@ internal sealed class ArmoryBoxOpeningService
 
         int requested = Math.Clamp(Plugin.Config.ArmoryBoxesPerPress.Value, 1, 100);
         int opened = 0;
-        string name = GetDisplayName(selectedBox);
+        string name = GetDisplayName(selectedItem);
 
         for (int index = 0; index < requested; index++)
         {
-            if (!CanOpen(selectedBox)) break;
-            LootBox lootBox = selectedBox.lootBoxOpen;
+            if (!CanOpen(selectedItem)) break;
+            LootBox lootBox = selectedItem.lootBoxOpen;
             if (lootBox == null) break;
 
             try
             {
-                selectedBox.lootBoxOpen = null;
-                selectedBox.Craft();
+                selectedItem.lootBoxOpen = null;
+                selectedItem.Craft();
                 lootBox.Open();
                 opened++;
             }
@@ -111,27 +112,27 @@ internal sealed class ArmoryBoxOpeningService
             }
             finally
             {
-                selectedBox.lootBoxOpen = lootBox;
+                selectedItem.lootBoxOpen = lootBox;
             }
         }
 
         if (opened <= 0)
         {
-            Notify("No box opened: check materials and free Armory slots.", false);
+            Notify("Nothing opened: check materials and available Armory space.", false);
             return;
         }
 
-        ProgressionLog.User($"Opened {opened} {name} Armory box(es) in the background.");
-        Notify($"Opened {opened} {name} box(es)", true);
+        ProgressionLog.User($"Opened {opened} {name} item(s) in the background.");
+        Notify($"Opened {opened} {name}", true);
     }
 
     private static bool CanOpen(TemporaryCraftableItem item)
     {
         try
         {
-            return IsArmoryBox(item) && item.TabVisible() &&
+            return IsSupportedItem(item) && item.TabVisible() &&
                    item.ExtraCondition() && item.HowManyCanCraft() > 0d &&
-                   (WeaponsManager.instance?.hasFreeSlot ?? false);
+                   (!IsArmoryBox(item) || (WeaponsManager.instance?.hasFreeSlot ?? false));
         }
         catch
         {
@@ -142,6 +143,55 @@ internal sealed class ArmoryBoxOpeningService
     private static bool IsArmoryBox(TemporaryCraftableItem item) =>
         item != null && item.requiresFreeArmorySpace && item.lootBoxOpen != null;
 
+    private static bool IsSupportedItem(TemporaryCraftableItem item) =>
+        IsArmoryBox(item) || IsSupportedEgg(item);
+
+    private static bool IsSupportedEgg(TemporaryCraftableItem item)
+    {
+        try
+        {
+            return IsSupportedEggCore(item);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static bool IsSupportedEggCore(TemporaryCraftableItem item)
+    {
+        if (item == null || item.requiresFreeArmorySpace || item.lootBoxOpen == null)
+            return false;
+
+        Drop dragonEgg = Drops.list?.DragonEgg;
+        Drop simurghEgg = Drops.list?.SimurghEgg;
+        if (dragonEgg == null || simurghEgg == null) return false;
+
+        var requirements = item.GetRequirements();
+        if (requirements == null) return false;
+
+        MaterialRequirement matched = null;
+        int requirementCount = 0;
+        foreach (MaterialRequirement requirement in requirements)
+        {
+            if (requirement?.material == null) continue;
+            requirementCount++;
+            matched = requirement;
+        }
+
+        if (requirementCount != 1 || matched == null || matched.amount != 1d)
+            return false;
+
+        return MatchesDrop(matched.material, dragonEgg) ||
+               MatchesDrop(matched.material, simurghEgg);
+    }
+
+    private static bool MatchesDrop(Drop candidate, Drop expected) =>
+        candidate == expected || string.Equals(
+            candidate?.name,
+            expected?.name,
+            StringComparison.OrdinalIgnoreCase);
+
     private static KeyCode ResolveKey(
         string configuredValue,
         KeyCode fallback,
@@ -149,9 +199,7 @@ internal sealed class ArmoryBoxOpeningService
         ref bool invalidLogged)
     {
         string configured = configuredValue?.Trim();
-        if (!string.IsNullOrEmpty(configured) &&
-            Enum.TryParse(configured, true, out KeyCode parsed) &&
-            parsed != KeyCode.None)
+        if (ConfiguredKey.TryResolve(configured, out KeyCode parsed))
         {
             invalidLogged = false;
             return parsed;
@@ -179,7 +227,7 @@ internal sealed class ArmoryBoxOpeningService
 
     internal void Reset()
     {
-        selectedBox = null;
+        selectedItem = null;
         invalidSelectKeyLogged = false;
         invalidOpenKeyLogged = false;
         duplicateKeysLogged = false;

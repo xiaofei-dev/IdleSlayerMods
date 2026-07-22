@@ -13,6 +13,11 @@
 **/.codex/
 **/.probe/
 **/.probe2/
+**/tmp/
+**/.analysis_frames_*/
+**/.tools/
+**/debug_logs/
+**/deploy/
 **/PROJECT_CONTEXT.md
 **/DEVELOPMENT_CONTEXT.md
 *.suo

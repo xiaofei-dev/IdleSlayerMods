@@ -16,7 +16,7 @@ public sealed partial class AutoClimberRuntime : MonoBehaviour
         0.10f;
 
     private const float EnemyScanIntervalSeconds =
-        0.50f;
+        0.20f;
 
     private const float CandidateLogIntervalSeconds =
         1.00f;
@@ -357,13 +357,13 @@ public sealed partial class AutoClimberRuntime : MonoBehaviour
     private MemberInfo platformEnemyObjectMember;
     private MemberInfo platformEnemyColliderMember;
 
-    private readonly HashSet<int> detectedEnemyIds =
-        new HashSet<int>();
+    private readonly HashSet<long> detectedEnemyIds =
+        new HashSet<long>();
 
-    private readonly HashSet<int> attemptedEnemyInterceptIds =
-        new HashSet<int>();
+    private readonly HashSet<long> attemptedEnemyInterceptIds =
+        new HashSet<long>();
 
-    private int activeAirborneEnemyInterceptId;
+    private long activeAirborneEnemyInterceptKey;
 
     private readonly HashSet<long> observedGenerationResetKeys =
         new HashSet<long>();
@@ -399,18 +399,22 @@ public sealed partial class AutoClimberRuntime : MonoBehaviour
     private readonly ClimbRoutePlanner v5RoutePlanner =
         new ClimbRoutePlanner();
 
+    private readonly AscendingHeightsSliderSkip sliderSkip =
+        new AscendingHeightsSliderSkip();
+
     public void Start()
     {
         InitializeAutomationSettings();
 
         ClimberLog.User(
-            "AutoClimber route planner V6.2.1 initialized. " +
+            "AutoClimber route planner V6.4.2 initialized. " +
             "Generation-aware pooling, apex-retention tiers and center-return routing are active; " +
             "the runtime remains dormant outside Ascending Heights; " +
             "safe enemy-touch targeting is available. " +
             $"Enabled={automationEnabled}, " +
             $"ToggleKey={automationToggleKey}, " +
             $"Mode={AutoClimberQuestMode.ConfiguredMode}, " +
+            $"SkipStartSlider={AutoClimberPlugin.Config?.SkipStartSlider?.Value == true}, " +
             $"TargetEnemies={ClimberLog.IsEnemyTargetingEnabled}."
         );
 
@@ -431,6 +435,10 @@ public sealed partial class AutoClimberRuntime : MonoBehaviour
 
     public void Update()
     {
+        // Slider handling is a separately configured launch helper. It must
+        // keep observing the modal even when route control is toggled off.
+        sliderSkip.Tick(Time.unscaledTime);
+
         if (Input.GetKeyDown(automationToggleKey))
         {
             SetAutomationEnabled(
@@ -689,7 +697,7 @@ public sealed partial class AutoClimberRuntime : MonoBehaviour
                     // live enemy objects. Annotate candidates before route
                     // selection so enemy routing does not depend on the
                     // stale public platform.enemyObject reference.
-                    ScanVisibleEnemies(recordEnemyDiagnostics);
+                    ScanVisibleEnemies(false);
                 }
                 catch (Exception exception)
                 {
@@ -713,6 +721,7 @@ public sealed partial class AutoClimberRuntime : MonoBehaviour
 
                 try
                 {
+                    ScanAllActiveEnemies();
                     ScanUnknownPlatforms();
                 }
                 catch (Exception exception)
@@ -1054,7 +1063,7 @@ public sealed partial class AutoClimberRuntime : MonoBehaviour
         runEnemiesDetected = 0;
         detectedEnemyIds.Clear();
         attemptedEnemyInterceptIds.Clear();
-        activeAirborneEnemyInterceptId = 0;
+        activeAirborneEnemyInterceptKey = 0L;
         EnemyDiagnosticsBridge.BeginRun();
 
         velocityInitialized = true;
@@ -1225,6 +1234,13 @@ public sealed partial class AutoClimberRuntime : MonoBehaviour
 
             candidate.HasEnemy = true;
             candidate.EnemyInstanceId = enemyId;
+            candidate.EnemyLogicalKey =
+                EnemyDiagnosticsBridge.Observe(
+                    enemyId,
+                    candidate.InstanceId,
+                    candidate.Generation,
+                    enemyPosition
+                );
             candidate.EnemyOffsetX =
                 enemyPosition.x -
                 candidate.CurrentPosition.x;
@@ -1238,7 +1254,8 @@ public sealed partial class AutoClimberRuntime : MonoBehaviour
                 continue;
             }
 
-            if (!detectedEnemyIds.Add(enemyId))
+            if (!detectedEnemyIds.Add(
+                    candidate.EnemyLogicalKey))
             {
                 continue;
             }
@@ -1247,6 +1264,7 @@ public sealed partial class AutoClimberRuntime : MonoBehaviour
 
             ClimberLog.Debug(
                 $"Enemy detected: Id={enemyId}, " +
+                $"Key={candidate.EnemyLogicalKey}, " +
                 $"Name={enemyObject.name}, " +
                 $"X={enemyPosition.x:F2}, " +
                 $"Y={enemyPosition.y:F2}, " +
@@ -1254,6 +1272,129 @@ public sealed partial class AutoClimberRuntime : MonoBehaviour
                 $"Height={enemySize.y:F2}, " +
                 $"PlatformId={candidate.InstanceId}, " +
                 $"PlatformType={candidate.Type}, " +
+                $"RunEnemiesDetected={runEnemiesDetected}"
+            );
+        }
+    }
+
+    private void ScanAllActiveEnemies()
+    {
+        foreach (EnemyGameObject enemy
+                 in UnityEngine.Object
+                     .FindObjectsOfType<EnemyGameObject>())
+        {
+            if (enemy == null ||
+                enemy.gameObject == null ||
+                !enemy.gameObject.activeInHierarchy)
+            {
+                continue;
+            }
+
+            Vector3 enemyPosition =
+                enemy.transform.position;
+
+            // Exclude unrelated active enemies retained by other gameplay
+            // systems while Ascending Heights is running.
+            if (Mathf.Abs(enemyPosition.x) > 10f ||
+                enemyPosition.y < -10f ||
+                (finishHeight > 0f &&
+                 enemyPosition.y > finishHeight + 100f))
+            {
+                continue;
+            }
+
+            Collider2D enemyCollider = null;
+
+            try
+            {
+                enemyCollider =
+                    enemy.gameObject.GetComponent<Collider2D>();
+            }
+            catch
+            {
+                // The transform still provides a valid global observation.
+            }
+
+            if (enemyCollider != null &&
+                !enemyCollider.enabled)
+            {
+                continue;
+            }
+
+            Vector2 enemySize = Vector2.zero;
+
+            if (enemyCollider != null)
+            {
+                Bounds bounds = enemyCollider.bounds;
+                enemyPosition = bounds.center;
+                enemySize = bounds.size;
+            }
+
+            PlatformCandidate nearestPlatform = null;
+            float nearestDistance = float.PositiveInfinity;
+
+            foreach (PlatformCandidate platform
+                     in planner.Candidates)
+            {
+                if (platform == null)
+                {
+                    continue;
+                }
+
+                float distance =
+                    Vector2.SqrMagnitude(
+                        new Vector2(
+                            enemyPosition.x,
+                            enemyPosition.y
+                        ) - platform.CurrentPosition
+                    );
+
+                if (distance >= nearestDistance)
+                {
+                    continue;
+                }
+
+                nearestDistance = distance;
+                nearestPlatform = platform;
+            }
+
+            // The platform scanner is local while this scan is global. Do
+            // not associate a distant global enemy with an arbitrary nearby
+            // route platform; its binding will be filled once it enters the
+            // local platform scan.
+            if (nearestDistance > 9f)
+            {
+                nearestPlatform = null;
+            }
+
+            int enemyId = enemy.GetInstanceID();
+            long logicalKey =
+                EnemyDiagnosticsBridge.Observe(
+                    enemyId,
+                    nearestPlatform != null
+                        ? nearestPlatform.InstanceId
+                        : 0,
+                    nearestPlatform != null
+                        ? nearestPlatform.Generation
+                        : 0,
+                    enemyPosition
+                );
+
+            if (!detectedEnemyIds.Add(logicalKey))
+            {
+                continue;
+            }
+
+            runEnemiesDetected++;
+
+            ClimberLog.Debug(
+                $"Enemy detected: Id={enemyId}, " +
+                $"Key={logicalKey}, Source=Global, " +
+                $"Name={enemy.gameObject.name}, " +
+                $"X={enemyPosition.x:F2}, Y={enemyPosition.y:F2}, " +
+                $"Width={enemySize.x:F2}, Height={enemySize.y:F2}, " +
+                $"PlatformId={(nearestPlatform != null ? nearestPlatform.InstanceId : 0)}, " +
+                $"PlatformType={(nearestPlatform != null ? nearestPlatform.Type.ToString() : "None")}, " +
                 $"RunEnemiesDetected={runEnemiesDetected}"
             );
         }

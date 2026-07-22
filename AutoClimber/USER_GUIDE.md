@@ -116,6 +116,7 @@ Mode = "Normal"
 "Enabled On Startup" = true
 "Toggle Key" = "Y"
 "Auto Retry Enabled" = false
+"Skip Start Slider" = true
 "Target Enemies" = true
 ```
 
