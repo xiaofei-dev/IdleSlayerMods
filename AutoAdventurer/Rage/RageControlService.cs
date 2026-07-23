@@ -82,7 +82,7 @@ internal sealed class RageControlService
         }
         catch (Exception exception)
         {
-            AdventurerLog.Error($"Automatic Rage failed safely: {exception}");
+            AdventurerLog.Exception("Automatic Rage", exception);
             ResetTransientState();
         }
     }
@@ -98,13 +98,13 @@ internal sealed class RageControlService
                 return;
 
             endRequested = true;
-            AdventurerLog.User($"Rage Mode end requested. Reason: {reason}");
+            AdventurerLog.User($"Rage Mode stop requested: reason={reason}.");
             manager.StartCoroutine(manager.EndRageMode(false));
         }
         catch (Exception exception)
         {
             endRequested = false;
-            AdventurerLog.Error($"Failed to end Rage Mode safely: {exception}");
+            AdventurerLog.Exception("Rage Mode stop", exception);
         }
     }
 
@@ -122,7 +122,7 @@ internal sealed class RageControlService
 
         if (!string.IsNullOrEmpty(lastBlocker))
         {
-            AdventurerLog.Debug($"World blocker cleared: {lastBlocker}.");
+            AdventurerLog.RageDebug($"World blocker cleared: {lastBlocker}.");
             lastBlocker = string.Empty;
         }
 
@@ -131,7 +131,7 @@ internal sealed class RageControlService
             if (now >= nextCooldownLogTime)
             {
                 nextCooldownLogTime = now + RepeatedActionLogIntervalSeconds;
-                AdventurerLog.Debug($"Rage activation is cooling down: {manager.currentCd:0.0}s remaining.");
+                AdventurerLog.RageDebug($"Activation cooling down: {manager.currentCd:0.0}s remaining.");
             }
             return;
         }
@@ -151,7 +151,7 @@ internal sealed class RageControlService
         if (alreadyAutomaticRage && now >= nextRepeatActivationLogTime)
         {
             nextRepeatActivationLogTime = now + RepeatedActionLogIntervalSeconds;
-            AdventurerLog.Debug("Automatic Rage activated again during execution.");
+            AdventurerLog.RageDebug("Skill refreshed during the current execution.");
         }
     }
 
@@ -168,7 +168,7 @@ internal sealed class RageControlService
 
         if (!string.IsNullOrEmpty(lastBlocker))
         {
-            AdventurerLog.Debug($"World blocker cleared: {lastBlocker}.");
+            AdventurerLog.RageDebug($"World blocker cleared: {lastBlocker}.");
             lastBlocker = string.Empty;
         }
     }
@@ -183,7 +183,7 @@ internal sealed class RageControlService
             if (interruptions.HasChestHuntKey)
             {
                 refreshSuppressed = true;
-                AdventurerLog.Debug(
+                AdventurerLog.RageDebug(
                     "Chest Hunt Key detected; Rage refresh stopped until the current execution ends naturally.");
                 return;
             }
@@ -195,7 +195,7 @@ internal sealed class RageControlService
             now - automaticRageStartedAt >= maximumDuration)
         {
             refreshSuppressed = true;
-            AdventurerLog.Debug(
+            AdventurerLog.RageDebug(
                 $"Maximum automatic Rage duration reached ({maximumDuration:0.#} seconds); " +
                 "Rage refresh stopped until the current execution ends naturally.");
         }
@@ -215,7 +215,7 @@ internal sealed class RageControlService
         bool automaticRageJustEnded =
             automaticRageActive || endRequested || refreshSuppressed;
         if (automaticRageJustEnded)
-            AdventurerLog.Debug("Rage Mode execution ended.");
+            AdventurerLog.RageDebug("Execution ended.");
 
         automaticRageActive = false;
         automaticRageStartedAt = 0f;
@@ -228,7 +228,7 @@ internal sealed class RageControlService
             observationReadyAt = now + Math.Max(0f,
                 Plugin.Config.PostRageObservationSecondsValue);
             nextBlockerPollTime = observationReadyAt;
-            AdventurerLog.Debug(
+            AdventurerLog.RageDebug(
                 $"Post-Rage protection scheduled for {Plugin.Config.PostRageObservationSecondsValue:0.#} seconds.");
         }
     }
@@ -242,7 +242,7 @@ internal sealed class RageControlService
         if (!interruptions.TryGetBlocker(out string blocker))
         {
             if (!string.IsNullOrEmpty(lastBlocker))
-                AdventurerLog.Debug($"World blocker cleared: {lastBlocker}.");
+                AdventurerLog.RageDebug($"World blocker cleared: {lastBlocker}.");
             return true;
         }
 
@@ -258,7 +258,7 @@ internal sealed class RageControlService
             return;
 
         lastBlocker = blocker;
-        AdventurerLog.Debug(
+        AdventurerLog.RageDebug(
             $"Automatic Rage blocker detected: {blocker}.");
     }
 
@@ -287,7 +287,7 @@ internal sealed class RageControlService
         }
 
         managerMissingLogged = false;
-        AdventurerLog.Debug("RageModeManager resolved.");
+        AdventurerLog.RageDebug("RageModeManager resolved.");
     }
 
     private void ResetTransientState()

@@ -106,7 +106,7 @@ internal sealed class SilverBoxQuestService
         }
         catch (Exception exception)
         {
-            AdventurerLog.QuestDebug(
+            AdventurerLog.SilverBoxDebug(
                 $"Silver Bank threshold check deferred safely; exception={exception.GetType().Name}.");
         }
     }
@@ -116,7 +116,7 @@ internal sealed class SilverBoxQuestService
         if (string.Equals(lastThresholdState, state,
                 StringComparison.Ordinal)) return;
         lastThresholdState = state;
-        AdventurerLog.QuestDebug(message);
+        AdventurerLog.SilverBoxDebug(message);
     }
 
     private bool HasActiveNormalSilverBoxQuest()
@@ -178,7 +178,7 @@ internal sealed class SilverBoxQuestService
         }
         catch (Exception exception)
         {
-            AdventurerLog.QuestDebug(
+            AdventurerLog.SilverBoxDebug(
                 $"Global Silver Box task scan could not refresh the hidden quest cache safely; exception={exception.GetType().Name}.");
         }
     }
@@ -214,7 +214,7 @@ internal sealed class SilverBoxQuestService
         if (!detectionLogged)
         {
             detectionLogged = true;
-            AdventurerLog.QuestDebug(
+            AdventurerLog.SilverBoxDebug(
                 $"Normal Silver Random Box quest detected; silverBankActive={silverBank.unlocked}; temporaryOverrideOwned={restoreSilverBank}.");
         }
 
@@ -230,7 +230,7 @@ internal sealed class SilverBoxQuestService
                 }
                 catch (Exception exception)
                 {
-                    AdventurerLog.QuestDebug(
+                    AdventurerLog.SilverBoxDebug(
                         $"Silver Bank temporary disable deferred safely; exception={exception.GetType().Name}.");
                 }
             }
@@ -246,12 +246,12 @@ internal sealed class SilverBoxQuestService
             if (!SetDivinityState(manager, silverBank, false)) return;
             restoreSilverBank = true;
             restoreFailureLogged = false;
-            AdventurerLog.QuestDebug(
+            AdventurerLog.SilverBoxDebug(
                 "Silver Bank temporarily disabled for a normal Silver Random Box quest; its 30 Divinity Points were refunded.");
         }
         catch (Exception exception)
         {
-            AdventurerLog.QuestDebug(
+            AdventurerLog.SilverBoxDebug(
                 $"Silver Bank temporary disable deferred safely; exception={exception.GetType().Name}.");
         }
     }
@@ -271,7 +271,7 @@ internal sealed class SilverBoxQuestService
                 if (!restoreFailureLogged)
                 {
                     restoreFailureLogged = true;
-                    AdventurerLog.QuestDebug(
+                    AdventurerLog.SilverBoxDebug(
                         $"Silver Bank was not restored after {reason}; " +
                         $"availableDivinityPoints={available:0.##}, requiredGreaterThan={RequiredAvailableDivinityPoints:0.##}. " +
                         "The refunded points were used while the quest was active.");
@@ -285,7 +285,7 @@ internal sealed class SilverBoxQuestService
             {
                 restoreSilverBank = false;
                 restoreFailureLogged = false;
-                AdventurerLog.QuestDebug(
+                AdventurerLog.SilverBoxDebug(
                     $"Silver Bank restoration ownership discarded after {reason}; " +
                     "the Dark Divinity is no longer available, consistent with a progression reset.");
                 return;
@@ -294,12 +294,12 @@ internal sealed class SilverBoxQuestService
             if (!SetDivinityState(manager, silverBank, true)) return;
             restoreSilverBank = false;
             restoreFailureLogged = false;
-            AdventurerLog.QuestDebug(
+            AdventurerLog.SilverBoxDebug(
                 $"Silver Bank restored after {reason}.");
         }
         catch (Exception exception)
         {
-            AdventurerLog.QuestDebug(
+            AdventurerLog.SilverBoxDebug(
                 $"Silver Bank restoration deferred safely; exception={exception.GetType().Name}.");
         }
     }
@@ -347,7 +347,7 @@ internal sealed class SilverBoxQuestService
     internal void DiscardForProgressionReset()
     {
         if (restoreSilverBank)
-            AdventurerLog.QuestDebug(
+            AdventurerLog.SilverBoxDebug(
                 "Silver Bank restoration ownership discarded because Ultra Ascension reset progression.");
         restoreSilverBank = false;
         restoreFailureLogged = false;

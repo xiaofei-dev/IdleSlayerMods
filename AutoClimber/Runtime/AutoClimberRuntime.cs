@@ -407,16 +407,17 @@ public sealed partial class AutoClimberRuntime : MonoBehaviour
         InitializeAutomationSettings();
 
         ClimberLog.User(
-            "AutoClimber route planner V6.4.2 initialized. " +
-            "Generation-aware pooling, apex-retention tiers and center-return routing are active; " +
-            "the runtime remains dormant outside Ascending Heights; " +
-            "safe enemy-touch targeting is available. " +
-            $"Enabled={automationEnabled}, " +
-            $"ToggleKey={automationToggleKey}, " +
-            $"Mode={AutoClimberQuestMode.ConfiguredMode}, " +
-            $"SkipStartSlider={AutoClimberPlugin.Config?.SkipStartSlider?.Value == true}, " +
-            $"TargetEnemies={ClimberLog.IsEnemyTargetingEnabled}."
-        );
+            $"AutoClimber {(automationEnabled ? "enabled" : "disabled")}: " +
+            $"hotkey={automationToggleKey}; " +
+            $"mode={AutoClimberQuestMode.ConfiguredMode}; " +
+            $"skipStartSlider=" +
+            $"{(AutoClimberPlugin.Config?.SkipStartSlider?.Value == true).ToString().ToLowerInvariant()}; " +
+            $"targetEnemies=" +
+            $"{ClimberLog.IsEnemyTargetingEnabled.ToString().ToLowerInvariant()}.");
+        ClimberLog.Debug(
+            "Route planner initialized: generationAwarePooling=true; " +
+            "apexRetention=true; centerReturn=true.",
+            "Runtime");
 
         previousAscendingState =
             automationEnabled &&
@@ -517,10 +518,7 @@ public sealed partial class AutoClimberRuntime : MonoBehaviour
         }
         catch (Exception exception)
         {
-            ClimberLog.Error(
-                $"Failed to get player Rigidbody2D: " +
-                $"{exception.Message}"
-            );
+            ClimberLog.Exception("Player Rigidbody lookup", exception);
 
             return;
         }
@@ -701,10 +699,7 @@ public sealed partial class AutoClimberRuntime : MonoBehaviour
                 }
                 catch (Exception exception)
                 {
-                    LogEnemyDiagnosticWarningOnce(
-                        "Enemy association scan failed: " +
-                        exception.Message
-                    );
+                    ClimberLog.Exception("Enemy association scan", exception);
                 }
             }
 
@@ -726,10 +721,7 @@ public sealed partial class AutoClimberRuntime : MonoBehaviour
                 }
                 catch (Exception exception)
                 {
-                    LogEnemyDiagnosticWarningOnce(
-                        "Enemy diagnostic scan failed: " +
-                        exception.Message
-                    );
+                    ClimberLog.Exception("Enemy diagnostic scan", exception);
                 }
             }
         }
@@ -811,8 +803,8 @@ public sealed partial class AutoClimberRuntime : MonoBehaviour
         stateInitialized = true;
 
         string message = enabled
-            ? "AutoClimber Activated!"
-            : "AutoClimber Deactivated!";
+            ? $"AutoClimber enabled: hotkey={automationToggleKey}."
+            : "AutoClimber disabled.";
 
         ClimberLog.User(message);
         AutoClimberPlugin.ModHelperInstance?
@@ -983,10 +975,7 @@ public sealed partial class AutoClimberRuntime : MonoBehaviour
                 Time.realtimeSinceStartup +
                 AutoRetryPollSeconds;
 
-            ClimberLog.Warning(
-                "Auto retry failed and will try again: " +
-                exception.Message
-            );
+            ClimberLog.Exception("Auto retry", exception);
         }
     }
 
@@ -1531,10 +1520,9 @@ public sealed partial class AutoClimberRuntime : MonoBehaviour
         }
         catch (Exception exception)
         {
-            LogEnemyDiagnosticWarningOnce(
-                $"Failed to read enemy diagnostic member " +
-                $"{member.Name}: {exception.Message}"
-            );
+            ClimberLog.Exception(
+                $"Enemy diagnostic member read ({member.Name})",
+                exception);
         }
 
         return null;

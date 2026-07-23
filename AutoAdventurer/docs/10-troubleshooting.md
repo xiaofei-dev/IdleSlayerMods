@@ -13,14 +13,13 @@ Check in order:
 
 `automaticRageSuppressed=False` does not prove that the `K` toggle is enabled.
 
-## Auto Boost Does Not Activate
+## Auto Movement & Combat Does Not Activate
 
-1. Confirm `Auto Boost enabled` is the latest toggle state.
+1. Confirm `Auto Movement & Combat enabled` is the latest toggle state.
 2. Confirm the selected Boost or Wind Dash is unlocked.
 3. Wait for ground contact if grounded Wind Dash is enabled.
-4. In a minigame or reward section, confirm the main ability icon is visible.
-5. Normal Boost is not supported through the minigame path.
-6. After Ascension, wait for the 5-second safety suspension and ability
+4. Confirm the game is in the central Runner/Rage scene; minigames are excluded.
+5. After Ascension, wait for the 5-second safety suspension and ability
    stability checks.
 
 ## Quest Automation Does Not Travel
@@ -100,4 +99,3 @@ Default log directory:
 ```
 
 [Back to the Complete Manual](../MANUAL.md)
-

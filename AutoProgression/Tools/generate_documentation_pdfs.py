@@ -20,7 +20,7 @@ from reportlab.platypus import (
 
 ROOT = Path(__file__).resolve().parents[1]
 OUTPUT = ROOT / "output" / "pdf"
-VERSION = "1.0.0"
+VERSION = "2.0.0"
 PAGE_WIDTH, PAGE_HEIGHT = A4
 
 NAVY = colors.HexColor("#17233A")
@@ -58,10 +58,10 @@ STYLES = {
         keepWithNext=True),
     "h2": ParagraphStyle("H2", parent=BASE["Heading2"], fontName=FONT_BOLD,
         fontSize=14.3, leading=19, textColor=PURPLE, spaceBefore=11, spaceAfter=6,
-        keepWithNext=True),
+        keepWithNext=False),
     "h3": ParagraphStyle("H3", parent=BASE["Heading3"], fontName=FONT_BOLD,
         fontSize=11, leading=15, textColor=NAVY, spaceBefore=8, spaceAfter=4,
-        keepWithNext=True),
+        keepWithNext=False),
     "code": ParagraphStyle("Code", fontName=FONT_MONO, fontSize=7.5, leading=10.8,
         leftIndent=7, rightIndent=7, textColor=colors.HexColor("#E7EEF8"),
         backColor=NAVY, borderPadding=7, spaceBefore=4, spaceAfter=8),

@@ -96,8 +96,9 @@ internal sealed class AscendingHeightsSliderSkip
         }
         catch (Exception exception)
         {
-            ClimberLog.Error(
-                $"Ascending Heights start slider skip failed safely: {exception.Message}");
+            ClimberLog.Exception(
+                "Ascending Heights start slider skip",
+                exception);
             ResetSliderState();
             AscendingHeightsSliderSkipBridge.Clear();
         }

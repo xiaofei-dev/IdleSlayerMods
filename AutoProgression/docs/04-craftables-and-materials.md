@@ -26,13 +26,30 @@ eligible missing materials follow the global Jewel purchase setting.
   consume excess Dragon Scales as one group.
 
 Their percentage thresholds use the player's current unlocked storage
-capacity. Although inventory percentage triggers them, each effect also stops
-at the shared maximum-duration target.
+capacity. Shards Necklace ignores the shared duration target and continues
+until Scrap falls below its threshold. Dragon Scale duration effects still
+stop at the shared maximum-duration target.
 
 ## Quest-Assist Craftables
 
 - Specialization reacts to active normal Goblin and Bonus Stage objectives.
 - Key Manifest reacts to active normal Chest Hunt objectives.
+
+Every Specialization use requires Dragon Scales to be strictly above 50% of
+current unlocked capacity, including quest-triggered uses.
+
+Specialization can also be used without a matching quest when Scrap is above
+80%. This resource path neither reads nor
+starts the quest-assist cooldown. Native availability and protected-material
+checks still apply. It pauses while any active quest requires normal, Silver,
+or Golden Random Boxes.
+
+Key Manifest has an additional independent resource path. When Simurgh
+Feathers are strictly above the configured amount (1,000 by default), it is
+crafted whenever native availability permits. This path ignores both the
+quest-assist switch and cooldown. It still requires the Craftables master
+switch and global `T`; Feathers are never purchased automatically. Set the
+amount to `0` to disable this resource path.
 
 Daily and Weekly Quests are ignored. The items have independent cooldowns,
 5 minutes by default.

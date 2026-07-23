@@ -9,10 +9,12 @@ namespace AutoProgression.Craftables;
 internal sealed class TimedCraftableService
 {
     private const float CheckIntervalSeconds = 1f;
+    private const float SummaryIntervalSeconds = 30f;
 
     private readonly MaterialPurchaseService materials = new();
     private readonly Entry[] entries;
     private float nextCheckTime;
+    private float nextSummaryTime;
 
     internal TimedCraftableService()
     {
@@ -31,9 +33,10 @@ internal sealed class TimedCraftableService
 
     internal bool Tick(float now)
     {
+        FlushSummary(now);
         if (now < nextCheckTime) return false;
         nextCheckTime = now + CheckIntervalSeconds;
-        float refillAtMinutes = Mathf.Max(0f, Plugin.Config.TimedCraftablesRefillAtMinutes.Value);
+        float refillAtMinutes = Mathf.Max(0f, Plugin.Config.TimedCraftablesTargetMinutes.Value * 0.5f);
         float targetMinutes = Mathf.Max(
             refillAtMinutes,
             Mathf.Max(0f, Plugin.Config.TimedCraftablesTargetMinutes.Value));
@@ -83,9 +86,10 @@ internal sealed class TimedCraftableService
 
             if (entry.Item.HowManyCanCraft() <= 0) continue;
 
-            double previousRemaining = entry.Item.currentTime;
             entry.Item.Craft();
-            ProgressionLog.Debug($"{entry.DisplayName} crafted at {previousRemaining:0.0}s remaining.");
+            entry.CraftedSinceSummary++;
+            if (nextSummaryTime <= 0f)
+                nextSummaryTime = now + SummaryIntervalSeconds;
             return true;
         }
 
@@ -132,12 +136,35 @@ internal sealed class TimedCraftableService
     internal void Reset()
     {
         nextCheckTime = 0f;
+        nextSummaryTime = 0f;
         foreach (Entry entry in entries)
         {
             entry.Item = null;
             entry.MissingLogged = false;
             entry.Refilling = false;
+            entry.CraftedSinceSummary = 0;
         }
+    }
+
+    private void FlushSummary(float now)
+    {
+        if (nextSummaryTime <= 0f || now < nextSummaryTime)
+            return;
+
+        System.Collections.Generic.List<string> parts = new();
+        foreach (Entry entry in entries)
+        {
+            if (entry.CraftedSinceSummary <= 0) continue;
+            parts.Add($"{entry.DisplayName} x{entry.CraftedSinceSummary}");
+            entry.CraftedSinceSummary = 0;
+        }
+
+        if (parts.Count > 0)
+            ProgressionLog.Debug(
+                $"Timed craftables used in the last {SummaryIntervalSeconds:0} seconds: " +
+                string.Join(", ", parts) + ".",
+                "Craftables");
+        nextSummaryTime = 0f;
     }
 
     private sealed class Entry
@@ -149,6 +176,7 @@ internal sealed class TimedCraftableService
         internal TemporaryCraftableItem Item;
         internal bool MissingLogged;
         internal bool Refilling;
+        internal int CraftedSinceSummary;
 
         internal Entry(
             string internalName,

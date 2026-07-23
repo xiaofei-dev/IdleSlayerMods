@@ -33,7 +33,7 @@ public class Plugin : MelonMod
             MelonLoader.Utils.MelonEnvironment.UserDataDirectory,
             $"{AutoAdventurerInfo.PluginGuid}.cfg");
         if (!System.IO.File.Exists(path))
-            AdventurerLog.User(
+            AdventurerLog.Warning(
                 $"Configuration file was not found at '{path}'. Default settings will be used and a new file will be created when the game saves preferences. Verify that your Mod Manager edits this exact file.");
     }
 

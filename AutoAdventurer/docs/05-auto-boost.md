@@ -1,6 +1,13 @@
-# Auto Boost and Wind Dash
+# Auto Movement & Combat
 
-Press `L` to enable or disable Auto Boost.
+Auto Movement & Combat starts enabled by default. Press `L` to disable or re-enable it.
+
+## Jumping and Arrow Attacks
+
+- Minimum-height jumping and automatic arrow attacks can be enabled
+  independently in the configuration.
+- Arrow frequency supports Light, Medium, High, Extra High, and Ultra.
+- All movement and combat helpers run only in the central Runner/Rage scene.
 
 ## Selected Ability
 
@@ -12,7 +19,15 @@ Press `L` to enable or disable Auto Boost.
 ## Cooldown and Delay
 
 - Activation waits until the selected ability cooldown reaches zero.
-- `Activation Delay Seconds` defaults to 0.1 seconds.
+- Ability activation uses a fixed internal 0.2-second delay after cooldown
+  reaches zero. This safety timing is intentionally not exposed in the
+  configuration file.
+- Wind Dash pauses while a Chest Hunt Key is active on the map, preventing it
+  from outrunning the key. Normal Boost is unaffected.
+- Before horizontal Random Box tracking is unlocked, both Boost and Wind Dash
+  pause while the box-catching helper is targeting an active box. Its jump
+  lead adapts to the observed approach speed so existing speed bonuses do not
+  invalidate the intercept timing.
 - Enabling with `L` requests immediate activation, but all scene, unlock, and
   safety conditions still apply.
 - The authoritative cooldown is synchronized immediately after activation to
@@ -31,18 +46,12 @@ Disable the setting to allow automatic airborne Wind Dash.
 
 ## Minigames and Reward Sections
 
-- Runner and Rage scenes use normal ability rules.
-- In other minigames or reward sections, Wind Dash is allowed only while the
-  game's main ability icon is active and visible.
-- The minigame path stops as soon as the icon disappears.
-- Normal Boost is not triggered through this path.
-- Ground and activation-delay settings still apply.
-
-The rule follows actual game UI availability instead of a hard-coded list of
-minigame names.
+Bonus stages, reward sections, and other minigames are excluded. AutoAdventurer
+does not inject jumps, arrows, Boost, or Wind Dash into those scenes.
 
 ## Scene Stabilization
 
-Auto Boost waits 0.5 seconds after returning to the central gameplay scene.
+Auto Movement & Combat waits 0.5 seconds after returning to the central
+gameplay scene.
 
 [Back to the Complete Manual](../MANUAL.md)

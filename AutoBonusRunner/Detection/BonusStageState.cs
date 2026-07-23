@@ -66,4 +66,20 @@ internal readonly record struct BonusStageState(
     internal int RemainingRequiredSpheres => HasSphereProgress
         ? Math.Max(0, (int)Math.Ceiling(RequiredSpheres) - CollectedSpheres)
         : -1;
+
+    /// <summary>
+    /// Bonus Stage 3 is the only map for which this mod currently owns an
+    /// extracted authored-piece registry. Other bonus maps deliberately use
+    /// live collider geometry so their routing cannot activate Stage-3-only
+    /// Ground 3/5/6/7 contracts by accident.
+    /// </summary>
+    internal bool UsesStage3AuthoredRouting =>
+        MapName.Contains(
+            "bonus_stage_3",
+            System.StringComparison.OrdinalIgnoreCase);
+
+    internal bool UsesStage2LiveRouting =>
+        MapName.Contains(
+            "bonus_stage_2",
+            System.StringComparison.OrdinalIgnoreCase);
 }

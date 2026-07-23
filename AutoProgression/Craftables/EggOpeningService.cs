@@ -8,14 +8,19 @@ namespace AutoProgression.Craftables;
 internal sealed class EggOpeningService
 {
     private const float CheckIntervalSeconds = 1f;
+    private const float SummaryIntervalSeconds = 30f;
 
     private TemporaryCraftableItem dragonEggOpener;
     private TemporaryCraftableItem simurghEggOpener;
     private float nextCheckTime;
+    private float nextSummaryTime;
+    private int dragonEggsOpened;
+    private int simurghEggsOpened;
     private bool missingLogged;
 
     internal bool Tick(float now)
     {
+        FlushSummary(now);
         if (now < nextCheckTime) return false;
         nextCheckTime = now + CheckIntervalSeconds;
 
@@ -44,17 +49,20 @@ internal sealed class EggOpeningService
         if (TryOpen(
                 simurghEgg,
                 simurghEggOpener,
-                Math.Max(0, Plugin.Config.SimurghEggReserveAmount.Value),
-                "Simurgh Egg"))
+                Math.Max(0, Plugin.Config.SimurghEggReserveAmount.Value)))
+        {
+            RecordOpen(now, false);
             return true;
+        }
 
         if (dragonScale.amount < dragonScale.GetMaxAmount())
         {
-            return TryOpen(
+            bool opened = TryOpen(
                 dragonEgg,
                 dragonEggOpener,
-                Math.Max(0, Plugin.Config.DragonEggReserveAmount.Value),
-                "Dragon Egg");
+                Math.Max(0, Plugin.Config.DragonEggReserveAmount.Value));
+            if (opened) RecordOpen(now, true);
+            return opened;
         }
 
         return false;
@@ -63,8 +71,7 @@ internal sealed class EggOpeningService
     private static bool TryOpen(
         Drop egg,
         TemporaryCraftableItem opener,
-        int reserveAmount,
-        string displayName)
+        int reserveAmount)
     {
         if (egg.amount <= reserveAmount ||
             !opener.TabVisible() ||
@@ -76,7 +83,6 @@ internal sealed class EggOpeningService
         if (lootBox == null) return false;
 
         double before = egg.amount;
-        LootBoxDropWithChance reward;
         try
         {
             // Preserve the game's normal crafting cost and statistics while
@@ -85,16 +91,13 @@ internal sealed class EggOpeningService
             opener.Craft();
             if (egg.amount >= before) return false;
 
-            reward = lootBox.Open();
+            lootBox.Open();
         }
         finally
         {
             opener.lootBoxOpen = lootBox;
         }
 
-        ProgressionLog.Debug(
-            $"Opened one {displayName} in the background; remaining={egg.amount:0.##}, " +
-            $"reserve={reserveAmount}, reward={reward?.rewardString ?? "unknown"}.");
         return true;
     }
 
@@ -143,6 +146,31 @@ internal sealed class EggOpeningService
         dragonEggOpener = null;
         simurghEggOpener = null;
         nextCheckTime = 0f;
+        nextSummaryTime = 0f;
+        dragonEggsOpened = 0;
+        simurghEggsOpened = 0;
         missingLogged = false;
+    }
+
+    private void RecordOpen(float now, bool dragon)
+    {
+        if (dragon) dragonEggsOpened++;
+        else simurghEggsOpened++;
+        if (nextSummaryTime <= 0f)
+            nextSummaryTime = now + SummaryIntervalSeconds;
+    }
+
+    private void FlushSummary(float now)
+    {
+        if (nextSummaryTime <= 0f || now < nextSummaryTime)
+            return;
+
+        ProgressionLog.Debug(
+            $"Eggs opened in the last {SummaryIntervalSeconds:0} seconds: " +
+            $"Dragon={dragonEggsOpened}, Simurgh={simurghEggsOpened}.",
+            "Eggs");
+        dragonEggsOpened = 0;
+        simurghEggsOpened = 0;
+        nextSummaryTime = 0f;
     }
 }

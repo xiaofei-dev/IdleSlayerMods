@@ -123,10 +123,10 @@ internal static class BonusStageRetryBridge
                     "control remains fail-closed until native state is safe.");
             }
 
-            BonusRunnerLog.Error(
-                $"RetryHarmonyCallbackFailed Callback={callback}, " +
-                $"Sequence={activeSequence}, Phase={phase}, Error=" +
-                $"{exception.GetType().Name}:{exception.Message}.");
+            BonusRunnerLog.Exception(
+                $"Retry Harmony callback (callback={callback}; " +
+                $"sequence={activeSequence}; phase={phase})",
+                exception);
         }
         catch
         {
@@ -196,10 +196,10 @@ internal static class BonusStageRetryBridge
         catch (System.Exception exception)
         {
             pendingIcon = null;
-            BonusRunnerLog.Warning(
-                $"RetryPromptIconReadFailed Sequence={activeSequence}, " +
-                $"Prompt={promptInstanceId}, Error=" +
-                $"{exception.GetType().Name}:{exception.Message}.");
+            BonusRunnerLog.Exception(
+                $"Retry prompt icon read (sequence={activeSequence}; " +
+                $"prompt={promptInstanceId})",
+                exception);
         }
 
         phase = BonusStageRetryPhase.PromptObserved;
@@ -260,10 +260,12 @@ internal static class BonusStageRetryBridge
         }
         catch (System.Exception exception)
         {
-            BonusRunnerLog.Warning(
-                $"RetryPopupMatchFailed Sequence={activeSequence}, " +
-                $"Error={exception.GetType().Name}:{exception.Message}. " +
-                "The popup was not claimed.");
+            BonusRunnerLog.Exception(
+                $"Retry popup match (sequence={activeSequence})",
+                exception);
+            BonusRunnerLog.Debug(
+                "Retry popup was not claimed after the match failure.",
+                "Retry");
             return;
         }
 

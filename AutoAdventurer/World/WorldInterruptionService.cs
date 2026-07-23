@@ -24,6 +24,8 @@ internal sealed class WorldInterruptionService
         // scan, it neither walks inactive pooled objects nor retains IL2CPP refs.
         if (GameObject.Find(ChestHuntKeyName) != null)
             blocker = "Chest Hunt Key";
+        else if (TryGetActiveArmoryChest(out string armoryChestDescription))
+            blocker = armoryChestDescription;
         else if (TryFindActivePortal(out string portalDescription))
             blocker = portalDescription;
         else if (TryFindActiveInteractivePortal(out string interactivePortal))
@@ -41,6 +43,30 @@ internal sealed class WorldInterruptionService
         }
 
         return true;
+    }
+
+    private static bool TryGetActiveArmoryChest(out string description)
+    {
+        // Every equipment variant spawned directly into a running map uses
+        // ArmoryItemChest. Query active scene components only so inactive
+        // pooled chests and inventory/crafting loot boxes cannot block quest
+        // travel. Keep blocking through the short opened animation; the
+        // active chest object itself is the authoritative indication that its
+        // map interaction has not completely cleared yet.
+        foreach (ArmoryItemChest chest in
+                 UnityEngine.Object.FindObjectsOfType<ArmoryItemChest>())
+        {
+            if (chest == null || chest.gameObject == null ||
+                !chest.gameObject.activeInHierarchy)
+                continue;
+
+            description =
+                $"Armory Chest ({chest.gameObject.name}; opened={chest.opened})";
+            return true;
+        }
+
+        description = string.Empty;
+        return false;
     }
 
     internal bool TryGetActiveRandomEvent(out string eventName,

@@ -30,12 +30,24 @@ public sealed class Plugin : MelonMod
         BonusRunnerLog.User(
             $"Plugin {AutoBonusRunnerInfo.PluginGuid} v{AutoBonusRunnerInfo.PluginVersion} " +
             $"(internal {AutoBonusRunnerInfo.InternalVersion}) loaded; " +
-            $"configuration schema v{AutoBonusRunnerConfig.CurrentConfigurationVersion}. " +
-            "Debug observation remains active when automatic control is disabled.");
-        BonusRunnerLog.User(
-            string.IsNullOrWhiteSpace(BonusRunnerLog.SessionTracePath)
-                ? "Independent session trace could not be opened; MelonLoader log remains active."
-                : $"Independent session trace: {BonusRunnerLog.SessionTracePath}");
+            $"configuration schema v{AutoBonusRunnerConfig.CurrentConfigurationVersion}.");
+        if (string.IsNullOrWhiteSpace(
+                BonusRunnerLog.SessionTracePath))
+        {
+            BonusRunnerLog.Warning(
+                "Independent session trace could not be opened; " +
+                "MelonLoader logging remains active.");
+        }
+        else
+        {
+            BonusRunnerLog.Debug(
+                $"Independent session trace opened: path=" +
+                $"{BonusRunnerLog.SessionTracePath}.",
+                "Runtime");
+        }
+        BonusRunnerLog.Debug(
+            "Debug observation remains active when automatic control is disabled.",
+            "Runtime");
     }
 
     private static void WarnIfConfigurationIsMissing()
@@ -44,7 +56,7 @@ public sealed class Plugin : MelonMod
             MelonLoader.Utils.MelonEnvironment.UserDataDirectory,
             $"{AutoBonusRunnerInfo.PluginGuid}.cfg");
         if (!System.IO.File.Exists(path))
-            BonusRunnerLog.User(
+            BonusRunnerLog.Warning(
                 $"Configuration file was not found at '{path}'. Default settings will be used and a new file will be created when the game saves preferences. Verify that your Mod Manager edits this exact file.");
     }
 
@@ -91,6 +103,9 @@ public sealed class Plugin : MelonMod
                 typeof(Popup),
                 nameof(Popup.Show),
                 new System.Type[] { typeof(PopupData), typeof(bool) });
+            var sphereRequirement = AccessTools.Method(
+                typeof(BonusSection),
+                nameof(BonusSection.GetRequiredSpheres));
             Patches updatePatches =
                 HarmonyLib.Harmony.GetPatchInfo(update);
             Patches fixedPatches =
@@ -105,6 +120,8 @@ public sealed class Plugin : MelonMod
                 HarmonyLib.Harmony.GetPatchInfo(secondWindClose);
             Patches popupPatches =
                 HarmonyLib.Harmony.GetPatchInfo(popupShow);
+            Patches sphereRequirementPatches =
+                HarmonyLib.Harmony.GetPatchInfo(sphereRequirement);
             int ownedUpdatePrefixes = updatePatches?.Prefixes.Count(
                 patch => patch.PatchMethod?.DeclaringType ==
                     typeof(PlayerMovementUpdateJumpHoldPatch)) ?? 0;
@@ -132,6 +149,10 @@ public sealed class Plugin : MelonMod
             int ownedPopupPostfixes = popupPatches?.Postfixes.Count(
                 patch => patch.PatchMethod?.DeclaringType ==
                     typeof(BonusStageRetryPopupPatch)) ?? 0;
+            int ownedSphereRequirementPostfixes =
+                sphereRequirementPatches?.Postfixes.Count(
+                    patch => patch.PatchMethod?.DeclaringType ==
+                        typeof(BonusStageSphereRequirementPatch)) ?? 0;
             string message =
                 $"HarmonyAutoPatchInventory UpdatePrefixes=" +
                 $"{ownedUpdatePrefixes}, FixedPrefixes=" +
@@ -142,7 +163,8 @@ public sealed class Plugin : MelonMod
                 $"{ownedPopupPostfixes}, RetryRewardPostfixes=" +
                 $"{ownedRewardPostfixes}, RetryErrorPostfixes=" +
                 $"{ownedErrorPostfixes}, RetryClosePostfixes=" +
-                $"{ownedClosePostfixes}. MelonLoader owns automatic " +
+                $"{ownedClosePostfixes}, SphereRequirementPostfixes=" +
+                $"{ownedSphereRequirementPostfixes}. MelonLoader owns automatic " +
                 "Harmony discovery; AutoBonusRunner does not call PatchAll.";
             bool inventoryReady =
                 ownedUpdatePrefixes == 1 &&
@@ -157,6 +179,14 @@ public sealed class Plugin : MelonMod
             BonusStageRetryBridge.SetPatchInventoryReady(
                 inventoryReady,
                 message);
+            if (ownedSphereRequirementPostfixes != 1)
+            {
+                BonusRunnerLog.Warning(
+                    $"SphereRequirementPatchInventory Postfixes=" +
+                    $"{ownedSphereRequirementPostfixes}; expected exactly " +
+                    "one. Auto/Skip mode will fail safely to the game's " +
+                    "native requirement if this patch is unavailable.");
+            }
             if (inventoryReady)
             {
                 BonusRunnerLog.Debug(message, "Control");
@@ -176,10 +206,9 @@ public sealed class Plugin : MelonMod
                 false,
                 $"InventoryException={exception.GetType().Name}:" +
                 exception.Message);
-            BonusRunnerLog.Warning(
-                "HarmonyAutoPatchInventory failed safely: " +
-                $"{exception.GetType().Name}: {exception.Message}. " +
-                "Fixed-time callback deduplication remains active.");
+            BonusRunnerLog.Exception(
+                "Harmony patch inventory",
+                exception);
         }
     }
 }

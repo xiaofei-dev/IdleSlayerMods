@@ -18,6 +18,9 @@ internal sealed class AscendantBadgeBoostService
 
     internal bool Tick(float now)
     {
+        if (!Plugin.Config.EnableAscendantBadgeBoost.Value)
+            return false;
+
         if (now < nextCheckTime) return false;
         nextCheckTime = now + CheckIntervalSeconds;
 
@@ -56,16 +59,18 @@ internal sealed class AscendantBadgeBoostService
             item.Craft();
             if (dragonScale.amount >= before) return false;
 
-            ProgressionLog.User(
+            ProgressionLog.Debug(
                 $"Ascendant Badge Boost crafted; Dragon Scale=" +
                 $"{dragonScale.amount:0.##}/{maximum:0.##} " +
-                $"({dragonScale.amount / maximum:P1}).");
+                $"({dragonScale.amount / maximum:P1}).",
+                "Craftables");
             return true;
         }
         catch (Exception exception)
         {
-            ProgressionLog.Error(
-                $"Ascendant Badge Boost crafting failed safely: {exception}");
+            ProgressionLog.Exception(
+                "Ascendant Badge Boost crafting",
+                exception);
             item = null;
             return false;
         }

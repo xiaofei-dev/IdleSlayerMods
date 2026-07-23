@@ -1,6 +1,8 @@
 # Configuration Reference
 
-The configuration schema is version 25. Entries are grouped by purpose.
+The configuration schema is version 31. Entries are grouped by purpose.
+Routine scheduling details are managed internally so the file focuses on
+choices that affect progression, resources, or feature behavior.
 
 ## General and Ascension
 
@@ -8,9 +10,12 @@ The configuration schema is version 25. Entries are grouped by purpose.
 |---|---:|---|
 | Debug Mode | `false` | Enables detailed diagnostic logs. |
 | Automatic Ascension Enabled | `true` | Allows normal Ascension. |
+| Automatic Ultra Ascension Enabled | `false` | Major reset: Ultra Ascends after native requirements and at least 24 Astral Keys. |
 | Soul Bonus Threshold Percent | `50` | Required pending-to-lifetime SP percentage. |
-| Check Interval Minutes | `5` | Time between checks; enabling also checks once immediately. |
 | Buy Skills After Automatic Ascension | `true` | Spends remaining SP after an automatic Ascension only; manual Ascension is unaffected. |
+
+Ascension is checked immediately when automation is enabled and then every five
+minutes.
 
 ## Premium Currency and Eggs
 
@@ -82,20 +87,19 @@ This setting takes effect after entering the game and is independent from the
 |---|---:|---|
 | Enabled | `false` | Master switch for all craftables and their automatic material purchases. |
 | Use Rage Pill | `true` | Refreshes Rage cooldown. |
-| Rage Pill Minimum Interval Seconds | `10` | Minimum time between attempts. |
 | Use Whetstone | `true` | Maintains Whetstone duration. |
 | Use Alternate Dimension Staff | `true` | Maintains its duration. |
 | Use Bidimensional Staff | `true` | Maintains its duration. |
 | Use Deathwave Scepter | `true` | Maintains it while preserving feathers. |
 | Deathwave Scepter Feather Reserve | `300` | Minimum Simurgh Feathers retained. |
 | Use Shards Necklace | `true` | Consumes excess Scrap. |
-| Shards Necklace Scrap Threshold Percent | `95` | Scrap percentage trigger. |
+| Shards Necklace Scrap Threshold Percent | `97` | Crafts until Scrap falls below this trigger; no duration cap applies. |
 | Use Dragon Scale Overflow Items | `true` | Consumes excess scales with four effects. |
 | Dragon Scale Threshold Percent | `95` | Dragon Scale percentage trigger. |
-| Timed Item Refill Below Minutes | `3` | Lower refill trigger. |
-| Timed Item Target Maximum Minutes | `6` | Shared target and overflow-effect ceiling. |
+| Ascendant Badge Boost Enabled | `false` | Crafts the one-use Armory boost when Dragon Scales are above the fixed 50% requirement. |
+| Timed Item Target Minutes | `6` | Shared target and overflow-effect ceiling. Refilling starts at half this value. |
 | Use Quest Assist Craftables | `true` | Enables Specialization and Key Manifest. Specialization will not craft if its cost would leave Scrap below the fixed 50% reserve. |
-| Quest Assist Cooldown Minutes | `5` | Independent cooldown for each item. |
+| Quest Assist Feather Threshold Amount | `1000` | Shared Specialization and Key Manifest Feather threshold. `0` disables both items. |
 | Buy Missing With Jewels | `false` | Buys eligible ordinary materials with Jewels only while the Craftables master switch is enabled. |
 | Material Purchase Percent | `100` | Purchase option: 25, 50, or 100 percent. |
 
@@ -106,10 +110,22 @@ This setting takes effect after entering the game and is independent from the
 | Buy Skills | `true` | Enables shop-skill purchasing. |
 | Buy Equipment | `true` | Enables unlocked normal equipment purchasing. |
 | Block Vertical Magnet Skills | `true` | Always blocks two vertical Random Box magnet upgrades, independently from `T`. |
-| Equipment Idle Minutes Before Sleep | `1` | No-valid-purchase time before sleeping. |
-| Equipment Sleep Minutes | `10` | Equipment-only sleep duration. |
 
-> The two Jewel settings can spend premium currency. Their defaults favor the
-> development environment and should be reviewed before normal play.
+Rage Pill attempts are internally limited to once every 10 seconds. Each
+quest-triggered assist item has an independent five-minute cooldown. The
+equipment buyer sleeps for ten minutes after one minute without an eligible
+purchase.
+
+`Quest Assist Feather Threshold Amount` applies to both quest-assist items.
+When it is above zero, the current Simurgh Feather amount must be strictly
+greater than the threshold and crafting must leave at least that amount.
+Key Manifest also uses it as the independent Feather-overflow trigger.
+Specialization still requires its normal quest or Scrap/Dragon Scale trigger.
+Setting the value to zero disables both Specialization and Key Manifest.
+
+> `Use Paid 500x Bonuses`, `Casino Crawler Eyes`, and `Buy Missing With
+> Jewels` can spend premium currency. All direct Jewel-spending switches are
+> disabled by default and should only be enabled after their behavior is
+> understood.
 
 [Back to the Complete Manual](../MANUAL.md)

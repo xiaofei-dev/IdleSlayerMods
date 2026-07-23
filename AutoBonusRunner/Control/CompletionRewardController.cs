@@ -196,11 +196,9 @@ internal sealed class CompletionRewardController
         catch (Exception exception)
         {
             nextWindDashCheckTime = now + 0.50f;
-            BonusRunnerLog.Warning(
-                $"CompletionWindDashFailed Section={state.SectionIndex}, " +
-                $"Exception={exception.GetType().Name}: " +
-                $"{exception.Message}. The independent completion runner " +
-                "continues without Wind Dash.");
+            BonusRunnerLog.Exception(
+                $"Completion Wind Dash for section {state.SectionIndex}",
+                exception);
             return false;
         }
     }
@@ -259,8 +257,10 @@ internal sealed class CompletionRewardController
             catch (Exception exception)
             {
                 arrowDecision =
-                    $"ShootArrowFailed:{exception.GetType().Name}:" +
-                    exception.Message;
+                    $"ShootArrowFailed:{exception.GetType().Name}";
+                BonusRunnerLog.Exception(
+                    "Completion reward bow fire",
+                    exception);
             }
         }
 

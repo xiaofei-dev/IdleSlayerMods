@@ -4,7 +4,7 @@ AutoAdventurer is the active-gameplay module in Tashi's Full Automation Suite.
 It coordinates quest objectives, dimension travel, character requirements,
 Rage Mode, movement abilities, Bonus helpers, and boss fights.
 
-This manual covers configuration version 26. New users should begin with the
+This manual covers configuration version 35. New users should begin with the
 [User Guide](USER_GUIDE.md).
 
 ## Reference Chapters
@@ -13,7 +13,7 @@ This manual covers configuration version 26. New users should begin with the
 2. [Quick Start and Controls](docs/02-quick-start.md)
 3. [Quest Automation](docs/03-quest-automation.md)
 4. [Automatic Rage](docs/04-automatic-rage.md)
-5. [Auto Boost and Wind Dash](docs/05-auto-boost.md)
+5. [Auto Movement & Combat](docs/05-auto-boost.md)
 6. [Travel, Events, and Safety](docs/06-travel-and-events.md)
 7. [Bonus, Slider, and Boss Features](docs/07-bonus-and-boss.md)
 8. [Configuration Reference](docs/08-configuration.md)
@@ -37,10 +37,11 @@ The mods can be used independently or together.
 | `P` | Toggle Quest Automation |
 | `K` | Toggle Automatic Rage |
 | `J` | Immediately end the current Rage Mode |
-| `L` | Toggle Auto Boost |
+| `L` | Toggle Auto Movement & Combat |
 
-These three automation toggles start disabled. Slider Skip and Auto Boss are
-controlled directly by configuration and default to enabled.
+Automatic Rage and Quest Automation start disabled. Auto Movement & Combat
+starts enabled by default and can still be toggled with `L`. Slider Skip and
+Auto Boss are controlled directly by configuration and default to enabled.
 
 ## Safety Principles
 

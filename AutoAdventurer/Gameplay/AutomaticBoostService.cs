@@ -1,6 +1,7 @@
 using System;
 using AutoAdventurer.Diagnostics;
 using AutoAdventurer.Runtime;
+using AutoAdventurer.World;
 using Il2Cpp;
 using UnityEngine;
 
@@ -8,6 +9,7 @@ namespace AutoAdventurer.Gameplay;
 
 internal sealed class AutomaticBoostService
 {
+    private readonly WorldInterruptionService interruptions = new();
     private const float CheckIntervalSeconds = 0.1f;
     private const float PostAscensionDelaySeconds = 5f;
     // MainScreenGuard already owns the post-transition stabilization delay.
@@ -41,7 +43,7 @@ internal sealed class AutomaticBoostService
         runnerValidSince = now - RunnerStableSeconds;
     }
 
-    internal void Tick(float now, bool enabled)
+    internal void Tick(float now, bool enabled, bool suppressMovementForBox)
     {
         if (!enabled)
         {
@@ -67,7 +69,8 @@ internal sealed class AutomaticBoostService
                 if (!managerMissingLogged)
                 {
                     managerMissingLogged = true;
-                    AdventurerLog.Debug("AbilitiesManager is not available yet.");
+                    AdventurerLog.MovementDebug(
+                        "AbilitiesManager is not available yet.");
                 }
                 return;
             }
@@ -115,6 +118,18 @@ internal sealed class AutomaticBoostService
                 Plugin.Config.AutoBoostActivationDelaySecondsValue);
             if (!immediate && now - cooldownReadySince < activationDelay) return;
 
+            // Without the corresponding horizontal box magnet, either
+            // movement ability can change the approach speed while the jump
+            // helper is timing an intercept. Preserve the ready cooldown and
+            // retry after the box clears. Chest Hunt Keys still suppress only
+            // Wind Dash; normal Boost does not outrun that encounter.
+            if (suppressMovementForBox ||
+                (IsWindDash(selected) && interruptions.HasChestHuntKey))
+            {
+                nextCheckTime = now;
+                return;
+            }
+
             // Wind Dash can pass above portals and elite enemies when it is
             // activated during a jump. Ground contact is map-independent and
             // is therefore safer than comparing an absolute world Y value.
@@ -138,13 +153,14 @@ internal sealed class AutomaticBoostService
             if (now >= nextTriggerLogTime)
             {
                 nextTriggerLogTime = now + RepeatedActionLogIntervalSeconds;
-                AdventurerLog.Debug(
-                    $"Auto Boost triggered {GetAbilityName(selected)}; cooldown={selected.currentCd:0.###}.");
+                AdventurerLog.MovementDebug(
+                    $"Ability triggered: selected={GetAbilityName(selected)}; cooldown={selected.currentCd:0.###}s.");
             }
         }
         catch (Exception exception)
         {
-            AdventurerLog.Error($"Auto Boost failed safely: {exception}");
+            AdventurerLog.Exception(
+                "Movement ability automation", exception);
             SuspendAndClear(now, PostAscensionDelaySeconds);
         }
     }
@@ -190,8 +206,8 @@ internal sealed class AutomaticBoostService
         if (previousFirstSkillBought && !bought)
         {
             SuspendAndClear(now, PostAscensionDelaySeconds);
-            AdventurerLog.Debug(
-                $"Ascension detected; Auto Boost suspended for {PostAscensionDelaySeconds:0.#} seconds.");
+            AdventurerLog.MovementDebug(
+                $"Ascension detected; ability automation suspended for {PostAscensionDelaySeconds:0.#} seconds.");
         }
 
         previousFirstSkillBought = bought;
@@ -210,7 +226,8 @@ internal sealed class AutomaticBoostService
         {
             stableAbilityType = typeName;
             stableAbilityChecks = 1;
-            AdventurerLog.Debug($"Auto Boost observed selected ability {typeName}.");
+            AdventurerLog.MovementDebug(
+                $"Selected ability observed: {typeName}.");
             return false;
         }
 
@@ -271,8 +288,8 @@ internal sealed class AutomaticBoostService
     {
         if (now < nextUnavailableLogTime) return;
         nextUnavailableLogTime = now + 30f;
-        AdventurerLog.Debug(
-            $"Auto Boost is enabled but no supported selected ability was resolved; selected={GetAbilityName(selected)}.");
+        AdventurerLog.MovementDebug(
+            $"No supported selected ability resolved; selected={GetAbilityName(selected)}.");
     }
 
     private bool IsWindDashHeightSafe(float now)

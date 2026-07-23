@@ -31,7 +31,7 @@ internal sealed class QuestElementService
         }
         catch (Exception exception)
         {
-            AdventurerLog.QuestDebug(
+            AdventurerLog.ElementDebug(
                 $"Elemental Dark Divinity maintenance deferred safely; exception={exception.GetType().Name}. The next five-second scan will resolve fresh game objects.");
             resolvedQuestList = null;
             return false;
@@ -94,7 +94,7 @@ internal sealed class QuestElementService
         // Element switching is intentionally a normal-quest helper. Daily
         // and Weekly objectives must never override the player's manually
         // selected element when there is no active normal quest.
-        if (quest is DailyQuest || quest is WeeklyQuest ||
+        if (IsDailyOrWeeklyQuest(quest) ||
             !CanUseQuest(quest) || quest.isClaimed) return;
         try
         {
@@ -106,6 +106,29 @@ internal sealed class QuestElementService
         {
             // Retry unreadable IL2CPP quest data on the next observation.
         }
+    }
+
+    private static bool IsDailyOrWeeklyQuest(Quest quest)
+    {
+        if (quest == null) return false;
+        if (quest is DailyQuest || quest is WeeklyQuest) return true;
+
+        // IL2CPP's quest-list cache can expose a recycled Daily/Weekly entry
+        // through the base Quest wrapper. In that case normal C# `is` checks
+        // are false even though the authoritative runtime type or internal
+        // quest ID still identifies the rotating task. Never use localized
+        // display text for this decision.
+        string runtimeType = quest.GetIl2CppType()?.Name ?? string.Empty;
+        if (string.Equals(runtimeType, nameof(DailyQuest),
+                StringComparison.Ordinal) ||
+            string.Equals(runtimeType, nameof(WeeklyQuest),
+                StringComparison.Ordinal))
+            return true;
+
+        return string.Equals(quest.name, "quest_daily_quest",
+                   StringComparison.Ordinal) ||
+               string.Equals(quest.name, "quest_weekly_quest",
+                   StringComparison.Ordinal);
     }
 
     internal bool TryAlign(List<Quest> quests)
@@ -175,6 +198,8 @@ internal sealed class QuestElementService
         // priority and does not oscillate between multiple element tasks.
         DivinitiesManager manager = DivinitiesManager.instance;
         if (manager == null) return false;
+        List<Divinity> preservedNonElemental =
+            CaptureActiveNonElementalDivinities(elemental);
 
         // Manual input can race the five-second maintenance while the
         // Divinity panel is open and leave more than one mutually-exclusive
@@ -193,7 +218,9 @@ internal sealed class QuestElementService
             }
             catch (Exception exception)
             {
-                AdventurerLog.QuestDebug(
+                RestoreNonElementalDivinities(
+                    manager, preservedNonElemental);
+                AdventurerLog.ElementDebug(
                     $"Extra elemental Dark Divinity cleanup deferred safely; divinity={divinity.name ?? "UnknownDivinity"}; exception={exception.GetType().Name}.");
             }
         }
@@ -202,7 +229,9 @@ internal sealed class QuestElementService
         {
             if (removedExtraElement)
             {
-                AdventurerLog.QuestDebug(
+                RestoreNonElementalDivinities(
+                    manager, preservedNonElemental);
+                AdventurerLog.ElementDebug(
                     $"Elemental Dark Divinity exclusivity restored: helperQuest={GetQuestLabel(chosenQuest)}; retained={desired.name}; all other active elements were disabled.");
                 lastDiagnosticKey = string.Empty;
                 return true;
@@ -224,6 +253,8 @@ internal sealed class QuestElementService
                 }
 
                 SetDivinityState(manager, desired, true);
+                RestoreNonElementalDivinities(
+                    manager, preservedNonElemental);
                 if (!desired.unlocked)
                 {
                     LogDiagnosticOnce($"activation-failed:{desired.name}",
@@ -236,7 +267,7 @@ internal sealed class QuestElementService
                         StringComparison.Ordinal))
                 {
                     lastSwitchKey = activationKey;
-                    AdventurerLog.QuestDebug(
+                    AdventurerLog.ElementDebug(
                         $"Elemental Dark Divinity activated: helperQuest={GetQuestLabel(chosenQuest)}; " +
                         $"enemyType={desired.newBenefit.enemyType.name}; from=None; to={desired.name}; " +
                         "this helper does not replace the current quest lock.");
@@ -246,7 +277,9 @@ internal sealed class QuestElementService
             }
             catch (Exception exception)
             {
-                AdventurerLog.QuestDebug(
+                RestoreNonElementalDivinities(
+                    manager, preservedNonElemental);
+                AdventurerLog.ElementDebug(
                     $"Elemental Dark Divinity activation deferred safely: " +
                     $"helperQuest={GetQuestLabel(chosenQuest)}; exception={exception.GetType().Name}.");
                 return false;
@@ -258,6 +291,7 @@ internal sealed class QuestElementService
         {
             SetDivinityState(manager, active, false);
             SetDivinityState(manager, desired, true);
+            RestoreNonElementalDivinities(manager, preservedNonElemental);
             if (!desired.unlocked)
             {
                 // Activation did not stick. Restore the player's previous
@@ -271,7 +305,7 @@ internal sealed class QuestElementService
                     StringComparison.Ordinal))
             {
                 lastSwitchKey = switchKey;
-                AdventurerLog.QuestDebug(
+                AdventurerLog.ElementDebug(
                     $"Elemental Dark Divinity switched: helperQuest={GetQuestLabel(chosenQuest)}; " +
                     $"enemyType={desired.newBenefit.enemyType.name}; " +
                     $"from={active.name}; to={desired.name}; " +
@@ -285,15 +319,72 @@ internal sealed class QuestElementService
             try
             {
                 if (!active.unlocked) manager.ActivateDivinity(active.name);
+                RestoreNonElementalDivinities(
+                    manager, preservedNonElemental);
             }
             catch
             {
                 // The original exception is the useful diagnostic.
             }
-            AdventurerLog.QuestDebug(
+            AdventurerLog.ElementDebug(
                 $"Elemental Dark Divinity switch deferred safely: " +
                 $"quest={chosenQuest.name}; exception={exception.GetType().Name}.");
             return false;
+        }
+    }
+
+    private static List<Divinity> CaptureActiveNonElementalDivinities(
+        List<Divinity> elemental)
+    {
+        var elementalNames = new HashSet<string>(StringComparer.Ordinal);
+        foreach (Divinity divinity in elemental)
+        {
+            if (!string.IsNullOrWhiteSpace(divinity?.name))
+                elementalNames.Add(divinity.name);
+        }
+
+        var preserved = new List<Divinity>();
+        var preservedNames = new HashSet<string>(StringComparer.Ordinal);
+        foreach (Divinity divinity in Resources.FindObjectsOfTypeAll<Divinity>())
+        {
+            try
+            {
+                if (divinity == null || !divinity.unlocked ||
+                    string.IsNullOrWhiteSpace(divinity.name) ||
+                    elementalNames.Contains(divinity.name) ||
+                    !preservedNames.Add(divinity.name))
+                    continue;
+                preserved.Add(divinity);
+            }
+            catch
+            {
+                // A rebuilt panel entry can be retried on the next scan.
+            }
+        }
+        return preserved;
+    }
+
+    private static void RestoreNonElementalDivinities(
+        DivinitiesManager manager, List<Divinity> preserved)
+    {
+        if (manager == null || preserved == null) return;
+        foreach (Divinity divinity in preserved)
+        {
+            try
+            {
+                if (divinity == null || divinity.unlocked) continue;
+                manager.ActivateDivinity(divinity.name);
+                if (!divinity.unlocked) divinity.unlocked = true;
+                divinity.SaveData();
+                divinity.divinityObjectComponent?.RefreshColors();
+                AdventurerLog.ElementDebug(
+                    $"Elemental switch restored unrelated active Dark Divinity: divinity={divinity.name}.");
+            }
+            catch (Exception exception)
+            {
+                AdventurerLog.ElementDebug(
+                    $"Unrelated Dark Divinity restoration deferred safely: divinity={divinity?.name ?? "UnknownDivinity"}; exception={exception.GetType().Name}.");
+            }
         }
     }
 
@@ -316,7 +407,7 @@ internal sealed class QuestElementService
         if (string.Equals(lastDiagnosticKey, key, StringComparison.Ordinal))
             return;
         lastDiagnosticKey = key;
-        AdventurerLog.QuestDebug(message);
+        AdventurerLog.ElementDebug(message);
     }
 
     private static bool CanUseQuest(Quest quest)

@@ -1,4 +1,5 @@
 using Il2Cpp;
+using AutoBonusRunner.Diagnostics;
 using UnityEngine;
 
 namespace AutoBonusRunner.Routing;
@@ -15,7 +16,8 @@ internal readonly record struct BonusBoardSegment(
     float MapPieceOriginX = float.NaN,
     int MapPieceInstanceId = 0,
     int RegistryGeneration = 0,
-    int StaticSurfaceIndex = -1)
+    int StaticSurfaceIndex = -1,
+    float WallFaceX = float.NaN)
 {
     internal float Width => Right - Left;
     internal float LocalLeft => float.IsNaN(MapPieceOriginX) ? float.NaN : Left - MapPieceOriginX;
@@ -38,6 +40,13 @@ internal readonly record struct BonusBoardScanResult(
 internal sealed class BonusPlatformScanner
 {
     private const float SampleStep = 0.15f;
+    // Boundary discovery used to issue one all-layer RaycastAll every 0.15
+    // world units. A long continuous road therefore consumed more than one
+    // hundred synchronous physics queries in every FixedUpdate. A 0.60 probe
+    // cannot skip a dangerous opening wider than itself; narrower seams are
+    // already conservatively inside the measured player-body walkable range.
+    // The first mismatch is still refined to the original sub-step precision.
+    private const float BoundaryProbeStep = 0.60f;
     private const float MinimumLookAhead = 28f;
     private const float MaximumLookAhead = 80f;
     private const float MaximumLookBehind = 8f;
@@ -56,14 +65,32 @@ internal sealed class BonusPlatformScanner
     private const float EdgeSafetyMargin = 0.15f;
     private const float MinimumSafeWidth = 0.10f;
     private readonly BonusMapPieceRegistry mapRegistry = new();
+    private bool liveDownstreamAlternativesEnabled;
+    private bool forwardClearanceCacheActive;
+    private bool forwardClearanceCacheHitLogged;
+    private BonusBoardSegment forwardClearanceCurrent;
+    private float forwardClearanceStartX;
 
     internal BonusMapPieceRegistry MapRegistry => mapRegistry;
 
-    internal bool RefreshStaticMap(int sectionIndex) =>
-        mapRegistry.Refresh(sectionIndex);
+    internal void SetLiveDownstreamAlternatives(bool enabled) =>
+        liveDownstreamAlternativesEnabled = enabled;
 
-    internal void ResetStaticMap(string reason) =>
+    internal bool RefreshStaticMap(int sectionIndex)
+    {
+        if (mapRegistry.SectionIndex != sectionIndex)
+            ResetForwardClearanceCache($"StaticSectionChanged:{sectionIndex}");
+        return mapRegistry.Refresh(sectionIndex);
+    }
+
+    internal void ResetStaticMap(string reason)
+    {
+        ResetForwardClearanceCache(reason);
         mapRegistry.Reset(reason);
+    }
+
+    internal void ResetDynamicCaches(string reason) =>
+        ResetForwardClearanceCache(reason);
 
     internal bool TryFindChainedWallStep(
         BonusBoardSegment currentWall,
@@ -237,6 +264,16 @@ internal sealed class BonusPlatformScanner
             ? player.playerCollider.bounds.extents.x
             : 0.35f;
 
+        if (TryUseForwardClearanceCache(
+                playerPosition,
+                feetY,
+                playerHalfWidth,
+                horizontalSpeed,
+                out BonusBoardScanResult cachedClearance))
+        {
+            return cachedClearance;
+        }
+
         if (!TryFindSupportSurface(
                 playerPosition.x,
                 feetY,
@@ -324,9 +361,16 @@ internal sealed class BonusPlatformScanner
                 playerPosition.x,
                 lookAhead,
                 playerHalfWidth);
-            return PromoteStaticContinuationWhenLiveNextMissing(noLiveNext);
+            noLiveNext =
+                PromoteStaticContinuationWhenLiveNextMissing(noLiveNext);
+            if (!noLiveNext.HasNext)
+                ArmForwardClearanceCache(noLiveNext, playerPosition.x);
+            else
+                ResetForwardClearanceCache("StaticContinuationPromoted");
+            return noLiveNext;
         }
 
+        ResetForwardClearanceCache("ForwardSurfaceFound");
         float nextRight = FindBoundary(
             nextInteriorX,
             1f,
@@ -339,6 +383,10 @@ internal sealed class BonusPlatformScanner
             nextRight,
             nextSample,
             playerHalfWidth), nextInteriorX, nextSample.Top, playerHalfWidth);
+        next = AnnotateForwardWallFace(
+            next,
+            support.Top,
+            layerMask);
         BonusBoardSegment[] alternatives = FindAlternativeSurfaces(
             nextInteriorX,
             feetY,
@@ -346,6 +394,16 @@ internal sealed class BonusPlatformScanner
             lookAhead,
             playerHalfWidth,
             next);
+        alternatives = AddLiveDownstreamAlternatives(
+            alternatives,
+            current,
+            next,
+            support.Top,
+            feetY,
+            layerMask,
+            lookAhead,
+            playerHalfWidth,
+            playerPosition.x);
 
         BonusBoardScanResult directResult = new(
             true,
@@ -493,6 +551,16 @@ internal sealed class BonusPlatformScanner
             lookAhead,
             playerHalfWidth,
             next);
+        alternatives = AddLiveDownstreamAlternatives(
+            alternatives,
+            current,
+            next,
+            supportTop,
+            feetY,
+            layerMask,
+            lookAhead,
+            playerHalfWidth,
+            interiorX);
         BonusBoardScanResult directResult = new(
             true, current, true, next,
             current.SafeRight - interiorX,
@@ -1091,16 +1159,117 @@ internal sealed class BonusPlatformScanner
                     sample.Top,
                     feetY,
                     layerMask);
-                return BuildSegment(
-                    left,
-                    right,
-                    sample,
-                    playerHalfWidth);
+                return AnnotateForwardWallFace(
+                    BuildSegment(
+                        left,
+                        right,
+                        sample,
+                        playerHalfWidth),
+                    feetY,
+                    layerMask);
             })
             .Where(segment => segment.Width >= 0.20f)
             .OrderBy(segment => segment.Top)
             .ThenBy(segment => segment.Left)
             .Take(12)
+            .ToArray();
+    }
+
+    private BonusBoardSegment[] AddLiveDownstreamAlternatives(
+        BonusBoardSegment[] existing,
+        BonusBoardSegment current,
+        BonusBoardSegment selected,
+        float supportTop,
+        float feetY,
+        int layerMask,
+        float lookAhead,
+        float playerHalfWidth,
+        float originX)
+    {
+        if (!liveDownstreamAlternativesEnabled)
+            return existing ?? Array.Empty<BonusBoardSegment>();
+
+        List<BonusBoardSegment> alternatives = existing?.ToList() ??
+            new List<BonusBoardSegment>();
+        float searchX = selected.Right + SampleStep;
+        float searchEnd = originX + lookAhead;
+        int guard = 0;
+        while (searchX <= searchEnd && guard++ < 32)
+        {
+            float sampleX = searchX;
+            SurfaceSample sample = default;
+            bool found = false;
+            while (sampleX <= searchEnd)
+            {
+                if (TryFindReachableSurface(
+                        sampleX,
+                        supportTop,
+                        feetY,
+                        layerMask,
+                        out sample))
+                {
+                    found = true;
+                    break;
+                }
+                sampleX += SampleStep;
+            }
+            if (!found)
+                break;
+
+            float left = RefineNextBoundary(
+                sampleX - SampleStep,
+                sampleX,
+                sample.Top,
+                supportTop,
+                feetY,
+                layerMask);
+            float right = FindBoundary(
+                sampleX,
+                1f,
+                Mathf.Max(SampleStep, searchEnd - sampleX),
+                sample.Top,
+                feetY,
+                layerMask);
+            BonusBoardSegment candidate = EnrichFromStaticMap(
+                BuildSegment(left, right, sample, playerHalfWidth),
+                sampleX,
+                sample.Top,
+                playerHalfWidth);
+            candidate = AnnotateForwardWallFace(
+                candidate,
+                supportTop,
+                layerMask);
+            bool isCurrent =
+                Mathf.Abs(candidate.Left - current.Left) <= 0.12f &&
+                Mathf.Abs(candidate.Right - current.Right) <= 0.12f &&
+                Mathf.Abs(candidate.Top - current.Top) <= 0.12f;
+            bool isSelected =
+                Mathf.Abs(candidate.Left - selected.Left) <= 0.12f &&
+                Mathf.Abs(candidate.Right - selected.Right) <= 0.12f &&
+                Mathf.Abs(candidate.Top - selected.Top) <= 0.12f;
+            bool duplicate = alternatives.Any(surface =>
+                Mathf.Abs(surface.Left - candidate.Left) <= 0.12f &&
+                Mathf.Abs(surface.Right - candidate.Right) <= 0.12f &&
+                Mathf.Abs(surface.Top - candidate.Top) <= 0.12f);
+            if (!isCurrent && !isSelected && !duplicate &&
+                candidate.Width >= 0.20f &&
+                candidate.Right > current.Right + 0.10f)
+            {
+                alternatives.Add(candidate);
+            }
+
+            // Advance beyond the surface just resolved. This enumerates the
+            // ordered downstream support chain without repeatedly raycasting
+            // every interior sample of a broad platform.
+            searchX = Mathf.Max(
+                sampleX + SampleStep,
+                candidate.Right + SampleStep);
+        }
+
+        return alternatives
+            .OrderBy(segment => segment.Left)
+            .ThenBy(segment => segment.Top)
+            .Take(24)
             .ToArray();
     }
 
@@ -1116,9 +1285,9 @@ internal sealed class BonusPlatformScanner
         float firstNonMatchingX = startX;
         bool foundNonMatch = false;
 
-        for (float distance = SampleStep;
+        for (float distance = BoundaryProbeStep;
              distance <= maximumDistance;
-             distance += SampleStep)
+             distance += BoundaryProbeStep)
         {
             float x = startX + direction * distance;
             if (TryFindSurfaceAtHeight(
@@ -1149,6 +1318,117 @@ internal sealed class BonusPlatformScanner
         }
 
         return matching;
+    }
+
+    private bool TryUseForwardClearanceCache(
+        Vector3 playerPosition,
+        float feetY,
+        float playerHalfWidth,
+        float horizontalSpeed,
+        out BonusBoardScanResult result)
+    {
+        result = default;
+        if (!forwardClearanceCacheActive ||
+            horizontalSpeed < 1f ||
+            playerPosition.x < forwardClearanceStartX - 0.35f ||
+            Mathf.Abs(feetY - forwardClearanceCurrent.Top) > 0.18f ||
+            Mathf.Abs(
+                playerHalfWidth -
+                (forwardClearanceCurrent.Right -
+                 forwardClearanceCurrent.SafeRight -
+                 EdgeSafetyMargin)) > 0.12f)
+        {
+            return false;
+        }
+
+        // Rebuild the live proof early enough to observe and act on the real
+        // edge. The cache can only prove WAIT on already sampled road; it can
+        // never authorize a jump or extend the verified horizon.
+        float replanDistance = Mathf.Clamp(
+            Mathf.Abs(horizontalSpeed) * 0.40f,
+            6.0f,
+            12.0f);
+        if (playerPosition.x >=
+            forwardClearanceCurrent.SafeRight - replanDistance)
+        {
+            ResetForwardClearanceCache("ApproachingVerifiedHorizon");
+            return false;
+        }
+
+        BonusBoardSegment current = forwardClearanceCurrent with
+        {
+            SafeLeft = Mathf.Min(
+                forwardClearanceCurrent.SafeLeft,
+                playerPosition.x - 0.20f)
+        };
+        result = new BonusBoardScanResult(
+            true,
+            current,
+            false,
+            default,
+            current.SafeRight - playerPosition.x,
+            float.PositiveInfinity,
+            0f,
+            "CachedForwardClearance");
+        if (!forwardClearanceCacheHitLogged)
+        {
+            forwardClearanceCacheHitLogged = true;
+            BonusRunnerLog.Debug(
+                $"ForwardClearanceCacheHit X={playerPosition.x:F3}, " +
+                $"VerifiedRight={current.SafeRight:F3}, " +
+                $"ReplanDistance={replanDistance:F3}, Top={current.Top:F3}.",
+                "Performance");
+        }
+        return true;
+    }
+
+    private void ArmForwardClearanceCache(
+        BonusBoardScanResult scan,
+        float playerX)
+    {
+        if (!scan.IsValid ||
+            scan.HasNext ||
+            scan.Current.SafeRight - playerX < 10f)
+        {
+            return;
+        }
+
+        bool materiallyChanged =
+            !forwardClearanceCacheActive ||
+            Mathf.Abs(
+                forwardClearanceCurrent.SafeRight -
+                scan.Current.SafeRight) > 0.50f ||
+            Mathf.Abs(
+                forwardClearanceCurrent.Top -
+                scan.Current.Top) > 0.10f;
+        forwardClearanceCacheActive = true;
+        forwardClearanceCacheHitLogged = false;
+        forwardClearanceCurrent = scan.Current;
+        forwardClearanceStartX = playerX;
+        if (materiallyChanged)
+        {
+            BonusRunnerLog.Debug(
+                $"ForwardClearanceCacheArmed X={playerX:F3}, " +
+                $"Verified=[{scan.Current.SafeLeft:F3}," +
+                $"{scan.Current.SafeRight:F3}]@{scan.Current.Top:F3}. " +
+                "Cached results are WAIT-only and expire before the horizon.",
+                "Performance");
+        }
+    }
+
+    private void ResetForwardClearanceCache(string reason)
+    {
+        if (forwardClearanceCacheActive &&
+            reason != "ForwardSurfaceFound")
+        {
+            BonusRunnerLog.Debug(
+                $"ForwardClearanceCacheReset Reason={reason}.",
+                "Performance");
+        }
+        forwardClearanceCacheActive = false;
+        forwardClearanceCacheHitLogged = false;
+        forwardClearanceCurrent = default;
+        forwardClearanceStartX = 0f;
     }
 
     private static float RefineNextBoundary(
@@ -1277,6 +1557,61 @@ internal sealed class BonusPlatformScanner
             Vector2.down,
             MaximumWallClimbStepUp + MaximumStepDown + 2f,
             layerMask);
+
+    private static BonusBoardSegment AnnotateForwardWallFace(
+        BonusBoardSegment segment,
+        float sourceTop,
+        int layerMask)
+    {
+        if (segment.Width <= 0.05f ||
+            segment.Top < sourceTop + 5.35f)
+        {
+            return segment;
+        }
+
+        float originX = segment.Left - 1.0f;
+        float distance = Mathf.Max(
+            2.0f,
+            segment.Right - originX + 2.0f);
+        float[] offsets = { 0.25f, 0.85f, 1.45f, 2.05f, 2.65f };
+        foreach (float offset in offsets)
+        {
+            Vector2 origin = new(originX, sourceTop + offset);
+            RaycastHit2D best = default;
+            bool found = false;
+            foreach (RaycastHit2D hit in Physics2D.RaycastAll(
+                         origin,
+                         Vector2.right,
+                         distance,
+                         layerMask))
+            {
+                Collider2D collider = hit.collider;
+                if (collider == null ||
+                    !collider.enabled ||
+                    collider.isTrigger ||
+                    collider.GetComponentInParent<PlayerMovement>() != null ||
+                    collider.GetComponentInParent<BonusStageSpike>() != null ||
+                    hit.normal.x > -0.35f ||
+                    hit.point.x < segment.Left - 0.35f ||
+                    hit.point.x > segment.Right + 1.50f)
+                {
+                    continue;
+                }
+                if (found && hit.distance >= best.distance)
+                    continue;
+                best = hit;
+                found = true;
+            }
+
+            // The lowest usable body-height face is authoritative. A tall
+            // top can overhang a recessed lower wall; using Top.Left in that
+            // geometry arms the climb several units before physical contact.
+            if (found)
+                return segment with { WallFaceX = best.point.x };
+        }
+
+        return segment;
+    }
 
     private static bool IsLandingSurface(RaycastHit2D hit)
     {

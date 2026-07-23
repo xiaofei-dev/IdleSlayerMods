@@ -25,6 +25,12 @@ public sealed class AutoClimberPlugin : MelonMod
             instance => ModHelperInstance = instance;
         WarnIfConfigurationIsMissing();
         Config = new(AutoClimberInfo.PluginGuid);
+        ClimberLog.User(
+            $"Plugin {AutoClimberInfo.PluginGuid} " +
+            $"v{AutoClimberInfo.PluginVersion} " +
+            $"(internal {AutoClimberInfo.InternalVersion}) loaded; " +
+            $"configuration schema " +
+            $"v{AutoClimberConfig.CurrentConfigurationVersion}.");
     }
 
     private static void WarnIfConfigurationIsMissing()
@@ -33,7 +39,7 @@ public sealed class AutoClimberPlugin : MelonMod
             MelonLoader.Utils.MelonEnvironment.UserDataDirectory,
             $"{AutoClimberInfo.PluginGuid}.cfg");
         if (!System.IO.File.Exists(path))
-            ClimberLog.User(
+            ClimberLog.Warning(
                 $"Configuration file was not found at '{path}'. Default settings will be used and a new file will be created when the game saves preferences. Verify that your Mod Manager edits this exact file.");
     }
 

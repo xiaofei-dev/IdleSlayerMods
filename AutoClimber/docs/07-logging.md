@@ -15,7 +15,7 @@ Important lifecycle messages remain visible with Debug Mode disabled:
 A full-route result prints a compact line similar to:
 
 ```text
-Run count: Total=9, Success=8, Failure=1, PassRate=88.9%, LastResult=Success, EndReason=AscendingStateEnded, EnemiesDetected=21, EnemyHits=7
+Run summary: total=9; success=8; failure=1; passRate=88.9%; lastResult=success; endReason=AscendingStateEnded; durationSeconds=132.40; enemiesDetected=21; enemyHits=7.
 ```
 
 Depending on the current build and run history, the summary can also include
@@ -51,5 +51,12 @@ The MelonLoader log directory is normally:
 
 For a useful report, include the complete log containing the failed run rather
 than only the final error line.
+
+Every Debug line includes a stable category such as `[Debug][Runtime]`,
+`[Debug][Routing]`, or `[Debug][Exception]`. Exact Debug duplicates are held
+for 10 seconds, while identical warnings and errors are held for 30 seconds.
+When writing resumes, the line reports how many identical repetitions were
+suppressed. Normal-mode exception messages stay on one line; full stack traces
+are visible only with Debug Mode enabled under `[Debug][Exception]`.
 
 [Back to the Complete Manual](../MANUAL.md)

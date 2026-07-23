@@ -115,8 +115,9 @@ internal sealed class DailyQuestFilterService
         {
             if (invocationException != null)
             {
-                ProgressionLog.Error(
-                    $"Automatic Daily Quest reroll failed safely: {invocationException}");
+                ProgressionLog.Exception(
+                    "Automatic Daily Quest reroll",
+                    invocationException);
                 return Finish();
             }
 

@@ -37,7 +37,7 @@ internal sealed class SkillPurchaseService
         }
         catch (Exception exception)
         {
-            ProgressionLog.Error($"Failed to refresh the skill list safely: {exception}");
+            ProgressionLog.Exception("Skill-list refresh", exception);
         }
 
         var upgrades = upgradesList.scrollListData;
@@ -63,7 +63,9 @@ internal sealed class SkillPurchaseService
             }
             catch (Exception exception)
             {
-                ProgressionLog.Error($"Failed to purchase skill '{upgrade.name}' safely: {exception}");
+                ProgressionLog.Exception(
+                    $"Skill purchase '{upgrade.name}'",
+                    exception);
             }
         }
 
@@ -80,7 +82,9 @@ internal sealed class SkillPurchaseService
         if (purchasedSinceLastSummary <= 0 || now < nextSummaryTime) return;
 
         ProgressionLog.Debug(
-            $"Skill purchases in the last 30 seconds: {purchasedSinceLastSummary} skill(s).");
+            $"Purchased {purchasedSinceLastSummary} skill(s) in the last " +
+            $"{SummaryIntervalSeconds:0} seconds.",
+            "Purchases");
         purchasedSinceLastSummary = 0;
         nextSummaryTime = 0f;
     }

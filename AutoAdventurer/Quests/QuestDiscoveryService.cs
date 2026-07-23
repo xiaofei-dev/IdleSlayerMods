@@ -15,6 +15,7 @@ internal sealed class QuestDiscoveryService
     private string lastRefreshLog = string.Empty;
     private string lastActiveDailySignature = string.Empty;
     private string lastSupplementLogSignature = string.Empty;
+    private string lastNormalSupplementLogSignature = string.Empty;
     private bool dailySignatureInitialized;
 
     internal bool LastSnapshotAvailable { get; private set; }
@@ -94,10 +95,19 @@ internal sealed class QuestDiscoveryService
             }
         }
 
-        int normalAdded = AppendActiveNormalQuests(result, seen);
-        if (normalAdded > 0)
+        int normalAdded = AppendActiveNormalQuests(
+            result, seen, out string normalSupplementSignature);
+        if (normalAdded > 0 && !string.Equals(
+                lastNormalSupplementLogSignature,
+                normalSupplementSignature,
+                StringComparison.Ordinal))
+        {
+            lastNormalSupplementLogSignature = normalSupplementSignature;
             AdventurerLog.QuestDebug(
                 $"Quest list: supplemented {normalAdded} active normal quest(s) missing from the UI cache.");
+        }
+        else if (normalAdded == 0)
+            lastNormalSupplementLogSignature = string.Empty;
 
         int dailyAdded = AppendActiveDailyQuests(result, seen);
         if (dailyAdded > 0 && !string.Equals(lastSupplementLogSignature,
@@ -112,12 +122,15 @@ internal sealed class QuestDiscoveryService
     }
 
     private int AppendActiveNormalQuests(
-        List<Quest> result, HashSet<string> seen)
+        List<Quest> result, HashSet<string> seen,
+        out string supplementSignature)
     {
+        supplementSignature = string.Empty;
         var all = PlayerInventory.instance?.allQuests;
         if (all == null) return 0;
 
         int added = 0;
+        List<string> addedKeys = new();
         for (int index = 0; index < all.Count; index++)
         {
             Quest quest = all[index];
@@ -144,6 +157,7 @@ internal sealed class QuestDiscoveryService
                 string key = QuestTargetSelection.BuildLockKey(quest);
                 if (!seen.Add(key)) continue;
                 result.Add(quest);
+                addedKeys.Add(key);
                 added++;
             }
             catch (Exception exception)
@@ -153,6 +167,7 @@ internal sealed class QuestDiscoveryService
             }
         }
 
+        supplementSignature = string.Join("|", addedKeys);
         return added;
     }
 
@@ -299,6 +314,7 @@ internal sealed class QuestDiscoveryService
         lastRefreshLog = string.Empty;
         lastActiveDailySignature = string.Empty;
         lastSupplementLogSignature = string.Empty;
+        lastNormalSupplementLogSignature = string.Empty;
         dailySignatureInitialized = false;
         ActiveDailySetChanged = false;
     }

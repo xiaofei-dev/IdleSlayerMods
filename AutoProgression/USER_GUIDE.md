@@ -9,12 +9,12 @@ every setting and behavior, see the [Complete Manual](MANUAL.md).
 
 ## What AutoProgression Does
 
-- Performs normal Ascension at a configurable pending-SP percentage.
+- Performs normal Ascension at a configurable pending-SP percentage and can optionally Ultra Ascend at 24 Astral Keys.
 - Can spend remaining Slayer Points through the Ascension-tree Buy All action.
 - Buys available shop skills and levels unlocked normal equipment.
 - Maintains supported timed craftables and refreshes Rage with Rage Pills.
-- Uses Scrap and Dragon Scale overflow without exceeding the configured
-  maximum effect duration.
+- Uses Scrap and Dragon Scale overflow; Shards Necklace has no duration cap,
+  while Dragon Scale duration effects respect the configured maximum.
 - Optionally opens Dragon and Simurgh Eggs in the background while preserving reserves.
 - Claims completed Daily and Weekly Quests and regenerates exhausted sets.
 - Filters selected newly generated Daily Quests and selects the 180,000-kill
@@ -24,7 +24,7 @@ every setting and behavior, see the [Complete Manual](MANUAL.md).
 - Can claim and resend Minion missions and automatically prestige eligible
   Minions at their maximum level.
 
-AutoProgression never performs Ultra Ascension, travels between dimensions,
+AutoProgression does not travel between dimensions,
 controls the character, or fights quest targets.
 
 ## Installation
@@ -87,8 +87,14 @@ The default threshold is 50%: pending Slayer Points must reach the configured
 percentage of lifetime Slayer Points. Checks occur every 5 minutes by default
 and once immediately after enabling AutoProgression.
 
-Only normal Ascension is used. Afterward, the mod can repeatedly invoke the
-Ascension-tree Buy All action until two stable rounds spend no more points.
+Normal automatic Ascension can repeatedly invoke the Ascension-tree Buy All
+action afterward until two stable rounds spend no more points.
+
+`Automatic Ultra Ascension Enabled` is disabled by default. When explicitly
+enabled, Ultra Ascension takes priority over normal automatic Ascension once
+the game's native Ultra Ascension skill and prerequisite rules are active and
+`GetAstralKeys()` reports at least 24 keys. The threshold is fixed. This is a
+major progression reset and should be enabled only after understanding it.
 
 ## Craftables
 
@@ -104,14 +110,33 @@ materials follow `Buy Missing With Jewels`.
 Timed items begin refilling at 3 minutes and stop at 6 minutes by default.
 Rage Pills use their own minimum interval.
 
-Scrap and Dragon Scale overflow items are triggered by inventory percentage,
-but they also stop when their individual remaining duration reaches the shared
-maximum-duration setting.
+Scrap and Dragon Scale overflow items are triggered by inventory percentage.
+Shards Necklace has no duration cap and continues until Scrap falls below its
+configured threshold (97% by default). Dragon Scale duration items still stop
+at the shared maximum-duration setting.
 
 Quest-assist craftables use separate 5-minute cooldowns by default:
 
 - Specialization: normal Goblin and Bonus Stage quests
 - Key Manifest: normal Chest Hunt quests
+
+Every Specialization trigger requires Dragon Scales to be strictly above 50%
+of the current unlocked capacity, including the normal quest-triggered path.
+
+Specialization also has a resource-overflow trigger independent from quests:
+it is used when Scrap is above 80%, provided the shared Dragon Scale reserve
+condition and its normal crafting conditions allow it. This path neither reads nor starts
+the quest-assist cooldown; the game's native one-use state controls repetition.
+It pauses while any active quest requires normal, Silver, or Golden Random
+Boxes so those objectives remain completable.
+
+Specialization and Key Manifest share `Quest Assist Feather Threshold Amount`
+(`1000` by default). Both require the current Simurgh Feather amount to be
+strictly above this value, and crafting must leave at least the configured
+amount. Setting it to `0` disables both items completely. Key Manifest also
+uses this value as its separate Feather-overflow trigger and is crafted whenever
+its native one-use state allows. Both items require `Quest Assist Craftables
+Enabled`, the Craftables master switch, and global `T` automation.
 
 Daily and Weekly Quests do not trigger these two items.
 Specialization also preserves a fixed Scrap reserve: it is not crafted when

@@ -63,8 +63,9 @@ internal sealed class MinionAutomationService
             }
             catch (Exception exception)
             {
-                ProgressionLog.Error(
-                    $"Minion automation failed safely for {GetDisplayName(minion)}: {exception}");
+                ProgressionLog.Exception(
+                    $"Minion automation for {GetDisplayName(minion)}",
+                    exception);
             }
         }
     }
@@ -111,7 +112,7 @@ internal sealed class MinionAutomationService
                 divinityPointsBefore);
             ProgressionLog.User(
                 $"Minion prestiged at maximum level: {GetDisplayName(minion)}; " +
-                $"maxLevel={minion.maxLevel}, Divinity Points gained={gained:0.##}.");
+                $"maxLevel={minion.maxLevel}; divinityPointsGained={gained:0.##}.");
         }
         catch
         {

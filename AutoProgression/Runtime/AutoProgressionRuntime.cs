@@ -22,6 +22,7 @@ public sealed class AutoProgressionRuntime : MonoBehaviour
     private readonly MainScreenGuard mainScreen = new();
     private readonly AscensionMonitor ascension = new();
     private readonly AutomaticAscensionService automaticAscension = new();
+    private readonly AutomaticUltraAscensionService automaticUltraAscension = new();
     private readonly PaidBonusService paidBonuses = new();
     private readonly MinionAutomationService minions = new();
     private readonly RagePillService ragePill = new();
@@ -30,6 +31,7 @@ public sealed class AutoProgressionRuntime : MonoBehaviour
     private readonly DragonScaleOverflowService dragonScaleOverflow = new();
     private readonly AscendantBadgeBoostService ascendantBadgeBoost = new();
     private readonly QuestAssistCraftableService questAssistCraftables = new();
+    private readonly KeyManifestOverflowService keyManifestOverflow = new();
     private readonly EggOpeningService eggOpening = new();
     private readonly QuestAutomationService quests = new();
     private readonly WeeklyRageQuestService weeklyRageQuests = new();
@@ -101,14 +103,15 @@ public sealed class AutoProgressionRuntime : MonoBehaviour
                 ResetOperationalServices(discardWeeklyQuestWork: false);
             }
             wasReady = false;
-            readyLogged = false;
             return;
         }
 
         wasReady = true;
         if (!readyLogged)
         {
-            ProgressionLog.Debug($"AutoProgression runtime ready. GameState={Il2Cpp.GameState.current}.");
+            ProgressionLog.Debug(
+                $"Automation gate ready; GameState={Il2Cpp.GameState.current}.",
+                "Runtime");
             readyLogged = true;
         }
         bool ascensionResetDetected = ascension.DetectFirstSkillReset();
@@ -121,6 +124,13 @@ public sealed class AutoProgressionRuntime : MonoBehaviour
 
         bool resetForAutomaticAscension = pendingAscensionReset;
         pendingAscensionReset = false;
+        if (automaticUltraAscension.Tick(now))
+        {
+            pendingAscensionReset = true;
+            BeginAscensionLock(now, "Automatic Ultra Ascension started");
+            return;
+        }
+
         if (automaticAscension.Tick(now, resetForAutomaticAscension))
         {
             if (automaticAscension.StartedAscensionThisTick)
@@ -180,7 +190,8 @@ public sealed class AutoProgressionRuntime : MonoBehaviour
             return;
 
         bool acted = craftablesEnabled &&
-                     (questAssistCraftables.Tick(now) ||
+                     (keyManifestOverflow.Tick(now) ||
+                      questAssistCraftables.Tick(now) ||
                       timedCraftables.Tick(now) ||
                       shardsNecklace.Tick(now) ||
                       ascendantBadgeBoost.Tick(now) ||
@@ -201,7 +212,7 @@ public sealed class AutoProgressionRuntime : MonoBehaviour
         // Preserve generated-set work captured immediately before Ascension so
         // it can resume after the global transaction lock.
         ResetOperationalServices(discardWeeklyQuestWork: false);
-        ProgressionLog.User(
+        ProgressionLog.Debug(
             $"{reason}; other automation paused for {PostAscensionLockSeconds:0.#} seconds and cached objects were cleared.");
     }
 
@@ -215,6 +226,7 @@ public sealed class AutoProgressionRuntime : MonoBehaviour
         dragonScaleOverflow.Reset();
         ascendantBadgeBoost.Reset();
         questAssistCraftables.Reset();
+        keyManifestOverflow.Reset();
         eggOpening.Reset();
         quests.Reset();
         if (discardWeeklyQuestWork)
@@ -245,11 +257,11 @@ public sealed class AutoProgressionRuntime : MonoBehaviour
             questAutomationWasEnabled = false;
         }
 
-        string message = autoProgressionEnabled
-            ? "AutoProgression Activated!"
-            : "AutoProgression Deactivated!";
+        string state = autoProgressionEnabled ? "enabled" : "disabled";
+        string message = $"AutoProgression {state}.";
 
-        ProgressionLog.User($"T toggle: {message}; GameState={Il2Cpp.GameState.current}.");
+        ProgressionLog.User(
+            $"AutoProgression {state}: hotkey=T; gameState={Il2Cpp.GameState.current}.");
         Plugin.ModHelperInstance?.ShowNotification(message, autoProgressionEnabled);
     }
 

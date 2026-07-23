@@ -92,7 +92,7 @@ If these mods save you time, you can support continued development through
 
 ## Versioning
 
-- Public release version: `1.0.1`
+- Public release version: `1.2.0`
 - Route-planner development revisions are tracked separately in the source and startup diagnostics.
 
 ## Disclaimer

@@ -1,4 +1,5 @@
 using System;
+using AutoAdventurer.Diagnostics;
 using Il2Cpp;
 using UnityEngine;
 using UnityEngine.EventSystems;
@@ -15,9 +16,23 @@ internal sealed class AutomaticJumpAttackService
 {
     private const float RetryJumpAfterRejectedInputSeconds = 0.08f;
     private const float BoxScanIntervalSeconds = 0.05f;
-    private const float BoxJumpHoldSeconds = 0.14f;
-    private const float BoxApproachViewportDistance = 0.38f;
-    private const float BoxPassedViewportDistance = -0.04f;
+    // Begin the held jump only when the box is almost over the player.
+    // Runtime evidence from both normal movement and an accelerated approach
+    // showed that 0.05+ viewport widths launches before the box enters the
+    // player's vertical path.
+    private const float BoxJumpViewportLead = 0.018f;
+    // A fixed viewport lead is not sufficient while Boost, Wind Dash, or
+    // another speed modifier changes the map's horizontal flow. Estimate the
+    // box closing speed and begin early enough to preserve roughly this much
+    // ascent time before horizontal alignment. Keep this deliberately short:
+    // the native held jump rises quickly, while Boost/Rage can otherwise make
+    // a velocity-derived lead much too large.
+    private const float BoxJumpLeadTimeSeconds = 0.055f;
+    private const float MaximumBoxJumpViewportLead = 0.06f;
+    private const float BoxJumpHoldSeconds = 0.25f;
+    private const float BoxPassedViewportDistance = -0.03f;
+    private const float BoxGroundStableSeconds = 0.04f;
+    private const float BoxGroundVerticalTolerance = 0.025f;
     private const float LightAttackIntervalSeconds = 1f;
     private const float MediumAttackIntervalSeconds = 1f / 3f;
     private const float HighAttackIntervalSeconds = 0.125f;
@@ -29,6 +44,26 @@ internal sealed class AutomaticJumpAttackService
     private float releaseBoxJumpAt = -1f;
     private bool boxJumpHeld;
     private bool untrackedBoxApproaching;
+    private bool untrackedBoxActive;
+    private float untrackedBoxHorizontalDistance = float.NaN;
+    private float currentBoxJumpLead = BoxJumpViewportLead;
+    private float previousBoxHorizontalDistance = float.NaN;
+    private float previousBoxSampleTime = -1f;
+    private float estimatedBoxClosingSpeed;
+    private int previousBoxTargetId;
+    private bool boxJumpAttempted;
+    private float lastBoxPlayerY;
+    private float boxPlayerStationarySince = -1f;
+    private bool hasBoxPlayerY;
+    private bool boxTargetLogged;
+
+    /// <summary>
+    /// Movement abilities must wait for the entire lifetime of any active
+    /// Random Box that has no matching horizontal magnet. Waiting only until
+    /// the box was close enough to jump allowed an activation to change the
+    /// approach speed and invalidate the jump timing.
+    /// </summary>
+    internal bool IsCatchingUntrackedBox => untrackedBoxActive;
 
     internal void Tick(
         float now,
@@ -61,6 +96,12 @@ internal sealed class AutomaticJumpAttackService
         if (!autoJump)
         {
             ReleaseHeldBoxJump();
+            untrackedBoxApproaching = false;
+            untrackedBoxActive = false;
+            untrackedBoxHorizontalDistance = float.NaN;
+            ResetBoxApproachObservation();
+            boxJumpAttempted = false;
+            ResetBoxGroundObservation();
             return;
         }
 
@@ -73,21 +114,77 @@ internal sealed class AutomaticJumpAttackService
         if (now >= nextBoxScanTime)
         {
             nextBoxScanTime = now + BoxScanIntervalSeconds;
-            untrackedBoxApproaching =
-                TryGetApproachingUntrackedRandomBox(player, out _);
+            ScanUntrackedRandomBoxes(
+                player,
+                out untrackedBoxActive,
+                out untrackedBoxHorizontalDistance,
+                out int boxTargetId);
+            if (untrackedBoxActive)
+            {
+                ObserveBoxApproach(now, boxTargetId,
+                    untrackedBoxHorizontalDistance);
+                untrackedBoxApproaching =
+                    untrackedBoxHorizontalDistance <= currentBoxJumpLead;
+            }
+            else
+            {
+                untrackedBoxApproaching = false;
+                ResetBoxApproachObservation();
+            }
+            if (untrackedBoxActive && !boxTargetLogged)
+            {
+                boxTargetLogged = true;
+                AdventurerLog.MovementDebug(
+                    "Untracked Random Box targeted; normal jumping and movement " +
+                    "abilities are suspended until the box clears.");
+            }
+            else if (!untrackedBoxActive && boxTargetLogged)
+            {
+                boxTargetLogged = false;
+                AdventurerLog.MovementDebug(
+                    "Untracked Random Box cleared; normal jumping and movement " +
+                    "abilities resumed.");
+            }
         }
 
-        if (untrackedBoxApproaching)
+        // Enter an exclusive box-catching mode as soon as an untracked box is
+        // active. Normal repeated jump pulses stop completely so the player
+        // remains low and predictable. Perform one short held jump only when
+        // the box reaches the narrow alignment window.
+        if (untrackedBoxActive)
         {
-            if (!boxJumpHeld && now >= nextJumpAttemptTime && BeginBoxJump())
+            if (untrackedBoxApproaching &&
+                !boxJumpAttempted &&
+                !boxJumpHeld &&
+                now >= nextJumpAttemptTime &&
+                IsReadyForBoxJump(player, now) &&
+                BeginBoxJump())
             {
+                boxJumpAttempted = true;
                 boxJumpHeld = true;
-                releaseBoxJumpAt = now + BoxJumpHoldSeconds;
+                // This is the one place where a taller-than-minimum jump is
+                // intentional. Holding for a stable quarter second gives the
+                // player enough vertical overlap after the later horizontal
+                // trigger without changing ordinary automatic jump height.
+                float holdSeconds = Math.Clamp(
+                    Math.Max(player.jumpTime, BoxJumpHoldSeconds),
+                    BoxJumpHoldSeconds,
+                    0.3f);
+                releaseBoxJumpAt = now + holdSeconds;
                 nextJumpAttemptTime = releaseBoxJumpAt +
                                       RetryJumpAfterRejectedInputSeconds;
+                AdventurerLog.MovementDebug(
+                    $"Untracked Random Box jump committed; " +
+                    $"horizontalLead={untrackedBoxHorizontalDistance:0.###} viewport; " +
+                    $"triggerLead={currentBoxJumpLead:0.###}; " +
+                    $"closingSpeed={estimatedBoxClosingSpeed:0.###} viewport/s; " +
+                    $"hold={holdSeconds:0.###}s.");
             }
             return;
         }
+
+        boxJumpAttempted = false;
+        ResetBoxGroundObservation();
 
         if (now < nextJumpAttemptTime)
             return;
@@ -223,11 +320,45 @@ internal sealed class AutomaticJumpAttackService
             position = new Vector2(Screen.width * 0.8f, Screen.height)
         };
 
-    private static bool TryGetApproachingUntrackedRandomBox(
-        PlayerMovement player,
-        out Transform boxTransform)
+    private bool IsReadyForBoxJump(PlayerMovement player, float now)
     {
-        boxTransform = null;
+        if (player.IsGrounded())
+        {
+            lastBoxPlayerY = player.transform.position.y;
+            hasBoxPlayerY = true;
+            boxPlayerStationarySince = now;
+            return true;
+        }
+
+        float currentY = player.transform.position.y;
+        if (!hasBoxPlayerY ||
+            Math.Abs(currentY - lastBoxPlayerY) > BoxGroundVerticalTolerance)
+        {
+            lastBoxPlayerY = currentY;
+            hasBoxPlayerY = true;
+            boxPlayerStationarySince = now;
+            return false;
+        }
+
+        return !player.isJumping &&
+               boxPlayerStationarySince >= 0f &&
+               now - boxPlayerStationarySince >= BoxGroundStableSeconds;
+    }
+
+    private void ResetBoxGroundObservation()
+    {
+        hasBoxPlayerY = false;
+        boxPlayerStationarySince = -1f;
+    }
+
+    private static void ScanUntrackedRandomBoxes(
+        PlayerMovement player,
+        out bool active,
+        out float horizontalDistance,
+        out int targetId)
+    {
+        active = false;
+        Transform boxTransform = null;
         float closestDistance = float.MaxValue;
         AscensionSkills skills = AscensionSkills.list;
         bool normalBoxTracked = skills?.RandomBoxMagnet?.unlocked == true;
@@ -241,6 +372,7 @@ internal sealed class AutomaticJumpAttackService
                 if (box == null || box.isHitted || box.gameObject == null ||
                     !box.gameObject.activeInHierarchy)
                     continue;
+                active = true;
                 ConsiderBox(player.transform, box.transform,
                     ref boxTransform, ref closestDistance);
             }
@@ -254,12 +386,70 @@ internal sealed class AutomaticJumpAttackService
                 if (box == null || box.isHitted || box.gameObject == null ||
                     !box.gameObject.activeInHierarchy)
                     continue;
+                active = true;
                 ConsiderBox(player.transform, box.transform,
                     ref boxTransform, ref closestDistance);
             }
         }
 
-        return boxTransform != null;
+        horizontalDistance = boxTransform != null
+            ? closestDistance
+            : float.NaN;
+        targetId = boxTransform != null ? boxTransform.GetInstanceID() : 0;
+    }
+
+    private void ObserveBoxApproach(
+        float now, int targetId, float horizontalDistance)
+    {
+        if (targetId == 0 || float.IsNaN(horizontalDistance))
+        {
+            ResetBoxApproachObservation();
+            return;
+        }
+
+        if (targetId != previousBoxTargetId ||
+            previousBoxSampleTime < 0f ||
+            float.IsNaN(previousBoxHorizontalDistance))
+        {
+            previousBoxTargetId = targetId;
+            previousBoxHorizontalDistance = horizontalDistance;
+            previousBoxSampleTime = now;
+            estimatedBoxClosingSpeed = 0f;
+            currentBoxJumpLead = BoxJumpViewportLead;
+            return;
+        }
+
+        float elapsed = now - previousBoxSampleTime;
+        if (elapsed > 0.001f)
+        {
+            float observedClosingSpeed =
+                (previousBoxHorizontalDistance - horizontalDistance) / elapsed;
+            if (observedClosingSpeed > 0f && observedClosingSpeed < 10f)
+            {
+                estimatedBoxClosingSpeed = estimatedBoxClosingSpeed <= 0f
+                    ? observedClosingSpeed
+                    : Mathf.Lerp(estimatedBoxClosingSpeed,
+                        observedClosingSpeed, 0.5f);
+            }
+
+            currentBoxJumpLead = Mathf.Clamp(
+                Math.Max(BoxJumpViewportLead,
+                    estimatedBoxClosingSpeed * BoxJumpLeadTimeSeconds),
+                BoxJumpViewportLead,
+                MaximumBoxJumpViewportLead);
+        }
+
+        previousBoxHorizontalDistance = horizontalDistance;
+        previousBoxSampleTime = now;
+    }
+
+    private void ResetBoxApproachObservation()
+    {
+        currentBoxJumpLead = BoxJumpViewportLead;
+        previousBoxHorizontalDistance = float.NaN;
+        previousBoxSampleTime = -1f;
+        estimatedBoxClosingSpeed = 0f;
+        previousBoxTargetId = 0;
     }
 
     private static void ConsiderBox(
@@ -287,7 +477,6 @@ internal sealed class AutomaticJumpAttackService
         }
 
         if (horizontalDistance < BoxPassedViewportDistance ||
-            horizontalDistance > BoxApproachViewportDistance ||
             horizontalDistance >= closestDistance)
             return;
 
@@ -309,5 +498,11 @@ internal sealed class AutomaticJumpAttackService
         nextAttackTime = 0f;
         nextBoxScanTime = 0f;
         untrackedBoxApproaching = false;
+        untrackedBoxActive = false;
+        untrackedBoxHorizontalDistance = float.NaN;
+        ResetBoxApproachObservation();
+        boxJumpAttempted = false;
+        ResetBoxGroundObservation();
+        boxTargetLogged = false;
     }
 }

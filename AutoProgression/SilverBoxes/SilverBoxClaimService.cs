@@ -34,8 +34,9 @@ internal sealed class SilverBoxClaimService
         }
         catch (Exception exception)
         {
-            ProgressionLog.Error(
-                $"Silver Box reward claim failed safely: {exception}");
+            ProgressionLog.Exception(
+                "Silver Box reward claim",
+                exception);
         }
     }
 

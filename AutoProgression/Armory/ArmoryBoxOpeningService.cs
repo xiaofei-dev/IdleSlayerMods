@@ -106,8 +106,9 @@ internal sealed class ArmoryBoxOpeningService
             }
             catch (Exception exception)
             {
-                ProgressionLog.Error(
-                    $"Armory box opening stopped safely after {opened} box(es): {exception}");
+                ProgressionLog.Exception(
+                    $"Armory box opening after {opened} item(s)",
+                    exception);
                 break;
             }
             finally

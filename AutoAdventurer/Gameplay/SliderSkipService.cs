@@ -38,7 +38,7 @@ internal sealed class SliderSkipService
             if (!visibleLogged)
             {
                 visibleLogged = true;
-                AdventurerLog.Debug("Bonus start slider detected.");
+                AdventurerLog.GameplayDebug("Bonus start slider detected.");
             }
 
             // The popup can appear while GameState still reports RunnerMode.
@@ -56,8 +56,7 @@ internal sealed class SliderSkipService
         }
         catch (Exception exception)
         {
-            AdventurerLog.Error(
-                $"Bonus start slider skip failed safely: {exception}");
+            AdventurerLog.Exception("Bonus start slider skip", exception);
             handledCurrentStage = false;
         }
     }

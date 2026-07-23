@@ -5,7 +5,7 @@ namespace AutoClimber.Configuration;
 
 internal sealed class AutoClimberConfig(string configName) : BaseConfig(configName)
 {
-    private const int CurrentConfigurationVersion = 10;
+    internal const int CurrentConfigurationVersion = 10;
     private const string MainSection = "AutoClimber";
     private const string AutomationSection = "Automation";
 

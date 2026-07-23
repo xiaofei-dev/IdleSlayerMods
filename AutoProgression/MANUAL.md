@@ -4,7 +4,7 @@ AutoProgression is the account-progression and maintenance module in Tashi's
 Full Automation Suite. It coordinates normal Ascension, purchases,
 craftables, materials, eggs, paid bonuses, and quest maintenance.
 
-This manual covers configuration version 10. New users should begin with the
+This manual covers configuration version 28. New users should begin with the
 [User Guide](USER_GUIDE.md).
 
 ## Reference Chapters
@@ -41,7 +41,8 @@ turned off.
 
 ## Safety Principles
 
-- Ultra Ascension is never invoked.
+- Ultra Ascension is disabled by default and requires both the game's native
+  prerequisite state and at least 24 Astral Keys when explicitly enabled.
 - Automation runs only in a stable central Runner or Rage scene.
 - Ascension applies a global two-second lock and clears cached game objects.
 - Item actions are limited to one per second.

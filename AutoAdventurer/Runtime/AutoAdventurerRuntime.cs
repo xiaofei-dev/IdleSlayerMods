@@ -48,9 +48,16 @@ public sealed class AutoAdventurerRuntime : MonoBehaviour
         questAutomationToggleKey = ParseKey(
             Plugin.Config.QuestAutomationToggleKey.Value, KeyCode.P,
             "Quest Automation Toggle Key");
+        automaticBoostEnabled =
+            Plugin.Config.AutoMovementEnableOnStartup.Value;
+        if (automaticBoostEnabled)
+            autoBoost.RequestImmediateActivation(Time.unscaledTime);
         AdventurerLog.User(
-            $"Automatic Rage is ready. Press {toggleKey} to toggle automation and {stopKey} to end the current Rage Mode.");
-        AdventurerLog.Debug(
+            "Runtime ready: " +
+            $"Movement & Combat={(automaticBoostEnabled ? "enabled" : "disabled")}; " +
+            $"controls Rage={toggleKey}, Stop Rage={stopKey}, " +
+            $"Movement={autoBoostToggleKey}, Quests={questAutomationToggleKey}.");
+        AdventurerLog.ConfigDebug(
             "Numeric configuration loaded: " +
             $"minimumDimensionStayMinutes={Plugin.Config.MinimumDimensionStayMinutesValue.ToString("R", CultureInfo.InvariantCulture)}, " +
             $"maximumQuestTimeMinutes={Plugin.Config.MaximumQuestTimeMinutesValue.ToString("R", CultureInfo.InvariantCulture)}, " +
@@ -131,22 +138,25 @@ public sealed class AutoAdventurerRuntime : MonoBehaviour
             if (boostReady)
             {
                 if (!wasBoostReady)
-                    AdventurerLog.Debug(
-                        "Auto Boost resumed after the central gameplay scene stabilized.");
+                    AdventurerLog.MovementDebug(
+                        "Automation resumed after the central gameplay scene stabilized.");
                 autoJumpAttack.Tick(
                     Time.unscaledTime,
                     automaticBoostEnabled,
                     Plugin.Config.AutoJump.Value,
                     Plugin.Config.AutoShootArrows.Value,
                     Plugin.Config.ArrowAttackFrequency.Value);
-                autoBoost.Tick(Time.unscaledTime, automaticBoostEnabled);
+                autoBoost.Tick(
+                    Time.unscaledTime,
+                    automaticBoostEnabled,
+                    autoJumpAttack.IsCatchingUntrackedBox);
             }
             else if (wasBoostReady)
             {
                 autoBoost.Reset();
                 autoJumpAttack.Reset();
-                AdventurerLog.Debug(
-                    "Auto Boost paused outside the central gameplay scene.");
+                AdventurerLog.MovementDebug(
+                    "Automation paused outside the central gameplay scene.");
             }
             wasBoostReady = boostReady;
 
@@ -154,22 +164,22 @@ public sealed class AutoAdventurerRuntime : MonoBehaviour
             if (rageReady)
             {
                 if (!wasRageReady)
-                    AdventurerLog.Debug(
-                        "Automatic Rage resumed after the central gameplay screen stabilized.");
+                    AdventurerLog.RageDebug(
+                        "Automation resumed after the central gameplay scene stabilized.");
                 rage.Tick(Time.unscaledTime,
                     automaticRageEnabled && !questTravel.SuppressAutomaticRage);
             }
             else if (wasRageReady)
             {
                 rage.Reset();
-                AdventurerLog.Debug(
-                    "Automatic Rage paused outside the central gameplay screen.");
+                AdventurerLog.RageDebug(
+                    "Automation paused outside the central gameplay scene.");
             }
             wasRageReady = rageReady;
         }
         catch (Exception exception)
         {
-            AdventurerLog.Error($"AutoAdventurer runtime failed safely: {exception}");
+            AdventurerLog.Exception("AutoAdventurer runtime", exception);
             ResetRuntimeState();
         }
     }
@@ -196,9 +206,9 @@ public sealed class AutoAdventurerRuntime : MonoBehaviour
             else
                 autoJumpAttack.Reset();
             string state = automaticBoostEnabled ? "enabled" : "disabled";
-            AdventurerLog.User($"Auto Boost {state}.");
+            AdventurerLog.User($"Auto Movement & Combat {state}.");
             Plugin.ModHelperInstance?.ShowNotification(
-                $"Auto Boost {state}!", automaticBoostEnabled);
+                $"Auto Movement & Combat {state}!", automaticBoostEnabled);
         }
 
         if (Input.GetKeyDown(questAutomationToggleKey))

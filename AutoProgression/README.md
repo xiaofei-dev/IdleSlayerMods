@@ -23,19 +23,21 @@ gameplay and quest objectives, while AutoClimber handles Ascending Heights.
 - Crafts and maintains supported temporary craftables, including Rage Pills, Whetstones, and both temporary staffs.
 - Uses Dragon Scale overflow on Random Box Staff, Necklace of Collectables, CpS Compass, and Souls Compass while respecting the shared maximum effect duration.
 - Buys missing craftable materials with Jewels of Soul when allowed.
-- Crafts Shards Necklaces when Scrap reaches a configurable percentage of its current capacity.
-- Arms Ascendant Badge Boost whenever it is available and Dragon Scales are above 50% of current capacity.
+- Crafts Shards Necklaces without a duration cap when Scrap reaches a configurable percentage of its current capacity (97% by default).
+- Arms Ascendant Badge Boost whenever its one-use effect is available and Dragon Scales are above 50% of current capacity.
 - Optionally opens Dragon Eggs and Simurgh Eggs in the background while preserving configurable reserves.
 - Provides a manual Village Casino shortcut for sequential bulk Crawler Eye purchases with Jewels of Soul.
 - Purchases available skills and unlocked normal equipment.
 - Performs normal Ascension at a configurable soul-bonus threshold and can buy skills afterward.
+- Optionally performs Ultra Ascension after native requirements are met and at least 24 Astral Keys are available; disabled by default because this is a major reset.
 - Claims completed Daily and Weekly Quests, regenerates exhausted quest sets, keeps rerolls available, and resets the normal Portal cooldown. Periodic automation requires the global `T` toggle; configured vertical-magnet skill blocking remains active independently.
-- Uses Specialization for active normal Goblin or Bonus Stage quests and Key Manifest for active normal Chest Hunt quests. Scrap, Simurgh Feathers, and Dragon Scales must already be available; other materials follow the global Jewel purchase settings. Each item has an independent configurable cooldown, and Daily and Weekly Quests are ignored.
-- Scrap- and Dragon Scale-percentage crafting respects the same maximum-duration setting as normal timed craftables, preventing overflow materials from stacking an effect beyond the configured target.
+- Uses Specialization for active normal Goblin or Bonus Stage quests and Key Manifest for active normal Chest Hunt quests. Every Specialization use requires Dragon Scales above 50%. It can also consume overflow Scrap above 80% without a quest; this resource path ignores quest cooldowns and relies on native availability, but pauses while any active quest requires normal, Silver, or Golden Random Boxes. Scrap, Simurgh Feathers, and Dragon Scales must already be available; other materials follow the global Jewel purchase settings. Daily and Weekly Quests do not trigger these craftables.
+- Independently crafts Key Manifest without a quest or cooldown when Simurgh Feathers exceed the configured amount (1,000 by default) and its native one-use effect is available; `0` disables this resource path.
+- Dragon Scale-percentage duration items respect the normal maximum-duration setting. Shards Necklace intentionally ignores that cap and consumes Scrap until storage falls below its configured threshold.
 - Successful background Weekly Quest rerolls suppress only the trailing native UI exception; genuine reroll failures continue to surface normally.
 - Newly generated Daily Quest sets can automatically reroll Goblin, material-collection, temporary-craftable crafting, Chest Hunt, normal or Silver Random Box, normal Boost-use, Rage Mode-use, Bonus Stage entry/full completion/section, Ascending Heights, and Grapple Run objectives. Rage Mode kill and Wind Dash kill quests are retained. Existing quests and manual rerolls do not trigger the filter.
 
-Ultra Ascension is never performed by this mod.
+Ultra Ascension is performed only when its explicit warning-marked option is enabled, native requirements are active, and at least 24 Astral Keys are available.
 
 ## Controls
 
@@ -54,7 +56,7 @@ ModLoader/UserData/AutoProgression.cfg
 Settings are grouped into these sections:
 
 - `AutoProgression`: configuration version and debug logging.
-- `Ascension`: normal Ascension threshold, check interval, and post-Ascension skill purchasing.
+- `Ascension`: normal Ascension threshold, optional 24-key Ultra Ascension, check interval, and post-Ascension skill purchasing.
 - `Paid Bonuses`: paid 500x bonus automation.
 - `Minions`: automatic mission claiming/sending and maximum-level prestige.
 - `Egg Opening`: master switch plus Dragon Egg and Simurgh Egg reserve amounts.
@@ -68,10 +70,10 @@ Settings are grouped into these sections:
 
 Existing configuration files are migrated when the configuration schema changes.
 
-Normal user logs always report initialization, completed actions, resource
-spending, warnings, and errors. `Debug Mode` is disabled by default and adds
-detailed state, timing, and object-resolution diagnostics with a `[Debug]`
-prefix. Disabling it does not hide meaningful automation results.
+Normal user logs report initialization, T-toggle state, major progression
+actions, manual bulk actions, premium-currency spending, warnings, and errors.
+`Debug Mode` is disabled by default and adds aggregated activity summaries,
+timing, object-resolution, and state diagnostics with a `[Debug]` prefix.
 
 ## Safety and Scope
 
@@ -126,7 +128,7 @@ If these mods save you time, you can support continued development through
 
 ## Versioning
 
-- Public release version: `1.0.0`
+- Public release version: `2.0.0`
 - Internal development revisions are tracked separately in `AutoProgressionInfo.cs`.
 
 ## Disclaimer

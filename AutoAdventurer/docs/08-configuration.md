@@ -10,7 +10,7 @@ Configuration file:
 
 | Setting | Default | Description |
 |---|---:|---|
-| `Configuration Version` | `26` | Internal migration version; do not edit |
+| `Configuration Version` | `35` | Internal migration version; do not edit |
 | `Debug Mode` | `false` | All detailed diagnostics, including Quest Automation; user actions, warnings, and errors always log |
 
 ## Automatic Rage
@@ -30,12 +30,15 @@ Configuration file:
 | `Skip Bonus Start Slider` | `true` | Confirm supported minigame start sliders |
 | `Auto Boss` | `true` | Set boss to 1 HP, advance dialogue, and finish the fight |
 
-## Auto Boost
+## Auto Movement & Combat
 
 | Setting | Default | Description |
 |---|---:|---|
-| `Toggle Key` | `L` | Toggle Auto Boost |
-| `Activation Delay Seconds` | `0.1` | Delay after cooldown reaches zero |
+| `Enable On Startup` | `true` | Enable movement and combat automation when the game starts |
+| `Toggle Key` | `L` | Toggle Auto Movement & Combat |
+| `Auto Jump` | `true` | Repeatedly request the shortest possible jump in the central Runner/Rage scene |
+| `Auto Shoot Arrows` | `true` | Request arrow attacks while movement automation is enabled |
+| `Arrow Attack Frequency` | `Medium` | `Light` (1/s), `Medium` (3/s), `High` (8/s), `Extra High` (15/s), or `Ultra` (every rendered frame) |
 | `Wind Dash Require Grounded` | `true` | Require ground contact for automatic Wind Dash |
 
 ## Quest Automation
@@ -45,7 +48,7 @@ Configuration file:
 | `Toggle Key` | `P` | Toggle quest selection and guided travel |
 | `Show Completion Notifications` | `true` | Show in-game session totals; logs remain enabled |
 | `Auto Align Elemental Divinities` | `true` | While `P` is enabled, every five seconds align to the first active elemental task in the live list, correcting manual changes and activating an available affordable element when none is active; this never changes task priority or replaces the current lock |
-| `Minimum Dimension Stay Minutes` | `0` | Minimum stay after automatic arrival |
+| `Minimum Dimension Stay Minutes` | `10` | Minimum stay after automatic arrival; actual travel is also limited by Portal cooldown and availability |
 | `Maximum Quest Time Minutes` | `5` | Maximum time on one locked task; `0` disables the limit |
 
 ## Silver Box Automation
@@ -63,7 +66,7 @@ depend on `P` or any other hotkey.
 
 ```ini
 [AutoAdventurer]
-"Configuration Version" = 26
+"Configuration Version" = 35
 "Debug Mode" = false
 
 ["Automatic Rage"]
@@ -82,20 +85,23 @@ depend on `P` or any other hotkey.
 "Auto Release Silver Box Lock" = true
 "Permanent Release Above Divinity Points" = 0.0
 
-["Auto Boost"]
+["Auto Movement & Combat"]
+"Enable On Startup" = true
 "Toggle Key" = "L"
-"Activation Delay Seconds" = 0.1
+"Auto Jump" = true
+"Auto Shoot Arrows" = true
+"Arrow Attack Frequency" = "Medium"
 "Wind Dash Require Grounded" = true
 
 ["Quest Automation"]
 "Toggle Key" = "P"
 "Show Completion Notifications" = true
 "Auto Align Elemental Divinities" = true
-"Minimum Dimension Stay Minutes" = 0.0
+"Minimum Dimension Stay Minutes" = 10.0
 "Maximum Quest Time Minutes" = 5.0
 ```
 
-The activation delay is stored as a double to avoid long single-precision
-representations such as `0.30000001192092896` after migration.
+The movement ability activation delay is an internal 0.2-second safety value
+and is intentionally not written to the configuration file.
 
 [Back to the Complete Manual](../MANUAL.md)

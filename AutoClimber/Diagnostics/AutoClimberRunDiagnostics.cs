@@ -144,33 +144,32 @@ public sealed partial class AutoClimberRuntime
                   sessionChallengeCount * 100f
                 : 0f;
 
+        float duration = runStartTime > 0f
+            ? Mathf.Max(0f, Time.time - runStartTime)
+            : 0f;
+
         ClimberLog.User(
-            $"Run count: Total={sessionRunCount}, " +
-            $"Success={sessionSuccessCount}, " +
-            $"Failure={sessionFailureCount}, " +
-            $"PassRate={sessionPassRate:F1}%, " +
-            $"Challenges={sessionChallengeCount}, " +
-            $"FirstTrySuccess={sessionFirstTrySuccessCount}, " +
-            $"RevivedSuccess={sessionRevivedSuccessCount}, " +
-            $"Completed={sessionCompletedChallengeCount}, " +
-            $"FirstTryRate={firstTryPassRate:F1}%, " +
-            $"CompletionRate={challengeCompletionRate:F1}%, " +
-            $"SegmentType={(currentRunIsRevive ? "Revive" : "Initial")}, " +
-            $"LastResult={(runSucceeded ? "Success" : "Failure")}, " +
-            $"EndReason={endReason}, " +
-            $"EnemiesDetected={runEnemiesDetected}, " +
-            $"EnemyHits=" +
-            $"{EnemyDiagnosticsBridge.RunConfirmedDeaths}"
+            $"Run summary: total={sessionRunCount}; " +
+            $"success={sessionSuccessCount}; " +
+            $"failure={sessionFailureCount}; " +
+            $"passRate={sessionPassRate:F1}%; " +
+            $"challenges={sessionChallengeCount}; " +
+            $"firstTrySuccess={sessionFirstTrySuccessCount}; " +
+            $"revivedSuccess={sessionRevivedSuccessCount}; " +
+            $"completed={sessionCompletedChallengeCount}; " +
+            $"firstTryRate={firstTryPassRate:F1}%; " +
+            $"completionRate={challengeCompletionRate:F1}%; " +
+            $"segmentType={(currentRunIsRevive ? "revive" : "initial")}; " +
+            $"lastResult={(runSucceeded ? "success" : "failure")}; " +
+            $"endReason={endReason}; durationSeconds={duration:F2}; " +
+            $"enemiesDetected={runEnemiesDetected}; " +
+            $"enemyHits={EnemyDiagnosticsBridge.RunConfirmedDeaths}."
         );
 
         if (!runSucceeded)
         {
             LogFailureTrace(endReason);
         }
-
-        float duration = runStartTime > 0f
-            ? Mathf.Max(0f, Time.time - runStartTime)
-            : 0f;
 
         float strongHitRate = runStrongTargetAttempts > 0
             ? (float)runStrongTargetHits /
@@ -321,9 +320,9 @@ public sealed partial class AutoClimberRuntime
         }
 
         ClimberLog.User(
-            $"Failure trace: EndReason={endReason}, " +
-            $"MaxY={highestObservedPlayerY:F2}, " +
-            $"Entries={failureTrace.Count}"
+            $"Failure trace available: endReason={endReason}; " +
+            $"maxHeight={highestObservedPlayerY:F2}; " +
+            $"entries={failureTrace.Count}."
         );
 
         if (!ClimberLog.IsDebugMode)
@@ -334,7 +333,8 @@ public sealed partial class AutoClimberRuntime
         foreach (string entry in failureTrace)
         {
             ClimberLog.Debug(
-                "Failure trace: " + entry
+                "Failure trace: " + entry,
+                "Diagnostics"
             );
         }
     }

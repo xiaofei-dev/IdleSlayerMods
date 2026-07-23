@@ -6,14 +6,19 @@ namespace AutoProgression.Configuration;
 
 internal sealed class AutoProgressionConfig(string configName) : BaseConfig(configName)
 {
-    internal const int CurrentConfigurationVersion = 25;
+    internal const int CurrentConfigurationVersion = 31;
+    internal const float AutomaticAscensionCheckIntervalMinutes = 5f;
+    internal const float RagePillMinimumIntervalSeconds = 10f;
+    internal const float QuestAssistCraftableCooldownMinutes = 5f;
+    internal const float EquipmentIdleBeforeSleepMinutes = 1f;
+    internal const float EquipmentSleepMinutes = 10f;
     private const string LegacySection = "AutoProgression";
 
     internal MelonPreferences_Entry<int> ConfigurationVersion;
     internal MelonPreferences_Entry<bool> DebugMode;
     internal MelonPreferences_Entry<bool> EnableAutomaticAscension;
+    internal MelonPreferences_Entry<bool> EnableAutomaticUltraAscension;
     internal MelonPreferences_Entry<float> AutomaticAscensionSoulBonusPercent;
-    internal MelonPreferences_Entry<float> AutomaticAscensionCheckIntervalMinutes;
     internal MelonPreferences_Entry<bool> BuyAscensionSkillsAfterAutomaticAscension;
     internal MelonPreferences_Entry<bool> EnablePaidBonuses;
     internal MelonPreferences_Entry<bool> EnableMinionClaimAndSend;
@@ -47,18 +52,15 @@ internal sealed class AutoProgressionConfig(string configName) : BaseConfig(conf
     internal MelonPreferences_Entry<float> ShardsNecklaceScrapThresholdPercent;
     internal MelonPreferences_Entry<bool> EnableDragonScaleOverflowCraftables;
     internal MelonPreferences_Entry<float> DragonScaleOverflowThresholdPercent;
+    internal MelonPreferences_Entry<bool> EnableAscendantBadgeBoost;
     internal MelonPreferences_Entry<bool> EnableQuestAssistCraftables;
-    internal MelonPreferences_Entry<float> QuestAssistCraftableCooldownMinutes;
-    internal MelonPreferences_Entry<float> TimedCraftablesRefillAtMinutes;
+    internal MelonPreferences_Entry<int> QuestAssistFeatherThresholdAmount;
     internal MelonPreferences_Entry<float> TimedCraftablesTargetMinutes;
-    internal MelonPreferences_Entry<float> RagePillMinimumIntervalSeconds;
     internal MelonPreferences_Entry<bool> BuyMissingMaterialsWithJewels;
     internal MelonPreferences_Entry<int> MaterialPurchasePercent;
     internal MelonPreferences_Entry<bool> EnableSkillPurchases;
     internal MelonPreferences_Entry<bool> DisableVerticalMagnetSkills;
     internal MelonPreferences_Entry<bool> EnableEquipmentPurchases;
-    internal MelonPreferences_Entry<float> EquipmentIdleBeforeSleepMinutes;
-    internal MelonPreferences_Entry<float> EquipmentSleepMinutes;
 
     protected override void SetBindings()
     {
@@ -72,17 +74,28 @@ internal sealed class AutoProgressionConfig(string configName) : BaseConfig(conf
 
         EnableAutomaticAscension = BindMigrated(
             "Ascension", "Automatic Ascension Enabled", "Ascension - Automatic Ascension Enabled", true,
-            "Automatically perform normal Ascension at the configured soul bonus threshold. Ultra Ascension is never used.", migrateLegacyValues);
+            "Automatically perform normal Ascension at the configured soul bonus threshold.", migrateLegacyValues);
+        EnableAutomaticUltraAscension = BindMigrated(
+            "Ascension", "Automatic Ultra Ascension Enabled", "Ascension - Automatic Ultra Ascension Enabled", false,
+            "WARNING: Ultra Ascension performs a major progression reset. Automatically Ultra Ascend only after the game's native Ultra Ascension requirements are active and the current Ascension upgrades grant at least 24 Astral Keys. The 24-key threshold is fixed.", migrateLegacyValues);
         AutomaticAscensionSoulBonusPercent = BindMigrated(
             "Ascension", "Soul Bonus Threshold Percent", "Ascension - Soul Bonus Threshold Percent", 50f,
             "Ascend when pending Slayer Points reach this percentage of lifetime Slayer Points.", migrateLegacyValues);
-        AutomaticAscensionCheckIntervalMinutes = BindMigrated(
-            "Ascension", "Check Interval Minutes", "Ascension - Check Interval Minutes", 5f,
-            "How often to check the normal Ascension threshold. Enabling AutoProgression always performs an initial check.", migrateLegacyValues);
         BuyAscensionSkillsAfterAutomaticAscension = BindMoved(
             "Ascension", "Buy Skills After Automatic Ascension", "Ascension", "Buy Skills After Ascension",
             "Ascension - Buy Skills After Ascension", true,
-            "After automatic Ascension, use the Ascension Skill Tree Buy All action until no more Slayer Points can be spent.", migrateLegacyValues);
+            "After an automatic normal Ascension, repeatedly use the Ascension Skill Tree Buy All action until no more Slayer Points can be spent. Manual Ascension does not trigger this action.", migrateLegacyValues);
+
+        EnableSkillPurchases = BindMigrated(
+            "Purchases", "Skills Enabled", "Purchases - Skills Enabled", true,
+            "While T automation is active, buy all currently affordable and eligible shop skills every 5 seconds.", migrateLegacyValues);
+        EnableEquipmentPurchases = BindMigrated(
+            "Purchases", "Equipment Enabled", "Purchases - Equipment Enabled", true,
+            "While T automation is active, buy levels for unlocked normal equipment, starting from the newest unlocked item.", migrateLegacyValues);
+        DisableVerticalMagnetSkills = BindMoved(
+            "Purchases", "Disable Vertical Magnet Upgrades", "Skills", "Disable Vertical Magnet Upgrades",
+            "Skills - Disable Vertical Magnet Upgrades", true,
+            "Block both Random Box vertical magnet upgrades from automatic and manual purchase. This protection is always active and does not depend on the T automation toggle.", migrateLegacyValues);
 
         EnablePaidBonuses = BindMigrated(
             "Paid Bonuses", "Use Paid 500x Bonuses", "Use Paid 500x Bonuses", false,
@@ -104,26 +117,6 @@ internal sealed class AutoProgressionConfig(string configName) : BaseConfig(conf
         SimurghEggReserveAmount = BindMigrated(
             "Egg Opening", "Simurgh Egg Reserve Amount", "Egg Opening - Simurgh Egg Reserve Amount", 10,
             "Open normal Simurgh Eggs one at a time while the inventory amount is greater than this value.", migrateLegacyValues);
-
-        ArmoryBoxesPerPress = BindMigrated(
-            "Armory Boxes", "Boxes Per Press", "Armory Boxes - Boxes Per Press", 10,
-            "Maximum number of the selected Armory box or egg opened in the background per trigger.", migrateLegacyValues);
-        ArmoryBoxSelectKey = BindMigrated(
-            "Armory Boxes", "Select Box Key", "Armory Boxes - Select Box Key", "B",
-            "Key used to record the currently highlighted Armory box, Dragon Egg, or Simurgh Egg. This must differ from Open Boxes Key.", migrateLegacyValues);
-        ArmoryBoxOpenKey = BindMigrated(
-            "Armory Boxes", "Open Boxes Key", "Armory Boxes - Open Boxes Key", "N",
-            "Key used to open the selected Armory box or egg. This must differ from Select Box Key. This manual feature is independent from the T automation toggle.", migrateLegacyValues);
-
-        EnableCrawlerEyeBulkPurchase = BindMigrated(
-            "Casino Crawler Eyes", "Enabled", "Casino Crawler Eyes - Enabled", false,
-            "WARNING: This option spends Jewels of Soul. Enable the manual bulk-purchase key while the Village Casino Crawler Eye purchase screen is open. This feature is independent from the T automation toggle.", migrateLegacyValues);
-        CrawlerEyePurchaseKey = BindMigrated(
-            "Casino Crawler Eyes", "Purchase Key", "Casino Crawler Eyes - Purchase Key", "M",
-            "Key used to start one sequential Crawler Eye bulk purchase.", migrateLegacyValues);
-        CrawlerEyesPerPress = BindMigrated(
-            "Casino Crawler Eyes", "Eyes Per Press", "Casino Crawler Eyes - Eyes Per Press", 1000,
-            "Requested number of Crawler Eyes purchased per trigger. Values are rounded down to a multiple of 10.", migrateLegacyValues);
 
         EnableAutomaticSilverBoxClaim = BindMigrated(
             "Silver Boxes", "Auto Claim Reward", "Silver Boxes - Auto Claim Reward", true,
@@ -155,13 +148,21 @@ internal sealed class AutoProgressionConfig(string configName) : BaseConfig(conf
 
         EnableCraftableAutomation = BindMigrated(
             "Craftables", "Enabled", "Craftables - Enabled", false,
-            "Master switch for all craftable automation. When disabled, every other option in this section and its automatic material purchases are inactive.", migrateLegacyValues);
+            "MASTER SWITCH: Enable all automatic craftable-item logic while T automation is active. When false, every other Craftables setting, including automatic material purchases, is inactive.", migrateLegacyValues);
+        BuyMissingMaterialsWithJewels = BindMoved(
+            "Craftables", "Buy Missing With Jewels", "Materials", "Buy Missing With Jewels",
+            "Materials - Buy Missing With Jewels", false,
+            "WARNING - SPENDS JEWELS OF SOUL: Allow enabled craftable services to buy eligible missing materials automatically. This setting works only when Craftables Enabled is true. Scrap, Simurgh Feathers, and Dragon Scales are protected and are never purchased by this option.", migrateLegacyValues);
+        MaterialPurchasePercent = BindMoved(
+            "Craftables", "Material Purchase Percent", "Materials", "Purchase Percent",
+            "Materials - Purchase Percent", 100,
+            "Size of each automatic Jewel material refill. Supported values are 25, 50, and 100 percent. Larger values can spend more Jewels of Soul per transaction. This value has no effect when Buy Missing With Jewels is false.", migrateLegacyValues);
+        TimedCraftablesTargetMinutes = BindMigrated(
+            "Craftables", "Timed Items Target Minutes", "Craftables - Timed Items Target Minutes", 6f,
+            "Shared duration target for timed and duration-based overflow items. Refilling begins at half this value and stops at this value; for example, 6 minutes refills from 3 to 6 minutes.", migrateLegacyValues);
         EnableRagePill = BindMigrated(
             "Craftables", "Rage Pill Enabled", "Craftables - Rage Pill Enabled", true,
             "Use Rage Pills to refresh Rage while Rage has an active cooldown. WARNING: This can spend Jewels of Soul on missing materials when the global material-purchase option is enabled.", migrateLegacyValues);
-        RagePillMinimumIntervalSeconds = BindMigrated(
-            "Craftables", "Rage Pill Minimum Interval Seconds", "Craftables - Rage Pill Minimum Interval Seconds", 10f,
-            "Minimum time between Rage Pill use attempts.", migrateLegacyValues);
         EnableWhetstone = BindMigrated(
             "Craftables", "Whetstone Enabled", "Craftables - Whetstone Enabled", true,
             "Keep the Whetstone temporary effect active. WARNING: This can spend Jewels of Soul on missing materials when the global material-purchase option is enabled.", migrateLegacyValues);
@@ -181,56 +182,51 @@ internal sealed class AutoProgressionConfig(string configName) : BaseConfig(conf
             "Craftables", "Shards Necklace Scrap Overflow Enabled", "Craftables - Shards Necklace Scrap Overflow Enabled", true,
             "Craft Shards Necklaces when Scrap reaches the configured capacity percentage. WARNING: This can spend Jewels of Soul on missing materials when the global material-purchase option is enabled.", migrateLegacyValues);
         ShardsNecklaceScrapThresholdPercent = BindMigrated(
-            "Craftables", "Shards Necklace Scrap Threshold Percent", "Craftables - Shards Necklace Scrap Threshold Percent", 95f,
-            "Craft Shards Necklaces at or above this Scrap percentage and stop below it.", migrateLegacyValues);
+            "Craftables", "Shards Necklace Scrap Threshold Percent", "Craftables - Shards Necklace Scrap Threshold Percent", 97f,
+            "Craft Shards Necklaces at or above this Scrap percentage and stop below it. This item does not use the timed-item duration limit.", migrateLegacyValues);
         EnableDragonScaleOverflowCraftables = BindMigrated(
             "Craftables", "Dragon Scale Overflow Craftables Enabled", "Craftables - Dragon Scale Overflow Craftables Enabled", true,
             "Craft one of each supported Dragon Scale overflow item per overflow cycle. WARNING: This can spend Jewels of Soul on other missing materials when the global material-purchase option is enabled.", migrateLegacyValues);
         DragonScaleOverflowThresholdPercent = BindMigrated(
             "Craftables", "Dragon Scale Overflow Threshold Percent", "Craftables - Dragon Scale Overflow Threshold Percent", 95f,
             "Start one Dragon Scale overflow crafting cycle when Dragon Scale storage rises above this percentage. Each effect also respects the Timed Items Target Minutes limit.", migrateLegacyValues);
+        EnableAscendantBadgeBoost = BindMigrated(
+            "Craftables", "Ascendant Badge Boost Enabled",
+            "Craftables - Ascendant Badge Boost Enabled", false,
+            "Craft Ascendant Badge Boost when Dragon Scale storage is strictly above the fixed 50% requirement and the game's native one-use state is available. This setting requires Craftables Enabled and T automation. Dragon Scales are never purchased; other missing materials follow Buy Missing With Jewels.", migrateLegacyValues);
         EnableQuestAssistCraftables = BindMigrated(
             "Craftables", "Quest Assist Craftables Enabled", "Craftables - Quest Assist Craftables Enabled", true,
-            "Use Specialization for active normal Goblin or Bonus Stage quests and Key Manifest for active normal Chest Hunt quests. Daily and Weekly Quests are ignored. Specialization is not crafted if its Scrap cost would leave storage below 50%. Scrap, Simurgh Feathers, and Dragon Scales must already be available; other missing materials follow the global Jewel purchase settings.", migrateLegacyValues);
-        QuestAssistCraftableCooldownMinutes = BindMigrated(
-            "Craftables", "Quest Assist Craftable Cooldown Minutes", "Craftables - Quest Assist Craftable Cooldown Minutes", 5f,
-            "Minimum interval after each successful use. Specialization and Key Manifest track this cooldown independently.", migrateLegacyValues);
-        TimedCraftablesRefillAtMinutes = BindMigrated(
-            "Craftables", "Timed Items Refill At Minutes", "Craftables - Timed Items Refill At Minutes", 3f,
-            "Start refilling timed craftables when their remaining duration reaches this value.", migrateLegacyValues);
-        TimedCraftablesTargetMinutes = BindMigrated(
-            "Craftables", "Timed Items Target Minutes", "Craftables - Timed Items Target Minutes", 6f,
-            "Stop crafting timed and material-overflow duration items when their remaining duration reaches this value.", migrateLegacyValues);
+            "Enable Specialization and Key Manifest while Craftables and T automation are active. Specialization supports active normal Goblin or Bonus Stage quests and may also run when Scrap is above 80% and Dragon Scales are above 50%; it pauses that overflow path during active normal, Silver, or Golden Random Box quests and preserves at least 50% Scrap. Key Manifest supports active normal Chest Hunt quests and also has an independent Feather-overflow trigger. Daily and Weekly Quests do not trigger either item.", migrateLegacyValues);
+        QuestAssistFeatherThresholdAmount = BindMoved(
+            "Craftables", "Quest Assist Feather Threshold Amount",
+            "Craftables", "Key Manifest Feather Overflow Amount",
+            "Craftables - Key Manifest Feather Overflow Amount", 1000,
+            "Shared Simurgh Feather requirement for Specialization and Key Manifest. Set to 0 to disable both items completely. Above 0, either item may be crafted only when the current Feather amount is strictly greater than this value and crafting would not reduce it below this value. Key Manifest also uses this threshold as its independent Feather-overflow trigger. Simurgh Feathers are never purchased; other missing materials follow Buy Missing With Jewels.", migrateLegacyValues);
+        ArmoryBoxesPerPress = BindMoved(
+            "Manual Armory Boxes", "Boxes Per Press",
+            "Armory Boxes", "Boxes Per Press", "Armory Boxes - Boxes Per Press", 10,
+            "Maximum number of the selected Armory box, Dragon Egg, or Simurgh Egg opened in the background per Open Boxes Key press.", migrateLegacyValues);
+        ArmoryBoxSelectKey = BindMoved(
+            "Manual Armory Boxes", "Select Box Key",
+            "Armory Boxes", "Select Box Key", "Armory Boxes - Select Box Key", "B",
+            "Record the Armory box or egg currently highlighted in the Armory crafting screen. This key must differ from Open Boxes Key.", migrateLegacyValues);
+        ArmoryBoxOpenKey = BindMoved(
+            "Manual Armory Boxes", "Open Boxes Key",
+            "Armory Boxes", "Open Boxes Key", "Armory Boxes - Open Boxes Key", "N",
+            "Open the selected Armory box or egg in the background. This manual feature is available regardless of the T automation toggle.", migrateLegacyValues);
 
-        BuyMissingMaterialsWithJewels = BindMoved(
-            "Craftables", "Buy Missing With Jewels", "Materials", "Buy Missing With Jewels",
-            "Materials - Buy Missing With Jewels", false,
-            "WARNING: This option spends Jewels of Soul. It is active only when Craftables Enabled is true and allows enabled craftable modules to buy missing materials automatically.", migrateLegacyValues);
-        MaterialPurchasePercent = BindMoved(
-            "Craftables", "Material Purchase Percent", "Materials", "Purchase Percent",
-            "Materials - Purchase Percent", 100,
-            "Material refill option for Jewel purchases. Supported values are 25, 50, and 100. WARNING: Higher values may spend more Jewels of Soul per purchase.", migrateLegacyValues);
-
-        EnableSkillPurchases = BindMigrated(
-            "Purchases", "Skills Enabled", "Purchases - Skills Enabled", true,
-            "Buy all currently eligible shop skills every 10 seconds.", migrateLegacyValues);
-        EnableEquipmentPurchases = BindMigrated(
-            "Purchases", "Equipment Enabled", "Purchases - Equipment Enabled", true,
-            "Automatically buy levels for unlocked normal equipment.", migrateLegacyValues);
-
-        DisableVerticalMagnetSkills = BindMoved(
-            "Purchases", "Disable Vertical Magnet Upgrades", "Skills", "Disable Vertical Magnet Upgrades",
-            "Skills - Disable Vertical Magnet Upgrades", true,
-            "Always disable both Random Box vertical magnet upgrades, including manual purchase. This protection is independent from the T automation toggle.", migrateLegacyValues);
-
-        EquipmentIdleBeforeSleepMinutes = BindMoved(
-            "Purchases", "Equipment No Purchase Before Sleep Minutes", "Equipment", "No Purchase Before Sleep Minutes",
-            "Equipment - No Purchase Before Sleep Minutes", 1f,
-            "Sleep the equipment buyer after this many minutes without an eligible purchase: 10 levels for the latest unlocked equipment or 50 levels for any older equipment.", migrateLegacyValues);
-        EquipmentSleepMinutes = BindMoved(
-            "Purchases", "Equipment Sleep Minutes", "Equipment", "Sleep Minutes",
-            "Equipment - Sleep Minutes", 10f,
-            "How long only the equipment buyer sleeps.", migrateLegacyValues);
+        EnableCrawlerEyeBulkPurchase = BindMoved(
+            "Manual Casino Crawler Eyes", "Enabled",
+            "Casino Crawler Eyes", "Enabled", "Casino Crawler Eyes - Enabled", false,
+            "WARNING - SPENDS JEWELS OF SOUL: Enable the manual bulk-purchase key on the Village Casino Crawler Eye purchase screen. This manual feature is available regardless of the T automation toggle.", migrateLegacyValues);
+        CrawlerEyePurchaseKey = BindMoved(
+            "Manual Casino Crawler Eyes", "Purchase Key",
+            "Casino Crawler Eyes", "Purchase Key", "Casino Crawler Eyes - Purchase Key", "M",
+            "Start one sequential Crawler Eye bulk-purchase operation while the correct Casino purchase screen is open.", migrateLegacyValues);
+        CrawlerEyesPerPress = BindMoved(
+            "Manual Casino Crawler Eyes", "Eyes Per Press",
+            "Casino Crawler Eyes", "Eyes Per Press", "Casino Crawler Eyes - Eyes Per Press", 1000,
+            "Requested number of Crawler Eyes per key press. The value is rounded down to a multiple of 10 and purchasing stops safely if the screen closes or Jewels are insufficient.", migrateLegacyValues);
 
         if (migrateLegacyValues)
         {
@@ -309,10 +305,25 @@ internal sealed class AutoProgressionConfig(string configName) : BaseConfig(conf
         MelonPreferences.GetCategory("Skills")?.DeleteEntry("Disable Vertical Magnet Upgrades");
         MelonPreferences.GetCategory("Equipment")?.DeleteEntry("No Purchase Before Sleep Minutes");
         MelonPreferences.GetCategory("Equipment")?.DeleteEntry("Sleep Minutes");
+        MelonPreferences.GetCategory("Ascension")?.DeleteEntry("Check Interval Minutes");
+        MelonPreferences.GetCategory("Craftables")?.DeleteEntry("Rage Pill Minimum Interval Seconds");
+        MelonPreferences.GetCategory("Craftables")?.DeleteEntry("Quest Assist Craftable Cooldown Minutes");
+        MelonPreferences.GetCategory("Craftables")?.DeleteEntry("Timed Items Refill At Minutes");
+        MelonPreferences.GetCategory("Craftables")?.DeleteEntry("Key Manifest Feather Overflow Amount");
+        MelonPreferences.GetCategory("Purchases")?.DeleteEntry("Equipment No Purchase Before Sleep Minutes");
+        MelonPreferences.GetCategory("Purchases")?.DeleteEntry("Equipment Sleep Minutes");
+        MelonPreferences.GetCategory("Armory Boxes")?.DeleteEntry("Boxes Per Press");
+        MelonPreferences.GetCategory("Armory Boxes")?.DeleteEntry("Select Box Key");
+        MelonPreferences.GetCategory("Armory Boxes")?.DeleteEntry("Open Boxes Key");
+        MelonPreferences.GetCategory("Casino Crawler Eyes")?.DeleteEntry("Enabled");
+        MelonPreferences.GetCategory("Casino Crawler Eyes")?.DeleteEntry("Purchase Key");
+        MelonPreferences.GetCategory("Casino Crawler Eyes")?.DeleteEntry("Eyes Per Press");
     }
 
     private void MigrateChangedDefaults()
     {
+        if (ShardsNecklaceScrapThresholdPercent.Value == 95f)
+            ShardsNecklaceScrapThresholdPercent.Value = 97f;
         if (ArmoryBoxSelectKey.Value is "I" or "[")
             ArmoryBoxSelectKey.Value = "B";
         if (ArmoryBoxOpenKey.Value is "O" or "]")
@@ -321,20 +332,10 @@ internal sealed class AutoProgressionConfig(string configName) : BaseConfig(conf
             CrawlerEyePurchaseKey.Value = "M";
         if (AutomaticAscensionSoulBonusPercent.Value == 100f)
             AutomaticAscensionSoulBonusPercent.Value = 50f;
-        if (AutomaticAscensionCheckIntervalMinutes.Value == 15f)
-            AutomaticAscensionCheckIntervalMinutes.Value = 1f;
-        if (AutomaticAscensionCheckIntervalMinutes.Value == 1f)
-            AutomaticAscensionCheckIntervalMinutes.Value = 5f;
-        if (QuestAssistCraftableCooldownMinutes.Value == 10f)
-            QuestAssistCraftableCooldownMinutes.Value = 5f;
-        if (TimedCraftablesRefillAtMinutes.Value == 10f)
-            TimedCraftablesRefillAtMinutes.Value = 3f;
         if (TimedCraftablesTargetMinutes.Value == 60f)
             TimedCraftablesTargetMinutes.Value = 15f;
         if (TimedCraftablesTargetMinutes.Value == 15f)
             TimedCraftablesTargetMinutes.Value = 6f;
-        if (EquipmentIdleBeforeSleepMinutes.Value == 2f)
-            EquipmentIdleBeforeSleepMinutes.Value = 1f;
     }
 
     private static readonly IReadOnlyList<string> LegacyKeys = new[]
@@ -371,6 +372,7 @@ internal sealed class AutoProgressionConfig(string configName) : BaseConfig(conf
         "Craftables - Shards Necklace Scrap Threshold Percent",
         "Craftables - Dragon Scale Overflow Craftables Enabled",
         "Craftables - Dragon Scale Overflow Threshold Percent",
+        "Craftables - Ascendant Badge Boost Enabled",
         "Craftables - Quest Assist Craftables Enabled",
         "Craftables - Quest Assist Craftable Cooldown Minutes",
         "Craftables - Timed Items Refill At Minutes",

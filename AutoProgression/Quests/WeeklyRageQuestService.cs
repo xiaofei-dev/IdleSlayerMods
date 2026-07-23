@@ -93,7 +93,9 @@ internal sealed class WeeklyRageQuestService
         if (target.active)
         {
             if (invocationException != null)
-                ProgressionLog.Error($"Automatic Weekly Quest reroll failed safely: {invocationException}");
+                ProgressionLog.Exception(
+                    "Automatic Weekly Quest reroll",
+                    invocationException);
             else
                 ProgressionLog.Warning("Automatic Weekly Quest reroll did not replace its selected quest.");
 

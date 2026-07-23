@@ -4,7 +4,7 @@ AutoClimber is the Ascending Heights module in Tashi's Full Automation Suite.
 It controls route selection, platform landings, recovery, finish handling,
 optional enemy targeting, and retry prompts.
 
-This manual covers public version 1.0.1 and configuration version 9. New users
+This manual covers public version 1.2.0 and configuration version 10. New users
 should begin with the [User Guide](USER_GUIDE.md).
 
 ## Reference Chapters

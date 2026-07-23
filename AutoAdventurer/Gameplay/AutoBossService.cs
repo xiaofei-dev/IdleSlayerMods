@@ -49,7 +49,7 @@ internal sealed class AutoBossService
             if (!healthReductionLogged)
             {
                 healthReductionLogged = true;
-                AdventurerLog.Debug("Auto Boss reduced the active boss to 1 HP.");
+                AdventurerLog.BossDebug("Active boss reduced to 1 HP.");
             }
         }
 
@@ -92,7 +92,7 @@ internal sealed class AutoBossService
 
         result.Close();
         nextResultCloseTime = now + ResultCloseIntervalSeconds;
-        AdventurerLog.Debug("Auto Boss closed the boss result screen.");
+        AdventurerLog.BossDebug("Boss result screen closed.");
         return true;
     }
 

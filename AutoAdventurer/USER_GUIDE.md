@@ -46,7 +46,7 @@ Place `AutoAdventurer.dll` in:
 | `P` | Enable or disable Quest Automation |
 | `K` | Enable or disable Automatic Rage |
 | `J` | Immediately end the current Rage Mode |
-| `L` | Enable or disable Auto Boost |
+| `L` | Enable or disable Auto Movement & Combat |
 
 The keys can be changed in `AutoAdventurer.cfg`.
 
@@ -54,14 +54,15 @@ The keys can be changed in `AutoAdventurer.cfg`.
 
 1. Enter a normal running dimension.
 2. Press `K` to enable Automatic Rage.
-3. Press `L` to enable Auto Boost.
+3. Auto Movement & Combat starts enabled; press `L` only if you want to disable
+   or re-enable it.
 4. Press `P` to enable Quest Automation.
 5. Keep completed-quest claiming enabled in AutoProgression if you use both
    mods.
 
-The three key-controlled systems start disabled each time the mod runtime is
-created. Auto Boss and Bonus Slider Skip are configuration-controlled and are
-enabled by default.
+Automatic Rage and Quest Automation start disabled. Auto Movement & Combat
+starts enabled by default. Auto Boss and Bonus Slider Skip are
+configuration-controlled and are also enabled by default.
 
 ## How Quest Automation Chooses a Task
 
@@ -105,14 +106,14 @@ Except for the manual `J` key, the mod never force-ends Rage Mode.
 - Keys, travel preparation, and configured duration limits stop Rage refreshes
   and wait for the execution to finish naturally.
 
-## Auto Boost and Wind Dash
+## Auto Movement & Combat
 
-- Press `L` to enable or disable Auto Boost.
+- Press `L` to enable or disable the complete movement/combat helper.
+- Automatic minimum-height jumps and arrow attacks follow their configuration
+  switches and run only in the central Runner/Rage scene.
 - The mod follows whichever supported movement ability the player selected.
 - Wind Dash can wait for ground contact before activating.
-- In minigames and reward sections, Wind Dash is allowed only while the game's
-  main ability icon is actually visible.
-- Normal Boost is not automatically used through the minigame-specific path.
+- Bonus stages and other minigames are excluded.
 
 ## Bonus and Boss Features
 
@@ -135,11 +136,11 @@ Useful defaults:
 | Setting | Default |
 |---|---:|
 | Rage activation check | 12 seconds |
-| Maximum automatic Rage cycle | 120 seconds |
-| Post-Rage protection | 5 seconds |
-| Boost activation delay | 0.3 seconds |
+| Maximum automatic Rage cycle | 20 seconds |
+| Post-Rage protection | 8 seconds |
+| Movement ability activation delay | 0.2 seconds (internal) |
 | Wind Dash requires ground | Enabled |
-| Minimum automatic dimension stay | 1 minute |
+| Minimum automatic dimension stay | 10 minutes |
 | Maximum time on one quest | 5 minutes |
 
 See the [Configuration Reference](docs/08-configuration.md) for every option.
@@ -152,9 +153,9 @@ Check the log for the last `Automatic Rage enabled/disabled` message. A quest
 line containing `automaticRageSuppressed=False` only means that the quest is
 not blocking Rage; it does not mean the `K` toggle is enabled.
 
-### Boost is not activating
+### Boost or Wind Dash is not activating
 
-Confirm that Auto Boost is enabled, the selected ability is unlocked, its
+Confirm that Auto Movement & Combat is enabled, the selected ability is unlocked, its
 cooldown is ready, and Wind Dash has reached the ground if required.
 
 ### Quest Automation is not travelling
@@ -185,4 +186,3 @@ fully automated Idle Slayer setup.
 
 If these mods save you time, you can support continued development through
 [PayPal](https://www.paypal.com/donate/?business=HK85PL8AREEXY&no_recurring=0&currency_code=USD).
-

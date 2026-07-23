@@ -167,7 +167,9 @@ internal sealed class QuestTravelService
             {
                 pendingTravelObservedRage = true;
                 AdventurerLog.User(
-                    $"Quest travel is waiting for Rage Mode to end naturally before travelling to {selection.MapId}.");
+                    $"Quest travel waiting: Rage Mode must end naturally; " +
+                    $"quest={selection.QuestDisplayName} [{selection.QuestId}]; " +
+                    $"targetMap={selection.MapId}.");
                 return;
             }
 
@@ -175,7 +177,7 @@ internal sealed class QuestTravelService
         }
         catch (Exception exception)
         {
-            AdventurerLog.Error($"Quest Automation failed safely: {exception}");
+            AdventurerLog.Exception("Quest Automation", exception);
             ClearPendingTravel();
             nextScanTime = now + ScanIntervalSeconds;
         }
@@ -192,7 +194,8 @@ internal sealed class QuestTravelService
             string travelType = requestedForSoulFallback
                 ? "Soul fallback travel"
                 : "Quest travel";
-            AdventurerLog.User($"{travelType} arrived in {requestedMapId}.");
+            AdventurerLog.User(
+                $"{travelType} arrived: map={requestedMapId}.");
             lastAutomaticArrivalAt = now;
             ClearPendingTravel();
             discovery.Reset();
@@ -233,6 +236,12 @@ internal sealed class QuestTravelService
         {
             if (requestedForSoulFallback)
             {
+                // Soul fallback validation used to call the full quest
+                // discovery path every rendered frame while waiting for Rage
+                // or Portal readiness. Keep it on the same five-second cadence
+                // as ordinary quest scans.
+                if (now < nextScanTime) return;
+                nextScanTime = now + ScanIntervalSeconds;
                 ObserveSoulFallbackIntent(now, current);
                 return;
             }
@@ -677,7 +686,9 @@ internal sealed class QuestTravelService
         portalRequestedAt = now;
         portal.SpawnPortal(selection.Map, false);
         AdventurerLog.User(
-            $"Quest Automation opened a portal to {selection.MapId} for {selection.EnemyId} ({selection.QuestId}).");
+            $"Quest portal opened: quest={selection.QuestDisplayName} " +
+            $"[{selection.QuestId}]; target={selection.EnemyId}; " +
+            $"map={selection.MapId}.");
     }
 
     private void TryHandleSoulFallback(float now)
@@ -767,7 +778,8 @@ internal sealed class QuestTravelService
         portalRequestedAt = now;
         portal.SpawnPortal(selection.Map, false);
         AdventurerLog.User(
-            $"Quest Automation opened a soul-fallback portal to {selection.MapId} (soulScore={selection.SoulScore:0.###}).");
+            $"Soul-farming portal opened: map={selection.MapId}; " +
+            $"soulScore={selection.SoulScore:0.###}.");
     }
 
     private void LogSoulFallbackSelection(SoulFarmingSelection selection)
@@ -1068,7 +1080,7 @@ internal sealed class QuestTravelService
         int total = sessionDailyQuestsCompleted +
                     sessionNormalQuestsCompleted;
         string message =
-            $"Quest Automation session ended. Completed: {total} " +
+            $"Quest Automation session ended: completed={total} " +
             $"(Daily: {sessionDailyQuestsCompleted}, Normal: {sessionNormalQuestsCompleted}).";
         AdventurerLog.User(message);
         if (Plugin.Config.QuestCompletionNotifications.Value)

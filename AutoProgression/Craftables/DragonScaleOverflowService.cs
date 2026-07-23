@@ -117,10 +117,11 @@ internal sealed class DragonScaleOverflowService
                 continue;
 
             entry.CraftedThisCycle = true;
-            ProgressionLog.User(
+            ProgressionLog.Debug(
                 $"Dragon Scale overflow: crafted {entry.DisplayName}; " +
                 $"Dragon Scale={dragonScale.amount:0.##}/{maximum:0.##} " +
-                $"({dragonScale.amount / maximum:P1}).");
+                $"({dragonScale.amount / maximum:P1}).",
+                "Craftables");
             return true;
         }
 

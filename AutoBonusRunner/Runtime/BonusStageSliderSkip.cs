@@ -93,8 +93,9 @@ internal sealed class BonusStageSliderSkip
         }
         catch (Exception exception)
         {
-            BonusRunnerLog.Error(
-                $"Bonus Stage start slider skip failed safely: {exception.Message}");
+            BonusRunnerLog.Exception(
+                "Bonus Stage start slider skip",
+                exception);
             ResetSliderState();
             BonusStageSliderSkipBridge.Clear();
         }

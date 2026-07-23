@@ -37,13 +37,13 @@ internal sealed class QuestCharacterService
             if (!SameBaseCharacter(manager.skin, required)) return false;
 
             AdventurerLog.User(
-                $"Quest Automation switched character to {GetSkinLabel(required)} for {selection.QuestId}.");
+                $"Quest character switched: character={GetSkinLabel(required)}; " +
+                $"quest={selection.QuestDisplayName} [{selection.QuestId}].");
             return true;
         }
         catch (Exception exception)
         {
-            AdventurerLog.Error(
-                $"Quest character switch failed safely: {exception}");
+            AdventurerLog.Exception("Quest character switch", exception);
             return false;
         }
     }
@@ -68,13 +68,13 @@ internal sealed class QuestCharacterService
                 manager.RefreshSkin();
                 if (!SameBaseCharacter(manager.skin, candidate)) return false;
                 AdventurerLog.User(
-                    $"Quest Automation switched character to {GetSkinLabel(candidate)} for {questId}.");
+                    $"Quest character switched: character={GetSkinLabel(candidate)}; " +
+                    $"quest={questId}.");
                 return true;
             }
             catch (Exception exception)
             {
-                AdventurerLog.Error(
-                    $"Quest character switch failed safely: {exception}");
+                AdventurerLog.Exception("Quest character switch", exception);
                 return false;
             }
         }

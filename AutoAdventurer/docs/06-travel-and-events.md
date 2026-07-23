@@ -23,8 +23,8 @@
 
 ## Minimum Dimension Stay
 
-After automatic arrival, the mod remains in that dimension for at least 1
-minute by default before another automatic departure. This prevents repeated
+After automatic arrival, the mod remains in that dimension for at least 10
+minutes by default before another automatic departure. This prevents repeated
 movement among several valid maps.
 
 ## Map Events
@@ -69,4 +69,3 @@ an interrupted scene, or a transition that did not complete. A valid task lock
 is not discarded merely because the travel request timed out.
 
 [Back to the Complete Manual](../MANUAL.md)
-

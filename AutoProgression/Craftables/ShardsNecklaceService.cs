@@ -48,10 +48,6 @@ internal sealed class ShardsNecklaceService
             Plugin.Config.ShardsNecklaceScrapThresholdPercent.Value,
             0f,
             100f) / 100d;
-        double targetSeconds = Math.Max(
-            0f,
-            Plugin.Config.TimedCraftablesTargetMinutes.Value) * 60d;
-
         if (now >= nextDiagnosticTime)
         {
             nextDiagnosticTime = now + DiagnosticIntervalSeconds;
@@ -59,18 +55,16 @@ internal sealed class ShardsNecklaceService
                 $"Shards Necklace status: Scrap={scrap.amount:0.##}, Max={maximum:0.##}, " +
                 $"Ratio={scrap.amount / maximum:P2}, Threshold={threshold:P2}, " +
                 $"TabVisible={tabVisible}, ExtraCondition={extraCondition}, " +
-                $"Remaining={item.currentTime:0.0}s, Target={targetSeconds:0.0}s, " +
+                $"Remaining={item.currentTime:0.0}s, " +
                 $"CanCraft={item.HowManyCanCraft()}.");
         }
 
         if (!tabVisible || !extraCondition) return false;
         if (scrap.amount / maximum < threshold) return false;
-        if (item.currentTime >= targetSeconds) return false;
 
         int crafted = 0;
         while (crafted < MaxCraftsPerTick &&
-               scrap.amount / maximum >= threshold &&
-               item.currentTime < targetSeconds)
+               scrap.amount / maximum >= threshold)
         {
             if (item.HowManyCanCraft() <= 0 && Plugin.Config.BuyMissingMaterialsWithJewels.Value)
                 BuyMissingRequirements();

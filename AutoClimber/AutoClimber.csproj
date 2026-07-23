@@ -5,7 +5,7 @@
         <ImplicitUsings>enable</ImplicitUsings>
         <Nullable>disable</Nullable>
         <LangVersion>latest</LangVersion>
-        <Version>1.1.0</Version>
+        <Version>1.2.0</Version>
         <AssemblyName>AutoClimber</AssemblyName>
         <IdleSlayerModManagerDir Condition="'$(IdleSlayerModManagerDir)' == ''">$(LocalAppData)\IdleSlayerModManager</IdleSlayerModManagerDir>
         <IdleSlayerModLoaderDir Condition="'$(IdleSlayerModLoaderDir)' == ''">$(IdleSlayerModManagerDir)\ModLoader</IdleSlayerModLoaderDir>

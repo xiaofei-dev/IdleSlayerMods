@@ -26,7 +26,7 @@ Relevant debug fields include `FinishMapSpawned`, `FinishPlatformLocated`,
 ## Practice Mode Does Not Finish
 
 Current versions use the live finish-ground transform when available instead
-of assuming a fixed score. Confirm version 1.0.1 or newer, enable Debug Mode,
+of assuming a fixed score. Confirm version 1.2.0 or newer, enable Debug Mode,
 and include the full run log if practice still stops at the top.
 
 ## Enemy Targeting Appears Inactive

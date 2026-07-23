@@ -8,7 +8,7 @@ Important actions appear without a special debug marker:
 
 ```text
 [AutoAdventurer] Automatic Rage enabled.
-[AutoAdventurer] Quest travel arrived in map_factory.
+[AutoAdventurer] Quest travel arrived: map=map_factory.
 [AutoAdventurer] Quest completed: ... Session total: ...
 ```
 
@@ -17,17 +17,37 @@ Important actions appear without a special debug marker:
 Enable `[AutoAdventurer] Debug Mode`:
 
 ```text
-[AutoAdventurer] [Debug] Auto Boost triggered WindDash; cooldown=...
-[AutoAdventurer] [Debug] Automatic Rage blocker detected: Portal ...
+[AutoAdventurer] [Debug][Movement] Ability triggered: selected=WindDash; cooldown=...
+[AutoAdventurer] [Debug][Rage] Automatic Rage blocker detected: Portal ...
 ```
 
-### Quest Debug
+Detailed messages are grouped by subsystem:
 
-Quest diagnostics use the main `[AutoAdventurer] Debug Mode` setting:
+| Category | Purpose |
+|---|---|
+| `Config` | Parsed numeric settings and migration results |
+| `Runtime` | Runtime lifecycle and scene readiness |
+| `Movement` | Jump, arrow, Boost, Wind Dash, and box-targeting decisions |
+| `Rage` | Rage readiness, execution, refresh, and blockers |
+| `Quest` | Quest discovery, selection, locks, travel, and progress |
+| `Element` | Elemental quest and Dark Divinity alignment |
+| `SilverBox` | Silver Bank and Silver Random Box task control |
+| `Boss` | Boss health and result-screen automation |
+| `Gameplay` | Other global gameplay helpers |
+
+Quest and all other diagnostics use the single main `Debug Mode` setting:
 
 ```text
 [AutoAdventurer] [Debug][Quest] Quest selected: ...
 ```
+
+Exact repeated Debug messages are emitted at most once every 10 seconds.
+Warnings and errors use a 30-second duplicate window. When logging resumes, the
+message includes the number of identical repeats that were suppressed.
+
+Safely caught exceptions produce one concise error line in every mode. The
+full managed/native exception detail is emitted only when `Debug Mode` is
+enabled under `[Debug][Exception]`.
 
 ## Quest Selection Fields
 

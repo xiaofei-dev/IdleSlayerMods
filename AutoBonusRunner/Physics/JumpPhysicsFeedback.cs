@@ -6,52 +6,76 @@ namespace AutoBonusRunner.Physics;
 
 internal enum JumpHeightBand
 {
+    DeepDown,
+    StepDown3,
+    StepDown2,
+    StepDown1,
     Level,
-    ModerateUp,
-    HighUp,
-    Down
+    StepUp1,
+    StepUp2,
+    StepUp3,
+    HighUp
 }
 
 internal enum JumpHoldBucket
 {
-    H02,
-    H04,
-    H06To075,
-    H09To105,
-    H12To135,
-    H15To180
+    Step1,
+    Step2,
+    Step3,
+    Step4,
+    Step5,
+    Step6,
+    Step7,
+    Step8,
+    Step9
 }
 
 internal static class JumpCalibrationBuckets
 {
-    internal const int HeightBandCount = 4;
-    internal const int HoldBucketCount = 6;
+    // Bonus-stage surface tops are authored on integer-height layers. Use the
+    // half-unit boundaries between those layers so floating values such as
+    // +2.995 can never alias a +2 landing. Downward routes are separated for
+    // the same reason: a one-unit step and a deep drop do not share a flight
+    // duration merely because both have a negative height delta.
+    internal const int HeightBandCount = 9;
+    // Jump input is consumed by PlayerMovement.FixedUpdate. A requested 50ms
+    // press is physically three 20ms steps, while 75ms is four; grouping those
+    // requests previously mixed materially different trajectories. Each cell
+    // now represents one reproducible native physics-step count.
+    internal const int HoldBucketCount = 9;
     internal const int CellCount = HeightBandCount * HoldBucketCount;
 
     internal static JumpHeightBand GetHeightBand(float heightDelta)
     {
-        if (heightDelta >= 3f)
+        if (heightDelta >= 3.5f)
             return JumpHeightBand.HighUp;
-        if (heightDelta > 0.35f)
-            return JumpHeightBand.ModerateUp;
-        if (heightDelta < -0.35f)
-            return JumpHeightBand.Down;
+        if (heightDelta >= 2.5f)
+            return JumpHeightBand.StepUp3;
+        if (heightDelta >= 1.5f)
+            return JumpHeightBand.StepUp2;
+        if (heightDelta > 0.5f)
+            return JumpHeightBand.StepUp1;
+        if (heightDelta < -3.5f)
+            return JumpHeightBand.DeepDown;
+        if (heightDelta < -2.5f)
+            return JumpHeightBand.StepDown3;
+        if (heightDelta < -1.5f)
+            return JumpHeightBand.StepDown2;
+        if (heightDelta < -0.5f)
+            return JumpHeightBand.StepDown1;
         return JumpHeightBand.Level;
     }
 
     internal static JumpHoldBucket GetHoldBucket(float holdSeconds)
     {
-        if (holdSeconds <= 0.03f)
-            return JumpHoldBucket.H02;
-        if (holdSeconds <= 0.05f)
-            return JumpHoldBucket.H04;
-        if (holdSeconds <= 0.0825f)
-            return JumpHoldBucket.H06To075;
-        if (holdSeconds <= 0.1125f)
-            return JumpHoldBucket.H09To105;
-        if (holdSeconds <= 0.1425f)
-            return JumpHoldBucket.H12To135;
-        return JumpHoldBucket.H15To180;
+        // The controller releases on the first FixedUpdate at or beyond the
+        // requested duration. Subtract a small floating-point tolerance before
+        // the ceiling so an observed 0.060000004s remains the three-step cell.
+        int fixedSteps = Mathf.Clamp(
+            Mathf.CeilToInt((Mathf.Max(0.001f, holdSeconds) - 0.0005f) / 0.02f),
+            1,
+            HoldBucketCount);
+        return (JumpHoldBucket)(fixedSteps - 1);
     }
 
     internal static int GetCellIndex(
@@ -62,22 +86,30 @@ internal static class JumpCalibrationBuckets
     internal static string GetHeightBandLabel(JumpHeightBand heightBand) =>
         heightBand switch
         {
+            JumpHeightBand.DeepDown => "DeepDown",
+            JumpHeightBand.StepDown3 => "StepDown3",
+            JumpHeightBand.StepDown2 => "StepDown2",
+            JumpHeightBand.StepDown1 => "StepDown1",
             JumpHeightBand.Level => "Level",
-            JumpHeightBand.ModerateUp => "ModerateUp",
+            JumpHeightBand.StepUp1 => "StepUp1",
+            JumpHeightBand.StepUp2 => "StepUp2",
+            JumpHeightBand.StepUp3 => "StepUp3",
             JumpHeightBand.HighUp => "HighUp",
-            JumpHeightBand.Down => "Down",
             _ => "UnknownHeight"
         };
 
     internal static string GetHoldBucketLabel(JumpHoldBucket holdBucket) =>
         holdBucket switch
         {
-            JumpHoldBucket.H02 => "H02",
-            JumpHoldBucket.H04 => "H04",
-            JumpHoldBucket.H06To075 => "H06-075",
-            JumpHoldBucket.H09To105 => "H09-105",
-            JumpHoldBucket.H12To135 => "H12-135",
-            JumpHoldBucket.H15To180 => "H15-180",
+            JumpHoldBucket.Step1 => "S1-020",
+            JumpHoldBucket.Step2 => "S2-040",
+            JumpHoldBucket.Step3 => "S3-060",
+            JumpHoldBucket.Step4 => "S4-080",
+            JumpHoldBucket.Step5 => "S5-100",
+            JumpHoldBucket.Step6 => "S6-120",
+            JumpHoldBucket.Step7 => "S7-140",
+            JumpHoldBucket.Step8 => "S8-160",
+            JumpHoldBucket.Step9 => "S9-180",
             _ => "UnknownHold"
         };
 }
@@ -110,42 +142,55 @@ internal readonly record struct JumpCalibrationProfile(
     {
         System.Text.StringBuilder summary =
             new System.Text.StringBuilder(label).Append('[');
+        bool anyCell = false;
         for (int heightIndex = 0;
              heightIndex < JumpCalibrationBuckets.HeightBandCount;
              heightIndex++)
         {
-            if (heightIndex > 0)
-                summary.Append(';');
-
             JumpHeightBand heightBand = (JumpHeightBand)heightIndex;
-            summary.Append(
-                JumpCalibrationBuckets.GetHeightBandLabel(heightBand));
-            summary.Append(':');
+            bool anyHeightCell = false;
             for (int holdIndex = 0;
                  holdIndex < JumpCalibrationBuckets.HoldBucketCount;
                  holdIndex++)
             {
-                if (holdIndex > 0)
-                    summary.Append(',');
-
                 JumpHoldBucket holdBucket = (JumpHoldBucket)holdIndex;
                 int index = JumpCalibrationBuckets.GetCellIndex(
                     heightBand,
                     holdBucket);
-                float value =
-                    Values != null && index < Values.Length
-                        ? Values[index]
-                        : 0f;
                 int count =
                     Counts != null && index < Counts.Length
                         ? Counts[index]
                         : 0;
+                if (count <= 0)
+                    continue;
+
+                if (!anyHeightCell)
+                {
+                    if (anyCell)
+                        summary.Append(';');
+                    summary.Append(
+                        JumpCalibrationBuckets.GetHeightBandLabel(heightBand));
+                    summary.Append(':');
+                    anyHeightCell = true;
+                    anyCell = true;
+                }
+                else
+                {
+                    summary.Append(',');
+                }
+
+                float value =
+                    Values != null && index < Values.Length
+                        ? Values[index]
+                        : 0f;
                 summary.Append(
                     $"{JumpCalibrationBuckets.GetHoldBucketLabel(holdBucket)}=" +
                     $"{value:F3}/N{count}");
             }
         }
 
+        if (!anyCell)
+            summary.Append("Empty");
         return summary.Append(']').ToString();
     }
 }
@@ -255,6 +300,27 @@ internal readonly record struct LandingErrorProfile(
         return bias;
     }
 
+    internal float GetAppliedBias(
+        float heightDelta,
+        float requestedHold,
+        out float observedBias,
+        out int count)
+    {
+        observedBias = GetBias(
+            heightDelta,
+            requestedHold,
+            out count);
+        if (count <= 0)
+            return 0f;
+
+        float weight = count >= 3
+            ? 1f
+            : count == 2
+                ? 0.75f
+                : 0.50f;
+        return Mathf.Clamp(observedBias * weight, -1.25f, 1.25f);
+    }
+
     internal string Summary =>
         Calibration.Summary("LandingBiasByHeightHold");
 }
@@ -301,6 +367,17 @@ internal readonly record struct JumpPhysicsSnapshot(
 
 internal sealed class JumpPhysicsFeedback
 {
+    // A single landing timestamp can move by one or two physics ticks because
+    // stable-support confirmation and render/fixed-step ordering are not
+    // identical on every landing. Keep collecting those observations, but do
+    // not let one transient level sample replace the conservative analytical
+    // fallback used by the active section.
+    private const int StableTimingSampleCount = 3;
+    // Repeated mature Stage-1 traces converge near 0.970. The former 0.950
+    // cold-start value shortened the route enough to jump onto the first
+    // narrow support before collecting the grounded Spirit Boost.
+    private const float StableFlightTimeFallback = 0.970f;
+
     private const float FallbackJumpVelocity = 18.627f;
     private const float FallbackGravity = 68.67f;
     private const float FallbackHoldCap = 0.15f;
@@ -476,8 +553,9 @@ internal sealed class JumpPhysicsFeedback
                 return;
 
             instance.nextErrorLogTime = Time.unscaledTime + 5f;
-            BonusRunnerLog.Warning(
-                $"Jump physics feedback failed safely: {exception.GetType().Name}: {exception.Message}");
+            BonusRunnerLog.Exception(
+                "Jump physics feedback",
+                exception);
         }
     }
 
@@ -555,9 +633,10 @@ internal sealed class JumpPhysicsFeedback
             ? Median(horizontalScaleSamples)
             : 1f;
         travelScale = Mathf.Clamp(travelScale, 0.85f, 1.15f);
-        float flightTimeScale = flightTimeScaleSamples.Count > 0
+        float flightTimeScale =
+            flightTimeScaleSamples.Count >= StableTimingSampleCount
             ? Median(flightTimeScaleSamples)
-            : 0.95f;
+            : StableFlightTimeFallback;
         flightTimeScale = Mathf.Clamp(flightTimeScale, 0.85f, 1.10f);
         float baseHorizontalSpeed = baseHorizontalSpeedSamples.Count > 0
             ? Median(baseHorizontalSpeedSamples)
@@ -843,14 +922,33 @@ internal sealed class JumpPhysicsFeedback
     internal void ObserveLandingError(
         float predictedTravel,
         float actualTravel,
+        float appliedBiasAtPlan,
         float targetHeightDelta,
         float plannedHold,
         string planReason)
     {
-        float error = actualTravel - predictedTravel;
+        float innovation = actualTravel - predictedTravel;
+        // The profile stores an absolute residual for a height/hold cell.
+        // predictedTravel already contains the bias that was active when the
+        // command was planned, so storing only the latest innovation makes a
+        // correct next sample drive the median back toward zero and creates a
+        // self-erasing oscillation. Recover the absolute residual implied by
+        // this observation instead.
+        float impliedAbsoluteBias =
+            appliedBiasAtPlan + innovation;
+        // Landing bias is a small residual correction, not a substitute for a
+        // wrong trajectory model. V0.62 accepted +1.76/+2.02-unit misses and
+        // fed them back into subsequent routes, amplifying a timing-bucket
+        // error. Keep only bounded residuals; larger errors remain diagnostic
+        // evidence for the flight model.
+        float maximumResidualError = Mathf.Clamp(
+            Mathf.Abs(predictedTravel) * 0.08f,
+            0.50f,
+            0.75f);
         bool physicalCandidate =
             IsFiniteInRange(actualTravel, 0.10f, 25f) &&
-            IsFiniteInRange(error, -2.5f, 2.5f) &&
+            Mathf.Abs(innovation) <= maximumResidualError &&
+            Mathf.Abs(impliedAbsoluteBias) <= 1.25f &&
             !planReason.StartsWith(
                 "WallRecovery",
                 System.StringComparison.Ordinal) &&
@@ -866,7 +964,7 @@ internal sealed class JumpPhysicsFeedback
             landingErrorSamples.Add(
                 targetHeightDelta,
                 plannedHold,
-                error);
+                impliedAbsoluteBias);
             modelRevision++;
         }
 
@@ -874,7 +972,10 @@ internal sealed class JumpPhysicsFeedback
             $"LandingErrorFeedback Plan={planReason}, " +
             $"DeltaY={targetHeightDelta:F3}, HoldTier={plannedHold:F3}s, " +
             $"PredictedTravel={predictedTravel:F3}, " +
-            $"ActualTravel={actualTravel:F3}, Error={error:F3}, " +
+            $"ActualTravel={actualTravel:F3}, Innovation={innovation:F3}, " +
+            $"AppliedBiasAtPlan={appliedBiasAtPlan:F3}, " +
+            $"ImpliedAbsoluteBias={impliedAbsoluteBias:F3}, " +
+            $"MaximumResidualError={maximumResidualError:F3}, " +
             $"HeightBand={GetHeightBandLabel(targetHeightDelta)}, " +
             $"HoldBucket={GetHoldBucketLabel(plannedHold)}, " +
             $"PhysicalCandidate={physicalCandidate}, LearningEligible={learningEligible}, " +
@@ -884,12 +985,13 @@ internal sealed class JumpPhysicsFeedback
             "Physics");
     }
 
-    internal void ObserveFlightTiming(
+    internal string ObserveFlightTiming(
         float predictedInputToLandingSeconds,
         float actualInputToLandingSeconds,
         string source,
         float holdSeconds,
-        float heightDelta)
+        float heightDelta,
+        bool useExclusiveLiveChannel = false)
     {
         float scale = actualInputToLandingSeconds /
             Mathf.Max(0.05f, predictedInputToLandingSeconds);
@@ -904,10 +1006,26 @@ internal sealed class JumpPhysicsFeedback
         bool learningEligible =
             completedSampleContextAvailable &&
             completedSampleMayLearnGroundKinematics;
+        bool levelTrajectory = Mathf.Abs(heightDelta) <= 0.35f;
+        bool levelTimingStable =
+            flightTimeScaleSamples.Count >= StableTimingSampleCount;
+        bool durationTimingStable =
+            travelDurationSamples.GetCount(heightDelta, holdSeconds) >=
+                StableTimingSampleCount;
+        // Every map uses exactly one correction layer for each sample.
+        // Level landings calibrate the analytical flight scale; non-level
+        // landings calibrate the exact height/hold duration cell. Applying a
+        // duration and then also applying a residual/scale derived from the
+        // pre-update prediction double-counts the same timing error. Once a
+        // timing channel has three clean samples, subsequent independent
+        // landings may calibrate the horizontal endpoint instead.
         bool levelScaleAccepted =
-            learningEligible && levelScaleCandidate;
+            learningEligible && levelScaleCandidate &&
+            !levelTimingStable;
         bool durationAccepted =
-            learningEligible && durationCandidate;
+            learningEligible && durationCandidate &&
+            (!useExclusiveLiveChannel || !levelTrajectory) &&
+            !durationTimingStable;
         if (levelScaleAccepted)
         {
             AddSample(flightTimeScaleSamples, scale);
@@ -922,6 +1040,21 @@ internal sealed class JumpPhysicsFeedback
         if (levelScaleAccepted || durationAccepted)
             modelRevision++;
 
+        string selectedChannel =
+            levelScaleAccepted && durationAccepted
+                ? "LevelFlightScale+HeightHoldDuration"
+                : levelScaleAccepted
+                    ? "LevelFlightScale"
+                    : durationAccepted
+                        ? "HeightHoldDuration"
+                        : learningEligible && levelScaleCandidate &&
+                          levelTrajectory && levelTimingStable
+                            ? "StableLevelFlightScale"
+                        : learningEligible && durationCandidate &&
+                          !levelTrajectory && durationTimingStable
+                            ? "StableHeightHoldDuration"
+                        : "Rejected";
+
         BonusRunnerLog.Debug(
             $"FlightTimingFeedback Source={source}, Hold={holdSeconds:F3}s, " +
             $"DeltaY={heightDelta:F3}, PredictedInputToLanding=" +
@@ -929,6 +1062,10 @@ internal sealed class JumpPhysicsFeedback
             $"{actualInputToLandingSeconds:F3}s, Scale={scale:F3}, " +
             $"LevelScaleAccepted={levelScaleAccepted}, " +
             $"DurationAccepted={durationAccepted}, " +
+            $"ExclusiveLiveChannel={useExclusiveLiveChannel}, " +
+            $"SelectedChannel={selectedChannel}, " +
+            $"TimingStable[Level={levelTimingStable}," +
+            $"HeightHold={durationTimingStable}], " +
             $"PhysicalCandidates[LevelScale={levelScaleCandidate},Duration={durationCandidate}], " +
             $"LearningEligible={learningEligible}, " +
             $"LevelSamples={flightTimeScaleSamples.Count}, " +
@@ -938,6 +1075,7 @@ internal sealed class JumpPhysicsFeedback
             $"{travelDurationSamples.GetCount(heightDelta, holdSeconds)}, " +
             $"Rev={modelRevision}",
             "Physics");
+        return selectedChannel;
     }
 
     private static string GetHeightBandLabel(float heightDelta) =>

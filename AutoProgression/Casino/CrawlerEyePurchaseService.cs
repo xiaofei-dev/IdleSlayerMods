@@ -119,8 +119,9 @@ internal sealed class CrawlerEyePurchaseService
         }
         catch (Exception exception)
         {
-            ProgressionLog.Error(
-                $"Crawler Eye bulk purchase stopped safely after {purchasedAmount}: {exception}");
+            ProgressionLog.Exception(
+                $"Crawler Eye bulk purchase after {purchasedAmount} eye(s)",
+                exception);
             Cancel(false);
         }
     }

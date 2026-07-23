@@ -36,7 +36,7 @@ internal sealed class RagePillService
 
         if (now < nextCheckTime) return false;
 
-        float interval = Mathf.Max(0.5f, config.RagePillMinimumIntervalSeconds.Value);
+        float interval = Configuration.AutoProgressionConfig.RagePillMinimumIntervalSeconds;
         nextCheckTime = now + interval;
 
         if (rageManager.currentCd <= 0d ||

@@ -17,7 +17,7 @@ account growth, while AutoClimber handles Ascending Heights.
   configuration, logging, and troubleshooting chapters.
 - [Quest Automation](docs/03-quest-automation.md)
 - [Automatic Rage](docs/04-automatic-rage.md)
-- [Auto Boost and Wind Dash](docs/05-auto-boost.md)
+- [Auto Movement & Combat](docs/05-auto-boost.md)
 - [Travel, Events, and Safety](docs/06-travel-and-events.md)
 - [Configuration Reference](docs/08-configuration.md)
 - [Logging Reference](docs/09-logging.md)
@@ -68,11 +68,11 @@ account growth, while AutoClimber handles Ascending Heights.
 
 The mod does not currently restart running after Rage ends.
 
-Automatic Rage and Auto Boost remain active while ordinary menus opened over
+Automatic Rage and Auto Movement & Combat remain active while ordinary menus opened over
 the central Runner or Rage scene are visible. They pause only when the game
 leaves those gameplay states, the map is changing or unavailable, or a
 bonus-start slider is visible. After returning to a supported gameplay scene,
-Auto Boost waits half a second while Automatic Rage waits two seconds to avoid
+movement automation waits half a second while Automatic Rage waits two seconds to avoid
 activating during an unsafe transition. Slider Skip remains active in supported
 minigame and boss pre-start screens.
 
@@ -82,9 +82,9 @@ When `Skip Bonus Start Slider` is enabled, AutoAdventurer automatically
 confirms the timing slider shown before supported bonus minigames. This feature
 is enabled by default and can be disabled independently from Automatic Rage.
 
-## Smart Auto Boost
+## Auto Movement & Combat
 
-- Press `L` to enable or disable Auto Boost by default.
+- Auto Movement & Combat starts enabled by default; press `L` to disable or re-enable it.
 - The currently selected player ability is read from `AbilitiesManager` before
   every activation.
 - When the selected ability is unlocked and its cooldown reaches zero, the
@@ -95,15 +95,13 @@ is enabled by default and can be disabled independently from Automatic Rage.
   cooldown until the player returns to ground level, then activates
   immediately. This prevents airborne dashes from passing over portals or
   elite enemies. Regular Boost activation is unchanged.
-- Minigames and reward sections support automatic Wind Dash only while the
-  game's main ability icon is actually visible. Normal Boost remains disabled
-  there, and Wind Dash continues to obey the configured grounded requirement
-  and activation delay.
-- Auto Boost supports both Runner Mode and Rage Mode whenever the selected
+- Automatic jumps, arrow attacks, Boost, and Wind Dash run only in the central
+  Runner/Rage scene. Bonus stages and other minigames are excluded.
+- Movement ability automation supports both Runner Mode and Rage Mode whenever the selected
   movement ability is available. After returning from another scene, it uses
   the shared half-second central-screen stabilization delay without adding a
   second Boost-specific delay.
-- Ascension clears the observed ability state and pauses Auto Boost for five
+- Ascension clears the observed ability state and pauses movement abilities for five
   seconds. A supported selected ability must then remain stable across several
   checks before automatic activation resumes.
 
@@ -232,7 +230,7 @@ is enabled by default and can be disabled independently from Automatic Rage.
   approach. Only string descriptions are retained; no IL2CPP event object is
   cached across scenes. Polling remains a fallback for events already active
   when the runtime starts.
-- Automatic travel waits at least one minute by default before changing away
+- Automatic travel waits at least ten minutes by default before changing away
   from a dimension reached by an earlier automatic trip.
 - Quest Automation keeps completion statistics for each `P` session. The
   counters reset when `P` is enabled and a final summary is written when it is
@@ -242,10 +240,9 @@ is enabled by default and can be disabled independently from Automatic Rage.
   the active list are excluded, and duplicate claim callbacks are deduplicated.
 - Daily and non-Daily completions are counted separately. Every counted
   completion writes its localized name and internal quest ID to the normal
-  user log, writes the same message to Quest Debug
-  when enabled, and shows an in-game notification with the session total,
-  Daily count, and Normal count. `Show Completion Notifications` can disable
-  only the in-game notification; both log outputs remain unchanged.
+  user log and shows an in-game notification with the session total, Daily
+  count, and Normal count. `Show Completion Notifications` disables only the
+  in-game notification; the single user-log entry remains.
 
 ## Configuration
 
@@ -257,9 +254,10 @@ ModLoader/UserData/AutoAdventurer.cfg
 
 Normal user logs always report initialization, toggle changes, completed
 actions, warnings, and errors. The main `Debug Mode` adds detailed runtime
-diagnostics with a `[Debug]` prefix. Quest Automation has an independent debug
-switch whose messages use `[Debug][Quest]`, so quest diagnostics can be enabled
-without turning on every AutoAdventurer trace.
+diagnostics grouped by stable category prefixes such as `[Debug][Quest]`,
+`[Debug][Movement]`, `[Debug][Rage]`, and `[Debug][SilverBox]`. Identical
+repeating diagnostics are rate-limited and report how many copies were
+suppressed. Quest diagnostics share the main `Debug Mode` switch.
 
 Settings include the automation toggle key, manual stop key, activation check
 interval, maximum Rage duration, and debug logging. The default maximum Rage
@@ -301,8 +299,8 @@ If these mods save you time, you can support continued development through
 
 ## Versioning
 
-- Public release version: `1.1.1`
-- Internal development version: `V0.76`
+- Public release version: `2.0.0`
+- Internal development version: `V2.0`
 
 ## Disclaimer
 

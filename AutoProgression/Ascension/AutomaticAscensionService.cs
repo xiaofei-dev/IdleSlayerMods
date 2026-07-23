@@ -94,7 +94,7 @@ internal sealed class AutomaticAscensionService
         }
         catch (Exception exception)
         {
-            ProgressionLog.Error($"Automatic normal ascension failed safely: {exception}");
+            ProgressionLog.Exception("Automatic normal ascension", exception);
             return false;
         }
     }
@@ -112,7 +112,7 @@ internal sealed class AutomaticAscensionService
         }
         catch (Exception exception)
         {
-            ProgressionLog.Error($"Post-ascension Buy All failed safely: {exception}");
+            ProgressionLog.Exception("Post-ascension Buy All", exception);
             waitingForPostAscension = false;
             return;
         }
@@ -121,7 +121,7 @@ internal sealed class AutomaticAscensionService
         if (after < before)
         {
             stablePurchaseRounds = 0;
-            ProgressionLog.User(
+            ProgressionLog.Debug(
                 $"Post-ascension skills purchased; Slayer Points spent={before - after:0.##}, remaining={after:0.##}.");
             return;
         }
@@ -142,7 +142,9 @@ internal sealed class AutomaticAscensionService
         nextCheckTime = Time.unscaledTime + GetCheckIntervalSeconds();
 
         if (skillsPurchased)
-            ProgressionLog.User("Post-ascension skill purchasing completed.");
+            ProgressionLog.Debug(
+                "Post-ascension skill purchasing completed.",
+                "Ascension");
     }
 
     internal void Reset()
@@ -163,5 +165,5 @@ internal sealed class AutomaticAscensionService
 
     private static float GetCheckIntervalSeconds() => Math.Max(
         1f,
-        Plugin.Config.AutomaticAscensionCheckIntervalMinutes.Value * 60f);
+        Configuration.AutoProgressionConfig.AutomaticAscensionCheckIntervalMinutes * 60f);
 }

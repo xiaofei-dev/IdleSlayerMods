@@ -128,7 +128,7 @@ See the [Configuration Reference](docs/06-configuration.md) for details.
 Full-route runs always produce a compact summary similar to:
 
 ```text
-Run count: Total=10, Success=9, Failure=1, PassRate=90.0%, ... EnemiesDetected=20, EnemyHits=9
+Run summary: total=10; success=9; failure=1; passRate=90.0%; lastResult=success; durationSeconds=132.40; enemiesDetected=20; enemyHits=9.
 ```
 
 Skip runs are excluded from normal route statistics and detailed route debug

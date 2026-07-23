@@ -1,8 +1,8 @@
 {
   "name": "AutoAdventurer",
   "author": "Tashi",
-  "version": "1.1.1",
-  "description": "Part of Tashi's full automation suite. Focused on automatic quest completion with quest-guided dimension travel, smart Rage and Boost/Wind Dash, event-aware safety, bonus-stage helpers, and automatic boss completion.",
+  "version": "2.0.0",
+  "description": "Part of Tashi's full automation suite. Automatically completes quests with guided dimension travel, smart combat and movement, event-aware safety, bonus-stage support, and boss automation.",
   "nexus_id": "39",
   "donate_url": "https://www.paypal.com/donate/?business=HK85PL8AREEXY&no_recurring=0&currency_code=USD",
   "github_url": "https://github.com/xiaofei-dev/IdleSlayerMods/tree/main"

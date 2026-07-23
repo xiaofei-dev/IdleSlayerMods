@@ -10,6 +10,7 @@ internal sealed class QuestAutomationService
 {
     private const float CheckIntervalSeconds = 2f;
     private const float RegenerationSettleSeconds = 5f;
+    private const float ClaimSummaryIntervalSeconds = 30f;
 
     private QuestsList questsList;
     private DailyQuestsManager dailyManager;
@@ -18,6 +19,8 @@ internal sealed class QuestAutomationService
     private float nextCheckTime;
     private bool missingLogged;
     private bool refreshRequired = true;
+    private int claimsSinceSummary;
+    private float nextClaimSummaryTime;
 
     internal void TickPersistent()
     {
@@ -62,6 +65,7 @@ internal sealed class QuestAutomationService
 
     internal void Tick(float now)
     {
+        FlushClaimSummary(now);
         if (now < nextCheckTime) return;
         nextCheckTime = now + CheckIntervalSeconds;
 
@@ -72,7 +76,7 @@ internal sealed class QuestAutomationService
         }
         catch (Exception exception)
         {
-            ProgressionLog.Error($"Quest automation setup failed safely: {exception}");
+            ProgressionLog.Exception("Quest automation setup", exception);
             return;
         }
 
@@ -91,7 +95,7 @@ internal sealed class QuestAutomationService
             }
             catch (Exception exception)
             {
-                ProgressionLog.Error($"Failed to refresh the quest list safely: {exception}");
+                ProgressionLog.Exception("Quest-list refresh", exception);
                 return;
             }
         }
@@ -119,7 +123,9 @@ internal sealed class QuestAutomationService
             {
                 if (claimResult == ClaimResult.Claimed)
                 {
-                    ProgressionLog.Debug("Automatically claimed 1 completed quest.");
+                    claimsSinceSummary++;
+                    if (nextClaimSummaryTime <= 0f)
+                        nextClaimSummaryTime = now + ClaimSummaryIntervalSeconds;
                 }
 
                 // Claim only one object from each fresh snapshot. A successful
@@ -213,8 +219,9 @@ internal sealed class QuestAutomationService
                     // itself can no longer be read safely.
                 }
 
-                ProgressionLog.Error(
-                    $"Failed to claim a quest safely: {DescribeQuest(quest)}; {exception}");
+                ProgressionLog.Exception(
+                    $"Quest claim ({DescribeQuest(quest)})",
+                    exception);
                 return ClaimResult.Failed;
             }
         }
@@ -268,12 +275,14 @@ internal sealed class QuestAutomationService
             try
             {
                 dailyManager.RegenerateDailys();
-                ProgressionLog.User("Generated a new set of Daily Quests.");
+                ProgressionLog.Debug(
+                    "Generated a new set of Daily Quests.",
+                    "Quests");
                 regenerated = true;
             }
             catch (Exception exception)
             {
-                ProgressionLog.Error($"Failed to regenerate Daily Quests safely: {exception}");
+                ProgressionLog.Exception("Daily Quest regeneration", exception);
             }
         }
 
@@ -285,12 +294,14 @@ internal sealed class QuestAutomationService
             try
             {
                 weeklyManager.RegenerateWeeklies();
-                ProgressionLog.User("Generated a new set of Weekly Quests.");
+                ProgressionLog.Debug(
+                    "Generated a new set of Weekly Quests.",
+                    "Quests");
                 regenerated = true;
             }
             catch (Exception exception)
             {
-                ProgressionLog.Error($"Failed to regenerate Weekly Quests safely: {exception}");
+                ProgressionLog.Exception("Weekly Quest regeneration", exception);
             }
         }
 
@@ -325,6 +336,19 @@ internal sealed class QuestAutomationService
         missingLogged = true;
     }
 
+    private void FlushClaimSummary(float now)
+    {
+        if (claimsSinceSummary <= 0 || now < nextClaimSummaryTime)
+            return;
+
+        ProgressionLog.Debug(
+            $"Claimed {claimsSinceSummary} completed quest(s) in the last " +
+            $"{ClaimSummaryIntervalSeconds:0} seconds.",
+            "Quests");
+        claimsSinceSummary = 0;
+        nextClaimSummaryTime = 0f;
+    }
+
     private static T FindLoadedSceneComponent<T>() where T : Component
     {
         foreach (T component in Resources.FindObjectsOfTypeAll<T>())
@@ -346,5 +370,7 @@ internal sealed class QuestAutomationService
         nextCheckTime = 0f;
         missingLogged = false;
         refreshRequired = true;
+        claimsSinceSummary = 0;
+        nextClaimSummaryTime = 0f;
     }
 }

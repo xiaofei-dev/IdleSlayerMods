@@ -7,7 +7,10 @@ At the default `50%` threshold, pending points must reach half of lifetime
 points. The check runs immediately after
 enabling and every 5 minutes by default.
 
-Only normal Ascension is supported. Ultra Ascension is never invoked.
+Normal Ascension is enabled by default. Optional Ultra Ascension is disabled
+by default and is invoked only after the game's native prerequisite state is
+active and `GetAstralKeys()` reports at least 24 keys. Ultra Ascension takes
+priority when both automatic Ascension paths are eligible in the same check.
 
 After Ascension, the optional Buy All phase repeatedly spends available Slayer
 Points until two stable passes make no further progress. Other services pause
@@ -15,7 +18,7 @@ behind a two-second post-Ascension lock while game objects are rebuilt.
 
 ## Skills
 
-Available shop skills are purchased every 10 seconds. Debug output aggregates
+Available shop skills are purchased every 5 seconds. Debug output aggregates
 successful purchases into a 30-second summary instead of logging every click.
 
 ## Normal Equipment
@@ -27,7 +30,6 @@ sequence of single levels.
 
 If no equipment meets the minimum purchase threshold for the configured idle
 period, equipment purchasing sleeps temporarily. Skill purchasing continues
-during this sleep. Purchase priority determines which service receives the
-first opportunity when both are enabled.
+during this sleep.
 
 [Back to the Complete Manual](../MANUAL.md)

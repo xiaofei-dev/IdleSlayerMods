@@ -33,7 +33,9 @@ internal sealed class MaterialPurchaseService
         }
         catch (Exception exception)
         {
-            ProgressionLog.Error($"Failed to purchase material '{material?.name}': {exception}");
+            ProgressionLog.Exception(
+                $"Material purchase '{material?.name ?? "unknown"}'",
+                exception);
             return false;
         }
     }

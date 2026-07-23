@@ -9,14 +9,11 @@
 - It invokes confirmation exactly once for each visible slider.
 - A later slider can be handled only after the previous one disappears.
 
-## Wind Dash in Bonus Content
+## Movement Automation in Bonus Content
 
-Minigames and reward sections use the real main-ability icon as authority:
-
-- Visible icon: Wind Dash may activate.
-- Hidden icon: no minigame Wind Dash activation.
-- Normal Boost is not supported through this path.
-- Grounded and activation-delay settings still apply.
+Automatic jumps, arrows, Boost, and Wind Dash are restricted to the central
+Runner/Rage scene. Bonus stages, reward sections, and other minigames are
+excluded so AutoAdventurer does not interfere with their own movement logic.
 
 ## Auto Boss
 
@@ -38,4 +35,3 @@ Ascending Heights, and other special scenes. After returning to a stable
 Runner/Rage scene, the locked task is resolved again from current objects.
 
 [Back to the Complete Manual](../MANUAL.md)
-

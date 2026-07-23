@@ -185,10 +185,9 @@ internal sealed class JumpController
                     // will not acquire ownership from this one-shot pulse.
                 }
             }
-            BonusRunnerLog.Warning(
-                $"Automatic contextual pulse failed safely: Reason=" +
-                $"{reason}, Exception={exception.GetType().Name}: " +
-                $"{exception.Message}.");
+            BonusRunnerLog.Exception(
+                $"Automatic contextual jump pulse (reason={reason})",
+                exception);
             return false;
         }
     }
@@ -213,11 +212,11 @@ internal sealed class JumpController
 
         if (IsHoldingJump)
         {
-            // Ordinary ground plans retain their calibrated wall-clock release
-            // while the fixed-step count is only a background safety ceiling.
-            // Face solvers pass an explicit count and therefore use exact
-            // fixed-step delivery. If that Harmony callback is unavailable,
-            // a render-time fail-safe still prevents an indefinite pointer.
+            // Authored/early ground plans retain their calibrated wall-clock
+            // release. Live-geometry sections 3/4 and wall-face solvers pass
+            // an explicit native-step count, so those commands use exact
+            // FixedUpdate delivery. If the callback is unavailable, a
+            // render-time fail-safe still prevents an indefinite pointer.
             if (maximumHeldFixedSteps > 0 && exactFixedStepRelease)
             {
                 float callbackGrace = Mathf.Max(
@@ -353,9 +352,9 @@ internal sealed class JumpController
                 if (Time.unscaledTime >= nextHoldPatchErrorLogTime)
                 {
                     nextHoldPatchErrorLogTime = Time.unscaledTime + 5f;
-                    BonusRunnerLog.Warning(
-                        $"Held-jump patch failed safely in PlayerMovement.{phase}: " +
-                        $"{exception.GetType().Name}: {exception.Message}");
+                    BonusRunnerLog.Exception(
+                        $"Held-jump patch in PlayerMovement.{phase}",
+                        exception);
                 }
             }
             catch
@@ -373,9 +372,9 @@ internal sealed class JumpController
         }
         catch (System.Exception exception)
         {
-            BonusRunnerLog.Warning(
-                $"Retry modal failed to release owned jump input safely: " +
-                $"{exception.GetType().Name}: {exception.Message}");
+            BonusRunnerLog.Exception(
+                "Retry modal jump-input release",
+                exception);
         }
     }
 

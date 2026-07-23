@@ -170,10 +170,9 @@ public sealed partial class AutoClimberRuntime
             {
                 finishDetectorSearchWarningLogged = true;
 
-                ClimberLog.Warning(
-                    "Failed to locate the spawned finish-line detector: " +
-                    exception.Message
-                );
+                ClimberLog.Exception(
+                    "Spawned finish-line detector lookup",
+                    exception);
             }
         }
 
@@ -471,10 +470,7 @@ public sealed partial class AutoClimberRuntime
         }
         catch (Exception exception)
         {
-            ClimberLog.Error(
-                $"Failed to set movement member: " +
-                $"{exception.Message}"
-            );
+            ClimberLog.Exception("Movement member update", exception);
         }
     }
 

@@ -34,24 +34,14 @@ internal sealed class BonusStageDetector
             currentMap = controller?.currentBonusMap;
         }
         string mapName = currentMap?.name ?? "Unknown";
-        bool isSupportedBonusMap = false;
-        try
-        {
-            BaseMap supportedMap = Maps.list?.BonusStage3;
-            isSupportedBonusMap =
-                currentMap != null && supportedMap != null &&
-                currentMap.id == supportedMap.id;
-        }
-        catch
-        {
-            // Preserve a narrow name fallback during singleton initialization.
-        }
-        if (!isSupportedBonusMap)
-        {
-            isSupportedBonusMap = mapName.Contains(
-                "bonus_stage_3",
+        // GameState.IsBonus() is the authoritative mode gate. Accept every
+        // native bonus map once its BaseMap is available; routing policy later
+        // decides whether to use the extracted Stage 3 map or live geometry.
+        // Keep a name fallback for the short singleton-initialization window.
+        bool isSupportedBonusMap = currentMap != null ||
+            mapName.Contains(
+                "bonus_stage_",
                 System.StringComparison.OrdinalIgnoreCase);
-        }
         int sectionIndex = controller?.currentSectionIndex ?? -1;
         int collectedSpheres = controller?.bonusSpheresPickedUp ?? -1;
         double requiredSpheres = double.NaN;
@@ -114,11 +104,13 @@ internal sealed class BonusStageDetector
             if (!rewardFlagReadFailureLogged)
             {
                 rewardFlagReadFailureLogged = true;
-                BonusRunnerLog.Warning(
-                    $"Native reward flags unavailable: " +
-                    $"{exception.GetType().Name}: {exception.Message}. " +
-                    "These flags are diagnostic only; terrain control and " +
-                    "the independent typed reward-target scan continue.");
+                BonusRunnerLog.Exception(
+                    "Native reward-flag read",
+                    exception);
+                BonusRunnerLog.Debug(
+                    "Reward-flag read failed; terrain control and the " +
+                    "independent typed reward-target scan continue.",
+                    "Detection");
             }
         }
 

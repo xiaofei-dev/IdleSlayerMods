@@ -1,6 +1,7 @@
 using System;
 using System.Globalization;
 using System.IO;
+using AutoAdventurer.Diagnostics;
 using IdleSlayerMods.Common.Config;
 using MelonLoader;
 using MelonLoader.Utils;
@@ -9,7 +10,7 @@ namespace AutoAdventurer.Configuration;
 
 internal sealed class AutoAdventurerConfig(string configName) : BaseConfig(configName)
 {
-    internal const int CurrentConfigurationVersion = 33;
+    internal const int CurrentConfigurationVersion = 35;
     private const string MainSection = "AutoAdventurer";
     private const string RageSection = "Automatic Rage";
     private const string GameplaySection = "Gameplay";
@@ -28,7 +29,7 @@ internal sealed class AutoAdventurerConfig(string configName) : BaseConfig(confi
     internal MelonPreferences_Entry<bool> SkipBonusStartSlider;
     internal MelonPreferences_Entry<bool> AutoBoss;
     internal MelonPreferences_Entry<string> AutoBoostToggleKey;
-    internal MelonPreferences_Entry<double> AutoBoostActivationDelaySeconds;
+    internal MelonPreferences_Entry<bool> AutoMovementEnableOnStartup;
     internal MelonPreferences_Entry<bool> WindDashRequireGrounded;
     internal MelonPreferences_Entry<bool> AutoJump;
     internal MelonPreferences_Entry<bool> AutoShootArrows;
@@ -57,8 +58,10 @@ internal sealed class AutoAdventurerConfig(string configName) : BaseConfig(confi
     internal float PostRageObservationSecondsValue =>
         (float)Math.Max(0d, PostRageObservationSeconds.Value);
 
-    internal double AutoBoostActivationDelaySecondsValue =>
-        Math.Max(0d, AutoBoostActivationDelaySeconds.Value);
+    // Internal timing safeguard. This is intentionally not user-facing:
+    // keeping one known value avoids culture/parser issues and prevents
+    // unsafe zero-delay Wind Dash loops.
+    internal double AutoBoostActivationDelaySecondsValue => 0.2d;
 
     internal double PermanentSilverBoxReleaseAboveDivinityPointsValue =>
         Math.Max(0d, PermanentSilverBoxReleaseAboveDivinityPoints.Value);
@@ -97,15 +100,14 @@ internal sealed class AutoAdventurerConfig(string configName) : BaseConfig(confi
             ? NormalizeArrowAttackFrequency(ReadLegacyValue(
                 LegacyAutoBoostSection, "Arrow Attack Frequency", "Medium"))
             : "Medium";
-        double boostActivationDelay = migrateAutoMovementSection
-            ? ReadLegacyNumber(LegacyAutoBoostSection,
-                "Activation Delay Seconds", 0.1d)
-            : 0.1d;
         bool windDashRequireGrounded = migrateAutoMovementSection
             ? ReadLegacyBoolean(LegacyAutoBoostSection,
                 "Wind Dash Require Grounded", true)
             : true;
 
+        AutoMovementEnableOnStartup = Bind(AutoBoostSection,
+            "Enable On Startup", true,
+            "Automatically enable Auto Movement & Combat when the game starts. The Toggle Key can still disable or re-enable it at any time.");
         AutoBoostToggleKey = Bind(AutoBoostSection, "Toggle Key", autoMovementToggleKey,
             "Keyboard key used to enable or disable smart movement automation in the central Runner/Rage scene. While enabled, the mod can perform minimum-height jumps and arrow attacks, detects whether Boost or Wind Dash is selected, activates that ability automatically, and follows later ability changes without another toggle. Bonus stages and other minigames are excluded.");
         AutoJump = Bind(AutoBoostSection, "Auto Jump", autoJump,
@@ -115,14 +117,12 @@ internal sealed class AutoAdventurerConfig(string configName) : BaseConfig(confi
         ArrowAttackFrequency = Bind(AutoBoostSection,
             "Arrow Attack Frequency", arrowAttackFrequency,
             "Arrow request frequency used by Auto Shoot Arrows. Supported values: Light, Medium, High, Extra High, or Ultra (every rendered frame). Invalid values fall back to Medium.");
-        AutoBoostActivationDelaySeconds = Bind(AutoBoostSection,
-            "Activation Delay Seconds", boostActivationDelay,
-            "Wait this long after the currently selected Boost or Wind Dash ability reaches zero cooldown before activating that selected ability.");
         WindDashRequireGrounded = Bind(AutoBoostSection,
             "Wind Dash Require Grounded", windDashRequireGrounded,
             "Require the player to be at ground level before automatically activating Wind Dash, preventing it from passing over portals or elite enemies.");
         if (migrateAutoMovementSection)
             DeleteLegacyAutoBoostEntries();
+        DeleteHiddenAutoBoostDelayEntry();
 
         bool migrateSilverRelease = ConfigurationVersion.Value < 24 &&
             MelonPreferences.HasEntry(QuestAutomationSection,
@@ -326,6 +326,13 @@ internal sealed class AutoAdventurerConfig(string configName) : BaseConfig(confi
         category.DeleteEntry("Arrow Attack Frequency");
     }
 
+    private static void DeleteHiddenAutoBoostDelayEntry()
+    {
+        MelonPreferences_Category category =
+            MelonPreferences.GetCategory(AutoBoostSection);
+        category?.DeleteEntry("Activation Delay Seconds");
+    }
+
     private static double ReadLegacyNumber(string section, string key,
         double fallback) => ParseNonNegativeNumber(
             ReadLegacyValue(section, key,
@@ -370,7 +377,7 @@ internal sealed class AutoAdventurerConfig(string configName) : BaseConfig(confi
         }
         catch (Exception exception)
         {
-            Plugin.Logger.Warning(
+            AdventurerLog.Warning(
                 $"Could not migrate legacy timing setting '{key}'; using {fallback}. {exception.GetType().Name}: {exception.Message}");
         }
 

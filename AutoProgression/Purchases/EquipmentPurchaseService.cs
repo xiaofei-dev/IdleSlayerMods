@@ -30,7 +30,9 @@ internal sealed class EquipmentPurchaseService
         {
             sleepUntil = 0f;
             noPurchaseSince = now;
-            ProgressionLog.User("Equipment purchase sleep ended.");
+            ProgressionLog.Debug(
+                "Equipment purchase sleep ended.",
+                "Purchases");
         }
 
         ShopManager shop = ShopManager.instance;
@@ -96,16 +98,17 @@ internal sealed class EquipmentPurchaseService
         CompleteRound();
         nextCheckTime = now + IdleCheckIntervalSeconds;
         if (noPurchaseSince < 0f) noPurchaseSince = now;
-        float idleSeconds = Math.Max(0f, Plugin.Config.EquipmentIdleBeforeSleepMinutes.Value) * 60f;
+        float idleSeconds = Configuration.AutoProgressionConfig.EquipmentIdleBeforeSleepMinutes * 60f;
         if (now - noPurchaseSince < idleSeconds) return false;
 
-        float sleepSeconds = Math.Max(0f, Plugin.Config.EquipmentSleepMinutes.Value) * 60f;
+        float sleepSeconds = Configuration.AutoProgressionConfig.EquipmentSleepMinutes * 60f;
         sleepUntil = now + sleepSeconds;
         noPurchaseSince = -1f;
-        ProgressionLog.User(
+        ProgressionLog.Debug(
             $"No equipment met its purchase threshold for {idleSeconds / 60f:0.##} minutes " +
             $"(latest unlocked: 10 levels; older equipment: 50 levels); " +
-            $"equipment buyer sleeping for {sleepSeconds / 60f:0.##} minutes.");
+            $"equipment buyer sleeping for {sleepSeconds / 60f:0.##} minutes.",
+            "Purchases");
         return false;
     }
 
@@ -168,7 +171,9 @@ internal sealed class EquipmentPurchaseService
         }
         catch (Exception exception)
         {
-            ProgressionLog.Error($"Failed to purchase equipment levels for '{power?.name}': {exception}");
+            ProgressionLog.Exception(
+                $"Equipment purchase '{power?.name ?? "unknown"}'",
+                exception);
             return 0;
         }
         finally

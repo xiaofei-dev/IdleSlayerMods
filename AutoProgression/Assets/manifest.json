@@ -1,8 +1,8 @@
 {
   "name": "AutoProgression",
   "author": "Tashi",
-  "version": "1.0.0",
-  "description": "Part of Tashi's full automation suite. Focused on automatic progression with configurable Ascension, skill and equipment upgrades, quest maintenance, timed craftables, paid bonuses, materials, and egg opening.",
+  "version": "2.0.0",
+  "description": "Part of Tashi's full automation suite. Automatically manages progression with configurable Ascension, skill and equipment upgrades, quest maintenance, timed craftables, paid bonuses, materials, and egg opening.",
   "nexus_id": "40",
   "donate_url": "https://www.paypal.com/donate/?business=HK85PL8AREEXY&no_recurring=0&currency_code=USD",
   "github_url": "https://github.com/xiaofei-dev/IdleSlayerMods/tree/main"
