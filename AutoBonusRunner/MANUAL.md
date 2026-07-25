@@ -4,7 +4,7 @@ AutoBonusRunner is the Bonus Stage module in Tashi's Full Automation Suite. It
 controls sphere requirements, terrain routing, jump timing, wall-climb
 recovery, reward actions, and the native retry choice.
 
-This manual covers public version 1.0.0, internal version V1.22, and
+This manual covers public version 1.0.1, internal version V1.25, and
 configuration version 44. New users should begin with the
 [User Guide](USER_GUIDE.md).
 

@@ -6,13 +6,13 @@ namespace AutoClimber;
 internal static class QuickSkipFinishDistanceOverride
 {
     internal const float FinishDistance = 100f;
-    private const float HigherAltitudesDistance = 1000f;
+    private const float HigherAltitudesInternalFinishDistance = -900f;
+    private const float HigherAltitudesStartingBoostThreshold = 500f;
 
     private static AscendingHeightsMap adjustedMap;
     private static float originalFinishDistance;
+    private static bool higherAltitudesWasEnabled;
     private static bool isAdjusted;
-    private static AscendingHeightsMap compensatedMap;
-    private static bool startingBoostCompensationActive;
 
     internal static void Apply(AscendingHeightsMap map)
     {
@@ -39,67 +39,46 @@ internal static class QuickSkipFinishDistanceOverride
         {
             adjustedMap = map;
             originalFinishDistance = map.finishAtDistance;
+            higherAltitudesWasEnabled =
+                Divinities.list?.HigherAltitudes?.unlocked == true;
             isAdjusted = true;
         }
 
-        map.finishAtDistance = FinishDistance;
-    }
+        // Confirm the pre-run talent scan from the initialized controller.
+        // Some game paths expose the purchased talent before its active
+        // starting boost is populated. Once +1000 is observed, this run must
+        // keep the compensated path and may never downgrade again.
+        AscendingHeightsController controller =
+            AscendingHeightsController.instance;
 
-    internal static void BeginStartingBoostCompensation(
-        AscendingHeightsMap map)
-    {
-        EndStartingBoostCompensation();
-
-        if (!ClimberLog.IsQuickSkipModeEnabled ||
-            map == null)
+        if (!higherAltitudesWasEnabled &&
+            controller != null &&
+            controller.startingBoost >=
+                HigherAltitudesStartingBoostThreshold)
         {
-            return;
+            higherAltitudesWasEnabled = true;
         }
 
-        Divinity higherAltitudes =
-            Divinities.list?.HigherAltitudes;
-
-        if (higherAltitudes == null ||
-            !higherAltitudes.unlocked)
-        {
-            return;
-        }
-
-        compensatedMap = map;
-        startingBoostCompensationActive = true;
         map.finishAtDistance =
-            FinishDistance - HigherAltitudesDistance;
+            GetInternalFinishDistance();
     }
 
-    internal static void EndStartingBoostCompensation()
+    private static float GetInternalFinishDistance()
     {
-        if (!startingBoostCompensationActive)
-        {
-            return;
-        }
-
-        if (compensatedMap != null)
-        {
-            try
-            {
-                compensatedMap.finishAtDistance =
-                    FinishDistance;
-            }
-            catch
-            {
-                // The active map may have been released during a failed
-                // StartBonus initialization.
-            }
-        }
-
-        compensatedMap = null;
-        startingBoostCompensationActive = false;
+        // These are the internal map values required by vanilla:
+        //   talent off:  100
+        //   talent on:  -900 + vanilla 1000 starting boost = 100
+        //
+        // Do not derive this from the map's original target. That target can
+        // already reflect the Higher Altitudes presentation and would create
+        // a real finish around 1100 while the UI misleadingly displays 100.
+        return higherAltitudesWasEnabled
+            ? HigherAltitudesInternalFinishDistance
+            : FinishDistance;
     }
 
     internal static void Restore()
     {
-        EndStartingBoostCompensation();
-
         if (!isAdjusted)
         {
             return;
@@ -120,6 +99,7 @@ internal static class QuickSkipFinishDistanceOverride
 
         adjustedMap = null;
         originalFinishDistance = 0f;
+        higherAltitudesWasEnabled = false;
         isAdjusted = false;
     }
 }

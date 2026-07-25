@@ -46,26 +46,6 @@ internal static class AscendingHeightsQuickSkipStartingBoostPatch
             return;
         }
 
-        // Native IL2CPP code reads the Higher Altitudes field directly, so a
-        // managed property-getter patch cannot suppress its +1000 injection.
-        // Compensate only while StartBonus calculates and caches the run
-        // target. ShowPreModal and the runtime continue to expose 100, while
-        // StartBonus sees -900 and then adds +1000 back to exactly 100.
-        QuickSkipFinishDistanceOverride.BeginStartingBoostCompensation(
-            __instance?.currentAscendingHeightsMap
-        );
-    }
-
-    [HarmonyPostfix]
-    private static void Postfix()
-    {
-        QuickSkipFinishDistanceOverride.EndStartingBoostCompensation();
-    }
-
-    [HarmonyFinalizer]
-    private static void Finalizer()
-    {
-        QuickSkipFinishDistanceOverride.EndStartingBoostCompensation();
     }
 }
 

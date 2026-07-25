@@ -644,10 +644,7 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
             $"Press {toggleKey} to toggle automatic control. Detection and manual-jump learning stay active. " +
             $"AutoRetry={Plugin.Config?.EnableAutoRetry?.Value == true}, " +
             $"SkipStartSlider={Plugin.Config?.SkipStartSlider?.Value == true}, " +
-            $"Mode={BonusStageSphereRequirementMode.ConfiguredMode}, " +
-            $"AutomaticJumping={AutomaticJumpingEnabled}(fixed), " +
-            $"CompletionRewardActions={CompletionRewardActionsEnabled}(fixed), " +
-            $"CompletionWindDash={CompletionWindDashEnabled}(fixed).");
+            $"Mode={BonusStageSphereRequirementMode.ConfiguredMode}.");
     }
 
     public void Update()
@@ -728,10 +725,29 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
                 previousBonusState = state.IsBonusStage;
                 if (!state.IsBonusStage)
                     FinishRunTracking();
-                BonusRunnerLog.User(state.IsBonusStage
-                    ? $"Bonus Stage detected: Map={state.MapName}, Section={state.SectionIndex}."
-                    : "Bonus Stage ended.");
-                previousSectionIndex = state.SectionIndex;
+                bool hasPlayableEntrySection =
+                    state.SectionIndex is >= 0 and <= 3;
+                if (!state.IsBonusStage)
+                {
+                    BonusRunnerLog.User("Bonus Stage ended.");
+                }
+                else if (hasPlayableEntrySection)
+                {
+                    BonusRunnerLog.User(
+                        $"Bonus Stage progress: 0 -> " +
+                        $"{state.SectionIndex + 1}. Map={state.MapName}.");
+                }
+
+                // BonusMapController can briefly retain the completed
+                // sentinel Section=4 while the next Bonus Stage scene is
+                // entering. Do not turn that stale lifecycle value into a
+                // user-visible "4 -> 0" transition. The first active,
+                // playable section below will publish the normal detection
+                // line and initialize section-scoped state.
+                previousSectionIndex =
+                    state.IsBonusStage && !hasPlayableEntrySection
+                        ? -1
+                        : state.SectionIndex;
                 previousPlayerInstanceId = state.PlayerInstanceId;
                 if (state.IsBonusStage)
                 {
@@ -799,6 +815,9 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
             if (state.IsActiveGameplay &&
                 state.SectionIndex != previousSectionIndex)
             {
+                bool enteringFirstPlayableSection =
+                    previousSectionIndex < 0 &&
+                    state.SectionIndex is >= 0 and <= 3;
                 ResetStage1CrossSpherePriority();
                 BonusStageInspector.ResetSceneObjectCaches(
                     $"SectionChanged:{previousSectionIndex}->{state.SectionIndex}");
@@ -807,7 +826,13 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
                 platformScanner.ResetDynamicCaches(
                     $"SectionChanged:{previousSectionIndex}->{state.SectionIndex}");
                 EndManualDemonstration(state, "SectionChanged");
-                BonusRunnerLog.User($"Bonus Stage section changed: {previousSectionIndex} -> {state.SectionIndex}.");
+                BonusRunnerLog.User(
+                    enteringFirstPlayableSection
+                        ? $"Bonus Stage progress: 0 -> " +
+                          $"{state.SectionIndex + 1}. Map={state.MapName}."
+                        : $"Bonus Stage progress: " +
+                          $"{previousSectionIndex + 1} -> " +
+                          $"{state.SectionIndex + 1}.");
                 // BonusMapController advances its mutable section index while
                 // the runner is still traversing the completed section's
                 // terrain.  Only a real active-gameplay frame makes the new
@@ -1037,11 +1062,15 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
             return;
         }
 
+        string retryAction =
+            actualContinueRequested ? "Continue" : "No";
         BonusRunnerLog.User(
-            $"Auto retry request dispatching: Action=" +
-            $"{(actualContinueRequested ? "Continue" : "No")}, " +
+            $"Auto retry action requested: {retryAction}.");
+        BonusRunnerLog.Debug(
+            $"AutoRetryRequestDispatching Action={retryAction}, " +
             $"Sequence={sequence}, Attempt={attempt}, Evidence=" +
-            $"[{evidence}]. Native acknowledgement is still pending.");
+            $"[{evidence}]. Native acknowledgement is still pending.",
+            "Retry");
         try
         {
             if (actualContinueRequested)
@@ -4889,7 +4918,7 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
             {
                 lastLoggedStage1CrossSphereCenterX =
                     stage1CrossSpherePriorityCenter.x;
-                BonusRunnerLog.User(
+                BonusRunnerLog.Debug(
                     $"Stage1Section2CrossSpherePriority CenterX=" +
                     $"{stage1CrossSpherePriorityCenter.x:F3}, PositionX=" +
                     $"{state.PlayerPosition.x:F3}, RequiredActualHits=1, " +
@@ -4903,7 +4932,8 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
                     $"SelectedTarget=[{scan.Next.Left:F3}," +
                     $"{scan.Next.Right:F3}]@{scan.Next.Top:F3}. " +
                     "The pickup preference cannot replace the selected " +
-                    "support or invalidate the original survival route.");
+                    "support or invalidate the original survival route.",
+                    "Routing");
             }
         }
         if (state.UsesStage3AuthoredRouting &&
@@ -10022,7 +10052,7 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
         {
             lastCommittedStage1CrossSphereCenterX =
                 stage1CrossSpherePriorityCenter.x;
-            BonusRunnerLog.User(
+            BonusRunnerLog.Debug(
                 $"{(fixedStepCrossNetGainRouteSelected
                     ? "Stage1Section2CrossSphereNetGainFixedStepCommitted"
                     : "Stage1Section2CrossSpherePriorityFixedStepCommitted")} " +
@@ -10034,7 +10064,8 @@ public sealed class AutoBonusRunnerRuntime : MonoBehaviour
                 $"{plan.ExpectedSphereHits}, Target=" +
                 $"[{target.Left:F3},{target.Right:F3}]@{target.Top:F3}. " +
                 "The authoritative pre-movement controller accepted this " +
-                "plan and issued the actual DOWN.");
+                "plan and issued the actual DOWN.",
+                "Routing");
         }
 
         ClearRoutePlanLock();
