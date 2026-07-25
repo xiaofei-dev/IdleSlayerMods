@@ -8,6 +8,12 @@ internal enum BonusMapPieceRegistryState
     Ready
 }
 
+internal enum BonusMapProfile
+{
+    Stage2,
+    Stage3
+}
+
 internal readonly record struct BonusStaticWorldSurface(
     string MapPieceName,
     int MapPieceInstanceId,
@@ -50,6 +56,9 @@ internal sealed class BonusMapPieceRegistry
     private static readonly Dictionary<string, GroundTemplate> Templates =
         BuildTemplates();
 
+    private static readonly Dictionary<string, GroundTemplate> Stage2Templates =
+        BuildStage2Templates();
+
     // BonusMap grounds form a cycle. Object pooling moves the oldest clone
     // forward, so the live left-to-right order can be any cyclic rotation.
     private static readonly Dictionary<int, string[]> ExpectedSectionCycles =
@@ -61,12 +70,45 @@ internal sealed class BonusMapPieceRegistry
             [3] = new[] { "Ground 7", "Ground 8", "Ground 7" }
         };
 
+    private static readonly Dictionary<int, string[]>
+        Stage2ExpectedSectionCycles =
+            new()
+            {
+                [0] = new[]
+                {
+                    "Stage2 Ground 5",
+                    "Stage2 Ground 4",
+                    "Stage2 Ground 3"
+                },
+                [1] = new[]
+                {
+                    "Stage2 Ground 3",
+                    "Stage2 Ground 2",
+                    "Stage2 Ground 4"
+                },
+                [2] = new[]
+                {
+                    "Stage2 Ground 5",
+                    "Stage2 Ground 1",
+                    "Stage2 Ground 1"
+                },
+                [3] = new[]
+                {
+                    "Stage2 Ground 1",
+                    "Stage2 Ground 6",
+                    "Stage2 Ground 1"
+                }
+            };
+
     private readonly List<LivePiece> pieces = new();
     private int topologyHash;
     private bool hasTopologyHash;
 
     internal BonusMapPieceRegistryState State { get; private set; } =
         BonusMapPieceRegistryState.Pending;
+
+    internal BonusMapProfile Profile { get; private set; } =
+        BonusMapProfile.Stage3;
 
     internal int SectionIndex { get; private set; } = -1;
 
@@ -80,15 +122,35 @@ internal sealed class BonusMapPieceRegistry
 
     internal int PieceCount => pieces.Count;
 
-    internal bool Refresh(int sectionIndex)
+    internal bool Refresh(int sectionIndex) =>
+        Refresh(sectionIndex, BonusMapProfile.Stage3);
+
+    internal bool Refresh(
+        int sectionIndex,
+        BonusMapProfile profile)
     {
-        if (sectionIndex != SectionIndex)
+        if (profile != Profile ||
+            sectionIndex != SectionIndex)
         {
+            bool profileChanged = profile != Profile;
+            Profile = profile;
             SectionIndex = sectionIndex;
-            SetPending("SectionChanged", clearPieces: true);
+            SetPending(
+                profileChanged
+                    ? $"ProfileChanged:{profile}"
+                    : "SectionChanged",
+                clearPieces: true);
         }
 
-        if (!ExpectedSectionCycles.TryGetValue(
+        Dictionary<int, string[]> sectionCycles =
+            profile == BonusMapProfile.Stage2
+                ? Stage2ExpectedSectionCycles
+                : ExpectedSectionCycles;
+        Dictionary<string, GroundTemplate> templates =
+            profile == BonusMapProfile.Stage2
+                ? Stage2Templates
+                : Templates;
+        if (!sectionCycles.TryGetValue(
                 sectionIndex,
                 out string[] expectedCycle))
         {
@@ -113,7 +175,9 @@ internal sealed class BonusMapPieceRegistry
                 child.gameObject == null ||
                 !child.gameObject.activeInHierarchy ||
                 !TryNormalizeGroundName(child.name, out string normalized) ||
-                !Templates.TryGetValue(normalized, out GroundTemplate template))
+                !templates.TryGetValue(
+                    normalized,
+                    out GroundTemplate template))
             {
                 continue;
             }
@@ -165,6 +229,11 @@ internal sealed class BonusMapPieceRegistry
 
     internal void Reset(string reason = "Reset")
     {
+        // Live-only maps historically exposed raw Ground N names. Returning
+        // to the Stage-3/default namespace prevents a prior Stage-2 session
+        // from prefixing Stage-1 live hits as "Stage2 Ground N" while the
+        // authored registry is intentionally disabled.
+        Profile = BonusMapProfile.Stage3;
         SectionIndex = -1;
         SetPending(reason, clearPieces: true);
     }
@@ -628,6 +697,50 @@ internal sealed class BonusMapPieceRegistry
             new(StringComparer.OrdinalIgnoreCase);
         foreach (GroundTemplate template in templates)
             result.Add(template.Name, template);
+        return result;
+    }
+
+    private static Dictionary<string, GroundTemplate> BuildStage2Templates()
+    {
+        GroundTemplate[] templates =
+        {
+            Template("Stage2 Ground 1",
+                S(-12, 12, -2)),
+            Template("Stage2 Ground 2",
+                S(-12, -11, -2), S(-4, 0, -2), S(11, 12, -2),
+                S(-5, -4, -1), S(0, 2, -1),
+                S(-6, -5, 0), S(2, 4, 0),
+                S(-7, -6, 1), S(4, 6, 1),
+                S(-11, -7, 2), S(6, 11, 2),
+                S(-11, 11, 15)),
+            Template("Stage2 Ground 3",
+                S(-12, -9, -2), S(-5, -2, -2),
+                S(2, 5, -2), S(9, 12, -2),
+                S(-5, -3, 8), S(7, 9, 8)),
+            Template("Stage2 Ground 4",
+                S(-12, 12, -2),
+                S(-3, -2, 2), S(9, 10, 3),
+                S(-2, -1, 5), S(-1, 9, 6)),
+            Template("Stage2 Ground 5",
+                S(3, 8, -3),
+                S(-12, -5, -2), S(8, 12, -2),
+                S(-5, -3, 0), S(-1, 1, 0),
+                S(-3, -1, 2)),
+            Template("Stage2 Ground 6",
+                S(-2, 2, -3),
+                S(-12, -2, -2), S(2, 12, -2))
+        };
+
+        Dictionary<string, GroundTemplate> result =
+            new(StringComparer.OrdinalIgnoreCase);
+        const string profilePrefix = "Stage2 ";
+        foreach (GroundTemplate template in templates)
+        {
+            result.Add(
+                template.Name.Substring(profilePrefix.Length),
+                template);
+        }
+
         return result;
     }
 

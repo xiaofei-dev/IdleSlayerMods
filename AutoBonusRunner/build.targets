@@ -12,6 +12,7 @@
             <CustomFiles Include="@(MainFiles)" />
             <CustomFiles Include="$(CustomFolder)\Assets\manifest.json" Condition="Exists('$(CustomFolder)\Assets\manifest.json')" />
             <CustomFiles Include="$(CustomFolder)\Assets\banner.png" Condition="Exists('$(CustomFolder)\Assets\banner.png')" />
+            <CustomFiles Include="$(MSBuildProjectDirectory)\USER_GUIDE_CN.md" Condition="Exists('$(MSBuildProjectDirectory)\USER_GUIDE_CN.md')" />
         </ItemGroup>
 
         <!-- Create directories -->

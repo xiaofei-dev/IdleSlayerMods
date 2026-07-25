@@ -78,9 +78,33 @@ internal sealed class BonusPlatformScanner
 
     internal bool RefreshStaticMap(int sectionIndex)
     {
-        if (mapRegistry.SectionIndex != sectionIndex)
-            ResetForwardClearanceCache($"StaticSectionChanged:{sectionIndex}");
+        if (mapRegistry.Profile != BonusMapProfile.Stage3)
+        {
+            ResetForwardClearanceCache(
+                $"StaticProfileChanged:Stage3:Section={sectionIndex}");
+        }
+        else if (mapRegistry.SectionIndex != sectionIndex)
+        {
+            ResetForwardClearanceCache(
+                $"StaticSectionChanged:{sectionIndex}");
+        }
         return mapRegistry.Refresh(sectionIndex);
+    }
+
+    internal bool RefreshStaticMap(
+        int sectionIndex,
+        BonusMapProfile profile)
+    {
+        if (profile == BonusMapProfile.Stage3)
+            return RefreshStaticMap(sectionIndex);
+
+        if (mapRegistry.SectionIndex != sectionIndex ||
+            mapRegistry.Profile != profile)
+        {
+            ResetForwardClearanceCache(
+                $"StaticProfileChanged:{profile}:Section={sectionIndex}");
+        }
+        return mapRegistry.Refresh(sectionIndex, profile);
     }
 
     internal void ResetStaticMap(string reason)
@@ -201,6 +225,95 @@ internal sealed class BonusPlatformScanner
             candidate.Value,
             playerHalfWidth);
         return wallSurface.Width > 0.05f;
+    }
+
+    /// <summary>
+    /// Resolves the top belonging to a physically touched wall without
+    /// requiring the authored registry. Section transitions can temporarily
+    /// leave the registry Pending while the live CompositeCollider2D is
+    /// already solid. A short set of vertical probes just beyond the observed
+    /// face recovers the lowest climbable top and its live horizontal bounds.
+    /// </summary>
+    internal bool TryFindLiveWallSurfaceAtFace(
+        float faceX,
+        float contactFeetY,
+        float playerHalfWidth,
+        out BonusBoardSegment wallSurface)
+    {
+        wallSurface = default;
+        if (!float.IsFinite(faceX) ||
+            !float.IsFinite(contactFeetY))
+        {
+            return false;
+        }
+
+        int layerMask = ~0;
+        float interiorOffset = Mathf.Clamp(
+            Mathf.Max(0.08f, playerHalfWidth * 0.30f),
+            0.08f,
+            0.30f);
+        float[] probeOffsets =
+        {
+            interiorOffset,
+            Mathf.Max(interiorOffset, 0.35f),
+            Mathf.Max(interiorOffset, 0.65f)
+        };
+        bool found = false;
+        float interiorX = 0f;
+        SurfaceSample selected = default;
+        foreach (float offset in probeOffsets)
+        {
+            float probeX = faceX + offset;
+            foreach (RaycastHit2D hit in GetVerticalHits(
+                         probeX,
+                         contactFeetY,
+                         layerMask))
+            {
+                if (!IsLandingSurface(hit) ||
+                    hit.point.y < contactFeetY + 0.20f ||
+                    hit.point.y >
+                        contactFeetY + MaximumWallClimbStepUp)
+                {
+                    continue;
+                }
+
+                SurfaceSample sample = FromHit(hit);
+                if (found && sample.Top >= selected.Top - 0.01f)
+                    continue;
+
+                selected = sample;
+                interiorX = probeX;
+                found = true;
+            }
+        }
+        if (!found)
+            return false;
+
+        float left = FindBoundary(
+            interiorX,
+            -1f,
+            Mathf.Min(MaximumLookBehind, interiorX - faceX + 0.75f),
+            selected.Top,
+            contactFeetY,
+            layerMask);
+        float right = FindBoundary(
+            interiorX,
+            1f,
+            MinimumLookAhead,
+            selected.Top,
+            contactFeetY,
+            layerMask);
+        // The horizontal wall ray is the stronger left-face authority. A
+        // vertical probe can start slightly inside a bevel, so never report
+        // the recovered top as beginning to the left of that physical face.
+        left = Mathf.Max(faceX - 0.08f, left);
+        wallSurface = EnrichFromStaticMap(
+            BuildSegment(left, right, selected, playerHalfWidth),
+            interiorX,
+            selected.Top,
+            playerHalfWidth);
+        return wallSurface.Width >= 0.75f &&
+               wallSurface.Top >= contactFeetY + 0.20f;
     }
 
     internal BonusBoardSegment[] GetWallExitLandingCandidates(
@@ -1112,7 +1225,7 @@ internal sealed class BonusPlatformScanner
             sample.MapPieceName, sample.MapPieceOriginX);
     }
 
-    private static BonusBoardSegment[] FindAlternativeSurfaces(
+    private BonusBoardSegment[] FindAlternativeSurfaces(
         float sampleX,
         float feetY,
         int layerMask,
@@ -1273,7 +1386,7 @@ internal sealed class BonusPlatformScanner
             .ToArray();
     }
 
-    private static float FindBoundary(
+    private float FindBoundary(
         float startX,
         float direction,
         float maximumDistance,
@@ -1431,7 +1544,7 @@ internal sealed class BonusPlatformScanner
         forwardClearanceStartX = 0f;
     }
 
-    private static float RefineNextBoundary(
+    private float RefineNextBoundary(
         float noSurfaceX,
         float surfaceX,
         float nextTop,
@@ -1456,7 +1569,7 @@ internal sealed class BonusPlatformScanner
         return present;
     }
 
-    private static bool TryFindSupportSurface(
+    private bool TryFindSupportSurface(
         float x,
         float feetY,
         int layerMask,
@@ -1475,7 +1588,7 @@ internal sealed class BonusPlatformScanner
         return bestDistance < float.PositiveInfinity;
     }
 
-    private static bool TryFindSurfaceAtHeight(
+    private bool TryFindSurfaceAtHeight(
         float x,
         float surfaceTop,
         float feetY,
@@ -1496,7 +1609,7 @@ internal sealed class BonusPlatformScanner
         return bestDifference < float.PositiveInfinity;
     }
 
-    private static bool TryFindReachableSurface(
+    private bool TryFindReachableSurface(
         float x,
         float supportTop,
         float feetY,
@@ -1624,7 +1737,7 @@ internal sealed class BonusPlatformScanner
                hit.normal.y >= 0.50f;
     }
 
-    private static SurfaceSample FromHit(RaycastHit2D hit)
+    private SurfaceSample FromHit(RaycastHit2D hit)
     {
         Transform cursor = hit.collider.transform;
         Transform mapPiece = null;
@@ -1636,10 +1749,22 @@ internal sealed class BonusPlatformScanner
             cursor = cursor.parent;
         }
 
-        string mapPieceName = mapPiece != null &&
-            TryNormalizeGroundName(mapPiece.name, out string normalized)
-                ? normalized
-                : "Unknown";
+        string mapPieceName = "Unknown";
+        if (mapPiece != null &&
+            TryNormalizeGroundName(
+                mapPiece.name,
+                out string normalized))
+        {
+            // A Pending Stage-2 registry retains its section while pooled
+            // clones settle, so live geometry keeps the isolated name. Reset
+            // sets SectionIndex to -1 and prevents the profile from leaking
+            // into Stage 1's live-only scan.
+            mapPieceName =
+                mapRegistry.Profile == BonusMapProfile.Stage2 &&
+                mapRegistry.SectionIndex >= 0
+                    ? $"Stage2 {normalized}"
+                    : normalized;
+        }
         float originX = mapPiece != null
             ? mapPiece.position.x
             : float.NaN;

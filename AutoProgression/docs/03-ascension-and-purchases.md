@@ -4,8 +4,7 @@
 
 AutoProgression compares pending Slayer Points with lifetime Slayer Points.
 At the default `50%` threshold, pending points must reach half of lifetime
-points. The check runs immediately after
-enabling and every 5 minutes by default.
+points. The check runs immediately after enabling and every 5 minutes.
 
 Normal Ascension is enabled by default. Optional Ultra Ascension is disabled
 by default and is invoked only after the game's native prerequisite state is
@@ -28,8 +27,8 @@ newest unlocked item and exhausts its valid purchase amount before moving up.
 Purchases are made in supported 10- and 50-level increments rather than a long
 sequence of single levels.
 
-If no equipment meets the minimum purchase threshold for the configured idle
-period, equipment purchasing sleeps temporarily. Skill purchasing continues
+If no equipment meets the minimum purchase threshold for one minute,
+equipment purchasing sleeps for ten minutes. Skill purchasing continues
 during this sleep.
 
 [Back to the Complete Manual](../MANUAL.md)

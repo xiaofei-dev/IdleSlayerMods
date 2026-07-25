@@ -30,11 +30,8 @@ internal static class AscendingHeightsQuickSkipStartingBoostPatch
 {
     [HarmonyPrefix]
     private static void Prefix(
-        AscendingHeightsController __instance,
-        out bool __state)
+        AscendingHeightsController __instance)
     {
-        __state = false;
-
         // Practice starts can enter StartBonus without going through the
         // regular pre-modal path. Make the mode decision and apply the finish
         // distance here as well, before StartBonus caches its target and
@@ -49,38 +46,78 @@ internal static class AscendingHeightsQuickSkipStartingBoostPatch
             return;
         }
 
-        Divinity higherAltitudes =
-            Divinities.list?.HigherAltitudes;
-
-        if (higherAltitudes == null ||
-            !higherAltitudes.unlocked)
-        {
-            return;
-        }
-
         // The vanilla Higher Altitudes divinity injects +1000 starting
         // distance. Cross-TM compensates by using -975, which works but also
-        // exposes a negative target. Suppress the injection only while the
-        // run is initialized, then restore the real unlock immediately.
-        higherAltitudes.unlocked = false;
-        __state = true;
+        // exposes a negative target. Suppress only StartBonus's read of this
+        // divinity. Never mutate the persistent unlock state: the game UI or
+        // save system could otherwise observe the temporary false value.
+        QuickSkipHigherAltitudesReadScope.Begin();
     }
 
     [HarmonyPostfix]
-    private static void Postfix(bool __state)
+    private static void Postfix()
     {
-        if (!__state)
+        QuickSkipHigherAltitudesReadScope.End();
+    }
+
+    [HarmonyFinalizer]
+    private static void Finalizer()
+    {
+        QuickSkipHigherAltitudesReadScope.End();
+    }
+}
+
+internal static class QuickSkipHigherAltitudesReadScope
+{
+    private static Divinity higherAltitudes;
+
+    internal static bool Active { get; private set; }
+
+    internal static void Begin()
+    {
+        End();
+
+        Divinity candidate = Divinities.list?.HigherAltitudes;
+        if (candidate == null || !candidate.unlocked)
         {
             return;
         }
 
-        Divinity higherAltitudes =
-            Divinities.list?.HigherAltitudes;
+        higherAltitudes = candidate;
+        Active = true;
+    }
 
-        if (higherAltitudes != null)
+    internal static bool IsHigherAltitudes(Divinity candidate)
+    {
+        return Active &&
+               candidate != null &&
+               higherAltitudes != null &&
+               candidate.Pointer == higherAltitudes.Pointer;
+    }
+
+    internal static void End()
+    {
+        Active = false;
+        higherAltitudes = null;
+    }
+}
+
+[HarmonyPatch(typeof(Divinity), "get_unlocked")]
+internal static class QuickSkipHigherAltitudesUnlockedReadPatch
+{
+    [HarmonyPrefix]
+    private static bool Prefix(
+        Divinity __instance,
+        ref bool __result)
+    {
+        if (!QuickSkipHigherAltitudesReadScope.IsHigherAltitudes(
+                __instance))
         {
-            higherAltitudes.unlocked = true;
+            return true;
         }
+
+        __result = false;
+        return false;
     }
 }
 

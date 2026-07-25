@@ -28,6 +28,9 @@
 # Local logs and temporary files
 *.log
 *.tmp
+*.pyc
+**/__pycache__/
+**/*_events.txt
 **/NexusPage.txt
 *.pdb
 *.nupkg

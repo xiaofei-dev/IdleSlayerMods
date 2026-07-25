@@ -3,7 +3,7 @@
   "author": "Tashi",
   "version": "1.0.0",
   "description": "Part of Tashi's full automation suite. Automatically plays and completes Bonus Stages with precise jump timing, automatic start and retry, and Spirit Boost support without skipping the stage.",
-  "nexus_id": "",
-  "donate_url": "",
-  "github_url": ""
+  "nexus_id": "46",
+  "donate_url": "https://www.paypal.com/donate/?business=HK85PL8AREEXY&no_recurring=0&currency_code=USD",
+  "github_url": "https://github.com/xiaofei-dev/IdleSlayerMods/tree/main"
 }

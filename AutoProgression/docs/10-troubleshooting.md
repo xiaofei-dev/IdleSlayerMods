@@ -14,8 +14,8 @@ check the shared maximum duration and the global Jewel-material option.
 ## Automatic Ascension is delayed
 
 Verify pending versus lifetime Slayer Points, the configured percentage, and
-the check interval. Enabling performs one immediate check; later checks use the
-configured schedule.
+the stable central gameplay state. Enabling performs one immediate check;
+later checks use the fixed five-minute interval.
 
 ## Quest claiming or rerolling is delayed
 

@@ -1,5 +1,576 @@
 # AutoBonusRunner Routing Algorithm
 
+## V1.21 complete Ground-1 arch coverage
+
+Ordinary Stage-2 Section 3 gives the repeated `Stage2 Ground 1` module an
+authoritative objective contract only while its exact 15-point soul arch is
+active. Recognition accepts a registered Ground-1 S0 in `Current`, `Next`,
+or `Alternatives`. If the live composite collider temporarily hides that
+module at the preceding Ground-6 S2 seam, its origin is derived as
+`Ground6Origin+24`; active objectives must still match the authored local
+X/Y signature before the contract is admitted.
+
+Candidate generation remains bounded and elevation-driven. The five high
+souls produce the trajectory events and broad-phase checks, while three
+analytic launch anchors around local X `-8` are retained inside, not added
+to, the existing eight-candidate hold budget. Every selected candidate still
+passes the same hazard, landing, speed-envelope, and exact trajectory
+validation.
+
+Only the final utility changes for this shape. It is the de-duplicated union
+of:
+
+1. grounded-body intersections from the live player X to launch;
+2. exact trajectory intersections from launch to landing; and
+3. grounded-body intersections from landing through the flat local `+4`
+   tail.
+
+A comfortable candidate with more complete-lane coverage always beats one
+that merely intersects the same five high objectives. Equal-coverage future
+candidates prefer the center of the complete-coverage corridor; an equally
+useful live candidate owns the immediate tie. The local execution tolerance
+is at least 60 percent of one measured fixed-step travel interval so a
+`0.32`-wide global window cannot be stepped over at the observed ordinary
+speed. This tolerance and ranking are disabled outside the exact ordinary
+Stage-2 Section-3 arch.
+
+Diagnostics start with `Stage2Ground1SoulArch` and report `Active`,
+`ElevatedAhead`, `PassiveAhead`, `WholeLaneCoverage`, and
+`WholeLaneBest`. `ExpectedSphereHits` remains the jump-trajectory high-soul
+count so attempt feedback is not inflated by souls intentionally collected
+after landing.
+
+## V1.20 Ground-6 exit to Ground-1 objective handoff
+
+Ordinary Stage-2 Section 3 repeats the typed sequence `Ground 1 -> Ground 6
+-> Ground 1`. Ground-6 S2 and the following Ground-1 S0 have equal top
+height and a zero-width authored seam. Unity exposes them through one
+expanding composite support, while static enrichment may still label that
+support as Ground-6 S2 for the first grounded planning steps after the
+shallow-recess jump.
+
+V1.20 treats that observation as a Ground-1 objective lane only after all of
+the following are proved:
+
+- the Stage-2 live topology profile is active in ordinary Section 3;
+- current support is registered Ground-6 S2 with a finite prefab origin;
+- the body remains inside Ground-6's canonical `origin+2..origin+12` exit;
+- a registered Ground-1 S0 exists in `Next` or `Alternatives`, in the same
+  registry generation and at the same top;
+- its prefab origin is exactly one 24-unit stride after Ground 6, making
+  `Ground6 origin+12` and `Ground1 origin-12` the same seam; and
+- at least one elevated active sphere remains in Ground 1's authored local
+  `x=-10..+4` arc.
+
+Only that arc's objectives are passed to `TryPlanStage2FlatSoulLaneFast`.
+The existing bounded candidate generator, authoritative hazard/landing
+proofs, comfortable-landing requirement, and fresh fixed-step proof before
+DOWN remain unchanged. In the retained fixture the immediate one-hit generic
+jump becomes a WAIT for the five-hit `0.020-0.040s` window. Diagnostic
+evidence begins with `Stage2Ground6ExitToGround1SoulLane`.
+
+This typed handoff also replaces a `29.6-41.7 ms` generic route proof with
+the existing bounded flat-lane path. No cache can authorize input, and the
+Ground-6 shallow-depression trajectory itself is not changed.
+
+## V1.19 Stage-2 ordinary Ground-4 rising stair contact
+
+V1.19 fixes the ordinary Stage-2 Ground-4 soul-deck entry without changing
+global jump timing. Five repeated copies of the typed route exposed two
+separate errors:
+
+- the generic upper-face solver considered rising and descending contacts at
+  nearly the same height equivalent, then preferred the later contact time;
+- the second-stage preview interpreted the Ground-4 S0 road underneath the
+  first stair as its forward exit, which prevented the rising static chain
+  from owning the climb.
+
+The route gate remains the existing authored identity: Stage-2 live topology,
+Section 0 or 1, ordinary speed, current Ground-4 S0, first adjacent S1 wall,
+active objectives on the same-instance S4 deck. Inside only that gate,
+`PlanWallApproach` now requires predicted vertical contact velocity to remain
+at least `+0.50`. Launch X is still calculated from live horizontal speed and
+the selected contact time. This removes the early descending solution rather
+than adding an absolute map coordinate or input delay.
+
+At wall contact, a same-instance Ground-4 S1/S3 preview that points back to
+the horizontally containing S0 road is rejected. Static rising-chain capture
+then selects the forward upper support instead. The diagnostic proof is:
+
+- `ContactPhase=RisingRequired` with positive `ContactVY` and
+  `LiveContactVY`;
+- `WallExitPreviewRejected Reason=Stage2Ground4UnderlyingRoadIsNotStairSuccessor`;
+- a following `WallChainTargetCaptured` instead of an S0
+  `WallExitTargetCaptured`.
+
+Spirit Boost, Stage 1, Stage 3, other Stage-2 map pieces, and the generic wall
+approach/contact bands do not enter either new condition.
+
+## V1.18 Stage-2 ordinary low-route generation handoff
+
+V1.18 fixes the remaining ordinary Stage-2 Section-1 failure without changing
+the selected route or jump timing. A committed Ground-3 S0-S3 low landing can
+remain valid while the live Stage-2 registry advances to a newer generation
+as pooled coverage changes. The physical S4/S5 overhead lookup then belongs to
+the same prefab instance and placement, but V1.17 rejected it solely because
+the two observations carried different global generation numbers.
+
+Runtime contact correlation now retries that exact typed relationship after
+rebasing only the committed target's generation. The rebase is legal only
+when both generations are positive, the observed generation is newer, the
+nonzero map-piece instance is identical, and the prefab origins differ by no
+more than `0.15`. The existing Ground-3 names, low/high surface roles,
+ten-unit height relation, absent authored wall face, safe predicted landing,
+horizontal flight contract, released input, and contact-band checks all still
+have to pass. The planner's snapshot-level generation rule remains unchanged.
+
+Successful evidence is
+`Stage2LowRouteOverheadContactPreserved GenerationRebased=True`. No wall pulse
+is issued; the original low landing completes and fixed-step ground planning
+resumes immediately. This prevents the former rejected wall pulse and
+`0.35s` cooldown from walking off the three-unit landing support.
+
+## V1.17 Stage-2 closed-loop corrections
+
+V1.17 separates three failure domains that previously looked like one bad
+jump.
+
+For ordinary Stage-2 Section 1, a non-wall `GroundJumpToLanding` keeps
+ownership when the body is descending through the left face of a same-instance
+Ground-3 S4/S5 overhead surface while its target is Ground-3 S0-S3. The
+typed identity, ten-unit vertical relationship, planned low safe
+corridor, horizontal flight contract, and contact band must all match.
+`Stage2LowRouteOverheadContactPreserved` consumes the observation before the
+generic Stage-2 wall adopter can see it. It sends no input and changes no
+learning or control state.
+
+For a non-wall automatic jump, response validation compares the stored
+takeoff velocity with the plan snapshot instead of accepting every
+`VY > 5`. A severe partial impulse is recorded by
+`AutomaticJumpPartialImpulse`; its ballistic trajectory becomes incompatible,
+but the same flight remains owned. If it later descends into the exact mapped
+target face, unexpected-contact promotion runs before pit confirmation and
+hands the physical face to the existing wall executor.
+
+For Spirit Stage-2 Section 1, the exact same-instance Ground-3 S0-to-S2
+stepping stone is protected only when all of these are proved: a native
+`<=0.040s` ground jump, adjusted landing safety no worse than the existing
+small uncertainty tier, a raw landing margin at least one physics step wide,
+and a verified continuation containing `Stage2LowCorridorWallCatch`. This is
+a two-action route proof, not an absolute-coordinate override. A farther S3
+candidate cannot replace it merely because its wide top receives a larger
+generic safety score.
+
+Scene-object inventory is section-root scoped. The first build reads
+`BonusSphere` and `SpiritBoost` components from
+`All Pools/Bonus Map Level N` with inactive children included. That complete
+pooled inventory remains valid as rows activate, so an empty forward window
+does not authorize another hierarchy or scene scan. Logs identify
+`InventorySource=SectionRootIncludingInactive`; a scene-wide active fallback
+is legal only while the expected hierarchy is unavailable.
+
+## V1.16 completed passive-wall target handoff
+
+A passive wall route must not remain an input owner after the player has
+already reached its target top. V1.16 applies this invariant to the proven
+ordinary Stage-2 Section-1 `Stage2 Ground 4` surface-4 failure domain before
+the fixed-step ground-planner gate.
+
+The handoff is legal only while the old owner is `EnteringTrench`, automatic
+prediction remains active after its learning sample has closed, no input is
+held, no wall pulse or contact was observed, and no exit-face, mandatory-face,
+objective-descent, pillar-sink, or residual-rise contract is active. The
+player must then spend two consecutive distinct physics steps grounded with
+near-zero vertical velocity on a scanned support that matches the automatic
+target's typed identity, top, and horizontal body overlap. A live touching
+wall rejects the handoff.
+
+On confirmation, `ResetAutomaticControlState` closes the entire stale wall
+epoch, clears its prediction and route lock, and re-arms terrain planning
+without a cooldown. Control then falls through to
+`TryExecuteLandingFirstGroundFixedStep` in the same physics step. The existing
+planner decides whether to wait or jump; this correction neither synthesizes
+a jump nor changes any hold, speed, landing, or objective score.
+
+Required runtime evidence is one
+`PassiveWallTargetLandingHandoff` record with `StableFixedSteps=2`,
+`Section=1`, and `SpiritBoost=False`, followed by normal fixed-step routing
+before the old deck edge. The prior `WallDropRouteAborted` at approximately
+one second must not recur for this target. No such handoff marker may appear
+in Stage 1, Stage 3, Spirit Boost, active wall contact, or a genuine climb.
+
+## V1.15 Stage-2 Section-1 trigger-timing envelope
+
+V1.15 corrects one false `ExpectedSpeedBoostHits=0` classification without
+changing jump-distance calibration. The policy is enabled only when all of
+the following are true:
+
+- the Stage-2 live-topology profile is active in Section 1;
+- Spirit Boost kinematics and an uncollected typed trigger are available;
+- the source is `Stage2 Ground 4` surface 0;
+- the target is the level `Stage2 Ground 3` surface-1 three-unit platform
+  across the authored four-unit gap; and
+- the trigger overlaps the grounded body band at the source's right edge.
+
+For that route, `BuildSpiritBoostTrajectoryTrace` retains the learned input
+delay as the nominal vertical path and also evaluates trigger overlap with an
+input-delay floor of two native fixed steps. This second path affects only
+trigger collision. It does not change the no-pickup flight time, landing
+calibration, hold duration, or trajectory clearance. If either vertical path
+can overlap the trigger, the pickup trace resets to maximum boost and the
+existing slow/fast landing proof must contain both endpoints.
+
+The same delay floor is passed through the three-point launch search and
+re-evaluated at the live body position immediately before DOWN. Thus a cached
+WAIT plan cannot send the old low jump after the trigger geometry or launch
+position changes. Diagnostics include
+`Stage2Section1Ground4TriggerTiming[NominalDelay=...,DelayFloor=...,DelayedOnlyHits=...]`
+and the enclosing `TriggerDelayFloor=.../...` speed-envelope field.
+
+## V1.14 Stage-2 completion margin and shallow-depression routing
+
+V1.14 addresses the four objective-margin failures visible in the complete
+V1.13 ordinary Stage-2 trace while leaving the Stage-1, Stage-3, and Spirit
+route policies unchanged.
+
+In Sections 0 and 1, an active `Stage2 Ground 4` upper soul deck retains its
+authored first stair. The exact adjacent-wall entry now uses the existing
+speed-proved wall approach instead of passively running below the stair.
+In Section 2, equally useful and already-comfortable flat-lane soul plans
+prefer an executable current launch, then an earlier launch, over fractional
+extra landing margin. The complete comfortable-margin requirement remains
+unchanged.
+
+Section 3 recognizes only the same-instance `Stage2 Ground 6` sequence
+`S1 -> S0 -> S2`: a four-unit depression one unit below two level shoulders.
+It constructs canonical bounds from the prefab origin and solves one early
+ground jump through the elevated soul arc to `S2`. Later equal-height
+`Stage2 Ground 1` merging can no longer move the landing target or turn this
+small recess into a generic gap. The special route requires active elevated
+objectives and ordinary Stage-2 Section 3, so it cannot affect Spirit or any
+other stage.
+
+The grounded WAIT cache may keep that ordinary Section-3 plan when the only
+objective change is removal of souls already behind the player's body. New
+or forward objectives, speed, physics, hazard, support, target, or trigger
+changes still invalidate immediately, and reaching the replan boundary still
+forces a full live proof before input. This removes repeated 7-10 ms route
+searches without allowing cached jump commands.
+
+Expected diagnostics include `Stage2Ground4SoulDeckProactiveEntry`,
+`ImmediateComfortablePriority=True`,
+`Stage2Ground6ShallowDepressionSoulSweepSelected`, and
+`PassedObjectivesRemoved`.
+
+## V1.13 Stage-2 causal correction
+
+V1.13 corrects four independent Stage-2 failures without changing the
+Stage-1 or Stage-3 route policies.
+
+First, one physics tick now owns one authoritative Stage-2 ground plan. The
+movement prefix reads sequence `N`, physics feedback advances it to `N+1` in
+the postfix, and the render loop suppresses its duplicate plan for `N+1`.
+A rejected zero-VX wall intercept deliberately leaves that marker unset so
+the render-side two-physics-step body-contact fallback can still acquire the
+wall. This removes the ordinary Stage-2 double scan and trajectory proof that
+was visible as repeated main-thread planning spikes.
+
+Alternative landings use a Stage-2-only broad phase. Its upper bound runs all
+nine native hold tiers through the same flight-scale, duration-feedback,
+travel, and landing-bias pipeline as the full planner, so it rejects only a
+ballistically impossible candidate before the expensive trajectory proof.
+Stage-1/3 Spirit routing keeps its previous maximum-hold broad phase.
+
+Second, an ordinary Section-1 landing candidate is discarded when its launch
+window is already behind the player and its exact live proof did not authorize
+an immediate jump. A stale nominal plan can therefore no longer outrank the
+shorter hold whose launch window is still physically reachable.
+
+Third, exact authored surface roles now participate in topology:
+
+- `Stage2 Ground 3` surfaces 0-3 are the low landing route. Exact same-instance
+  surfaces 4-5, ten units above them and without a verified wall face, are
+  overhead platforms and cannot masquerade as intermediate walls while the
+  flight crosses the underpass.
+- In ordinary Section 1, active souls attached to `Stage2 Ground 4` surface 4
+  retain the live one-unit first stair instead of replacing it with the
+  continuous lower support. Only souls in the deck's own vertical band count;
+  the lower-road soul cannot force an empty-deck climb. The shared stair/wall
+  planner can therefore climb to the soul deck.
+
+Continuation recursion carries the Stage-2 profile through every projected
+landing, so the same expired-window, surface-role, and broad-phase rules govern
+both the immediate action and its viability proof.
+
+Finally, a measured wall face matching the exact active face latch within
+`0.25` units is idempotent evidence. Re-observing that face no longer releases
+the current hold or resets its phase; any genuinely different face may still
+rebase the route even when it lies inside a prior platform's broad bounds.
+This fast path is restricted to Stage-2 Section 1. The expected diagnostics are
+`Stage2OrdinaryExpiredLaunchRejected`,
+`Stage2Ground3OverheadIgnored`, `Stage2Ground4SoulDeckRouteRetained`, and
+`Stage2PhysicalWallAlreadyOwned`.
+
+## V1.12 Stage-2 systemic routing profile
+
+V1.12 gives Stage 2 its own typed, authored map profile instead of treating
+its repeated staircase pieces as transient collider fragments. The registry
+aligns the extracted three-piece cycle for the active section to the live
+24-unit object-pool translations. Authored local surfaces supply stable
+support, stair, tunnel, and wall-top geometry; live colliders remain
+authoritative for the current transform, talent-dependent additions, and
+physical contact. A temporarily incomplete pool is `Pending`, not an excuse
+to reuse a stale clone transform.
+
+This profile is isolated behind `BonusMapProfile.Stage2` and the
+`UsesStage2LiveRouting` gate. Stage 1 retains its live-only scanner and raw
+`Ground N` names. Stage 3 retains its existing authored templates and cycle.
+Stage-2 live names use the `Stage2 Ground N` namespace, and resetting the
+registry restores the Stage-3/default namespace before any Stage-1 scan can
+occur. No Stage-2 route changes a Stage-1 or Stage-3 template, cycle, hold
+tier, or planner policy.
+
+### Bounded flat-lane soul planner
+
+Completely flat, at-least-18-unit supports from `Stage2 Ground 1` use a
+soul-first bounded planner. While the registry is pending, an `Unknown`
+support may use the same path only in Stage-2 Sections 2/3, where the
+extracted cycles contain Ground 1 and the live scan has proved one continuous
+flat support at least 18 units wide. Ground 4's staircase route is excluded.
+The planner constructs candidate launch events from the current position,
+safe landing bounds, and fixed-count samples of the slow trajectory's sphere
+overlap intervals. It does not perform the former `0.12`-unit exhaustive
+launch sweep.
+
+Each native hold tier contributes at most 8 selected launch candidates, and
+one plan performs at most 72 authoritative slow/fast validations. Candidate
+generation is also capped at 64 events per hold across at most 24 objectives
+and 20 vertical interval samples. Its pre-ranker uses one linear crossing
+estimate, one secant correction, and three pickup-window points per
+candidate/objective; it contains no per-candidate iterative root solve and
+cannot skip a narrow sphere merely because Spirit speed crosses it between
+fixed time samples.
+Every surviving candidate still passes the existing speed envelope, boost,
+trajectory, hazard, and landing-margin proofs. Ranking is:
+
+1. complete comfortable landing reserve;
+2. predicted soul intersections;
+3. predicted speed-boost intersections;
+4. worst-case landing safety;
+5. shortest wait to the launch event.
+
+Below the comfortable reserve, landing margin stays ahead of pickup count.
+This keeps genuinely flat terrain focused on collectible utility without
+turning a model-valid edge landing into the preferred route.
+
+### One physical wall and stall owner
+
+Stage-2 route evidence may explain why the player reached a wall, but it no
+longer owns a separate jump executor. When the body is genuinely stopped
+against an observed face, the controller releases an interrupted stale hold,
+rebases the attempt to the measured physical wall and its resolved top, and
+hands control to the shared bounded wall-recovery state machine. The removed
+path could fabricate a 30-unit downstream support, issue fixed
+`0.08/0.12 s` pulses, and remain active after its pulse budget was exhausted.
+
+The shared grounded-stall watchdog now defers wall-top resolution until the
+same face, grounded body, near-zero velocity, and no more than `0.08` X /
+`0.10` Y positional drift have persisted for three distinct physics steps.
+Normal movement, airborne motion, manual input, reward control, retry UI,
+pit recovery, or an already valid wall owner clears or blocks this evidence.
+The same mechanism therefore handles ordinary stairs, repeated wall
+contacts, and post-completion terrain instead of maintaining a
+coordinate-specific Stage-2 controller.
+
+Expected diagnostics are:
+
+- `Stage2StaticMapRegistry`: authored cycle alignment, generation, local
+  coverage, and `Pending` reason;
+- `Stage2FlatSoulLaneFast`: generated, selected, exact, and safe candidate
+  counts plus soul/boost utility;
+- `MovementStallDetected`: the three-step physical stall proof and recovery
+  result;
+- `Stage2PhysicalWallUnified`: stale plan ownership, observed face, hold
+  interruption, and transfer to the shared wall executor.
+
+## V1.11 stale automatic wall-plan takeover
+
+At the Stage-2 completion staircase, a completed
+`Stage2UnmappedWallIntercept` sample could remain active after the body landed
+flush against an earlier physical face. The shared stall proof incorrectly
+treated any active learning sample or prediction as an owner, even when that
+owner was automatic and demonstrably stale. V1.11 preserves the block for
+manual samples but permits three fixed steps of grounded, zero-speed,
+physically touching evidence to replace an automatic prediction. The existing
+reactive rebase then ends the stale sample, resolves the immediate live wall
+top, and issues the normal wall pulse. Repeated landing-deferral diagnostics
+are limited to four per second while the proof is pending.
+
+## V1.10 IL2CPP registration hotfix
+
+V1.09 added a managed helper with `out BonusBoardSegment` and `out string`
+parameters to the injected runtime type but did not mark that helper with
+`HideFromIl2Cpp`. `ClassInjector` therefore failed before
+`AutoBonusRunnerRuntime` could be created, so no terrain route—including
+previously mature routes—could issue input. V1.10 hides that managed-only
+signature from IL2CPP. Route selection and jump timing are unchanged from
+V1.09.
+
+## V1.09 Stage-2 Spirit routing and shared physical recovery
+
+Stage-2 Spirit routing no longer treats every level seam narrower than the
+player bounds as runnable. The existing geometric body-width limit remains
+unchanged on Stage 1, Stage 3, and ordinary Stage 2. Only Stage-2 Spirit mode
+adds a fixed-step contact limit:
+
+`runnableGap = min(geometricLimit, abs(VX) * fixedDeltaTime + 0.08)`.
+
+A wider seam must retain a proved jump instead of being suppressed by
+`WalkableMicroGap`. The selected jump still passes the existing trajectory,
+hazard, target-fit, and landing-safety checks.
+
+The Stage-2 Spirit WAIT cache now accepts
+`ApproachingStage2SpiritRisingStair`. It may reuse an input-free plan while
+the native Spirit component decays monotonically, but any boost increase,
+physics revision, sphere progress, objective inventory, hazard, trigger, map,
+section, or target change invalidates it. Cache reuse can never issue DOWN.
+The controller rebuilds a full slow/fast proof at least two physics advances
+before the cached launch.
+
+Wall correction is now a shared physical fallback rather than a Stage-2
+coordinate route. Three distinct grounded physics steps with near-zero
+velocity, the same touching forward face, no reward-target latch, and a
+climbable top authorize recovery. The top is resolved first from the authored
+registry and then, when the registry is temporarily Pending, from vertical
+live-collider probes just beyond the touched face. `MovementStallDetected`
+records the complete proof and the issued pulse. Normal forward motion,
+airborne motion, manual input, reward control, retry UI, pit recovery, and an
+already-owned wall route all reset or block this evidence.
+
+## V1.08 grounded adjacent-wall contact authority
+
+Stage 2 can expose a nearly gapless rising staircase through one composite
+collider. After a correct approach jump, the player may be stably grounded on
+the narrow lower top with zero horizontal velocity while the body is flush
+with the next vertical face. The forward ray can still report
+`NoForwardWallHit`. Waiting for the nominal `ArmX` is then impossible because
+the same wall has already stopped horizontal movement.
+
+V1.08 promotes this state only after the existing route planner has selected
+`EnterTrenchThenWallJump` for an `AdjacentWall`. The player must be grounded,
+both velocity components must be inside the stationary limits, the feet must
+match the scanned current support, the next support must be raised, and the
+measured collider front must be within `-0.10..+0.10` of the scanned face for
+two distinct physics steps. This complete proof is shared by both the
+zero-speed route gate and the wall executor. It authorizes the existing
+bounded, height-solved wall pulse; it does not manufacture a blind ground
+jump or replace the selected target.
+
+`Stage2GroundedWallStallRecovered` records the source, target, player bounds,
+face gap, stable-step count, failed ray result, and route identity. Losing any
+part of the proof resets the evidence before input can be issued.
+
+## V1.07 repeated-cross segment utility
+
+The cross obligation is evaluated over the complete repeated module, not only
+over the five airborne spheres. The module contains three ground spheres
+before the cross. An early same-target jump can intersect the cross but skip
+those three, yielding no net gain.
+
+For this exact ordinary Stage-1 Section-2 fixture, the final fixed-step route
+selector bypasses its WAIT cache and compares verified route objective sets.
+A downstream landing may replace the nearest cross support only when its
+trajectory clears every observed intermediate surface, its continuation is
+verified, and it guarantees strictly more currently active objectives. The
+observed winning route walks through the ground row, uses the existing
+`0.120 s` cross trajectory, and lands on the next two-unit support. V1.06's
+immediate same-target commitment is removed; if no downstream net-gain proof
+survives the live snapshot, generic survival ranking remains authoritative.
+
+## V1.06 mandatory pickup launch-window ownership
+
+V1.05 reached the authoritative fixed-step planner, but a second ranking
+problem remained inside that planner. On the repeated cross, a medium/long
+hold could be executable now and intersect a sphere while a short hold could
+land nearer the narrow support centre only after waiting. Generic safety
+ranking chose the future short hold. The wait then consumed the only
+pickup-capable launch window, so the final short jump correctly landed but
+collected nothing.
+
+The planner now exposes an opt-in `commitExecutableMinimumSphereHit` policy.
+It is enabled only for the recognized ordinary Stage-1 Section-2 cross and
+only after the caller fixes the same landing target and requires one predicted
+hit. An executable qualifying candidate outranks a non-executable WAIT
+candidate; candidates still must clear terrain and retain a valid landing on
+that exact target. Ranking between all other routes and holds is unchanged.
+
+## V1.05 authoritative fixed-step cross ownership
+
+The V1.04 latch reached the render-frame planner, but the pre-movement
+`FixedUpdate` controller independently rebuilt the route immediately before
+issuing DOWN. That authoritative rebuild could replace a prepared `0.040 s`
+cross command with the ordinary `0.020 s` landing command.
+
+V1.05 applies the latched same-target minimum-one proof inside that final
+fixed-step rebuild. A valid cross command now owns the exact plan passed to
+the input controller. The committed event is emitted only after the input
+controller accepts DOWN. Ordinary routing remains the fallback if the same
+narrow target no longer has a safe pickup-intersecting command.
+
+## V1.04 latched cross command ownership
+
+The exact ordinary Stage-1 cross detector now latches the cross centre and its
+two-unit landing support when the complete seven-unit source geometry is
+visible. That latch remains authoritative while the runner approaches the
+same support. A later live scan may clip the left side of the moving source
+platform, but it cannot silently remove the pickup priority before DOWN.
+
+The latch is still bounded: it applies only to the same target geometry, the
+same map/section, ordinary mode, and a fully valid same-target plan. It clears
+after the target is passed or the lifecycle changes. The original survival
+plan remains the fallback. `Stage1Section2CrossSpherePriorityCommitted`
+records the hold and predicted hits at the executable launch window, rather
+than only reporting an early look-ahead decision.
+
+## V1.03 safe cross priority with survival fallback
+
+The repeated ordinary Stage-1 five-sphere cross is a pickup priority inside
+the already selected route, not a route-topology constraint. The normal
+reachable-route selector runs unchanged. On the exact cross-bearing
+road-to-narrow-stone module, a second plan may replace the normal command only
+when the same target has a fully valid landing and predicts at least one
+sphere intersection. If no such command exists, the original route is
+executed unchanged.
+
+This makes "touch at least one of five" a repeated safe preference. It may
+change hold or launch timing on the same target, but it cannot discard the
+first narrow support, force a downstream target, turn a valid original plan
+into `NoVerifiedLaunchWindow`, or authorize an unsafe jump.
+
+## V1.02 robust cross guarantee
+
+This strategy was rejected by the V1.02 gameplay trace. Requiring three
+modeled hits while forbidding the first narrow support produced
+`NoVerifiedLaunchWindow` at all three repeated crosses and removed the valid
+survival route.
+
+For the repeated ordinary Stage-1 cross only, the first narrow stone carrying
+the cross cannot be the selected terminal support. The selector must choose a
+verified downstream support and model at least three cross intersections.
+Three is an execution margin for the user-visible requirement of one real
+pickup; it compensates for the demonstrated optimistic trigger edge and
+fixed-step launch translation. Landing, intermediate clearance, continuation,
+and hazard proofs remain prior constraints.
+
+## V1.01 repeated cross selection
+
+The minimum-objective requirement is established on the observed
+seven-unit-road to two-unit-stone scan before `SelectReachableRoute`.
+`minimumSphereHits=1` is passed into immediate, projected-edge, and downstream
+candidate plans. Consequently an otherwise safe zero-hit narrow landing
+cannot prevent evaluation of a farther safe landing that intersects the live
+cross. The recognition repeats for every unit-cross centre and every life.
+
 ## V1.00 minimum-objective route constraint
 
 The generic ballistic planner accepts an optional minimum live-sphere
@@ -12,16 +583,14 @@ The only V1.00 caller is ordinary Stage 1 code Section 2. It activates after
 all of these live facts agree:
 
 1. map identity is `map_bonus_stage_1`, Section `2`, without Spirit Boost;
-2. current and destination roads are each approximately seven units wide,
-   level, and separated by `12..14` units;
-3. a level `1.5..2.5`-unit intermediate stone is present; and
+2. the current road is approximately seven units wide and the next level
+   stone is `1.5..2.5` units wide across a `3.5..4.5`-unit opening; and
 4. five active `BonusSphere` coordinates contain a centre plus neighbours at
    left, right, above, and below by one unit.
 
-The resulting plan must predict at least one sphere hit. If no proved
-candidate satisfies it, the existing plan is retained and
-`Stage1Section2CrossSphereMinimumUnavailable` records the failure; the
-controller does not issue an unproved jump.
+The resulting plan must predict at least one sphere hit. If the immediate
+stone cannot satisfy it, reachable downstream supports remain eligible; the
+controller still does not issue an unproved jump.
 
 ## V0.99 authored Stage-3 wall-contact continuity
 

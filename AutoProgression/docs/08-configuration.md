@@ -1,72 +1,72 @@
 # Configuration Reference
 
-The configuration schema is version 31. Entries are grouped by purpose.
-Routine scheduling details are managed internally so the file focuses on
-choices that affect progression, resources, or feature behavior.
+AutoProgression 2.0 uses configuration schema 31. The generated file is:
 
-## General and Ascension
+```text
+%LOCALAPPDATA%\IdleSlayerModManager\ModLoader\UserData\AutoProgression.cfg
+```
 
-| Setting | Default | Meaning |
-|---|---:|---|
-| Debug Mode | `false` | Enables detailed diagnostic logs. |
-| Automatic Ascension Enabled | `true` | Allows normal Ascension. |
-| Automatic Ultra Ascension Enabled | `false` | Major reset: Ultra Ascends after native requirements and at least 24 Astral Keys. |
-| Soul Bonus Threshold Percent | `50` | Required pending-to-lifetime SP percentage. |
-| Buy Skills After Automatic Ascension | `true` | Spends remaining SP after an automatic Ascension only; manual Ascension is unaffected. |
+Routine polling and sleep intervals are managed internally so the public
+configuration focuses on progression, resources, and feature behavior.
 
-Ascension is checked immediately when automation is enabled and then every five
-minutes.
-
-## Premium Currency and Eggs
+## General
 
 | Setting | Default | Meaning |
 |---|---:|---|
-| Use Paid 500x Bonuses | `false` | Buys Souls and CpS 500x effects with Jewels of Soul. |
-| Egg Opening Enabled | `false` | Master switch for background Dragon and Simurgh Egg opening. |
-| Dragon Egg Reserve Amount | `300` | Eggs kept unopened while egg opening is enabled. |
-| Simurgh Egg Reserve Amount | `10` | Eggs kept unopened while egg opening is enabled. |
+| Configuration Version | `31` | Internal migration value. Do not edit. |
+| Debug Mode | `false` | Adds detailed subsystem diagnostics and aggregated activity summaries. |
+
+## Ascension
+
+| Setting | Default | Meaning |
+|---|---:|---|
+| Automatic Ascension Enabled | `true` | Performs normal Ascension at the configured threshold while `T` is active. |
+| Automatic Ultra Ascension Enabled | `false` | Major reset. Requires native eligibility and at least 24 Astral Keys. |
+| Soul Bonus Threshold Percent | `50` | Required pending-to-lifetime Slayer Point percentage for normal Ascension. |
+| Buy Skills After Automatic Ascension | `true` | Uses Ascension-tree Buy All after an automatic normal Ascension only. |
+
+The threshold is checked immediately when `T` is enabled and every five
+minutes afterward.
+
+## Purchases
+
+| Setting | Default | Meaning |
+|---|---:|---|
+| Skills Enabled | `true` | Buys eligible and affordable shop skills every five seconds while `T` is active. |
+| Equipment Enabled | `true` | Buys levels for unlocked normal equipment, newest first. |
+| Disable Vertical Magnet Upgrades | `true` | Blocks two unwanted Random Box vertical magnet upgrades from automatic and manual purchase, independently from `T`. |
+
+The equipment buyer sleeps for ten minutes after one minute without an
+eligible bulk purchase. Skill purchasing continues during that sleep.
+
+## Paid Bonuses
+
+| Setting | Default | Meaning |
+|---|---:|---|
+| Use Paid 500x Bonuses | `false` | Spends Jewels of Soul to maintain both Souls and CpS 500x effects. |
 
 ## Minions
 
 | Setting | Default | Meaning |
 |---|---:|---|
-| Auto Claim and Send | `true` | Claims completed unlocked Minion missions and sends affordable missions again. |
-| Automatic Maximum-Level Prestige | `false` | Automatic prestige processes Minions with `maxLevel >= 70`; manual prestige uses maximum level for every Minion and is independent from `T`. |
+| Auto Claim and Send | `true` | Claims completed unlocked missions and sends affordable missions again while `T` is active. |
+| Automatic Maximum-Level Prestige | `false` | Automatically prestiges standing Minions with maximum level at least 70; also makes every manual prestige use the selected Minion's maximum level independently from `T`. |
 
-The prestige option deliberately changes the Minion level used for prestige;
-disable it if normal Minion level progression should be preserved.
-
-## Armory Boxes
+## Egg Opening
 
 | Setting | Default | Meaning |
 |---|---:|---|
-| Boxes Per Press | `10` | Maximum selected Armory boxes or eggs opened per trigger. |
-| Select Box Key | `B` | Records the highlighted Armory box, Dragon Egg, or Simurgh Egg. |
-| Open Boxes Key | `N` | Opens the selected box or egg in the background; independent from `T`. |
-
-The selection and opening keys must be different. Opening stops when materials
-or free Armory slots run out. Egg opening stops when the selected egg runs out.
-
-## Casino Crawler Eyes
-
-| Setting | Default | Meaning |
-|---|---:|---|
-| Enabled | `false` | Enables the manual bulk-purchase key; independent from `T`. This spends Jewels of Soul. |
-| Purchase Key | `M` | Starts one sequential purchase while the Crawler Eye cashier screen is open. |
-| Eyes Per Press | `1000` | Requested amount; rounded down to a multiple of 10. |
-
-The service uses the game's confirmed purchase action one 10-eye transaction
-at a time. It waits for each inventory increase before sending the next request
-and stops on insufficient Jewels, a closed screen, or a safety timeout.
+| Enabled | `false` | Master switch for background Dragon and Simurgh Egg opening while `T` is active. |
+| Dragon Egg Reserve Amount | `300` | Dragon Eggs kept unopened. Opening also stops when Dragon Scale storage is full. |
+| Simurgh Egg Reserve Amount | `10` | Simurgh Eggs kept unopened. |
 
 ## Silver Boxes
 
 | Setting | Default | Meaning |
 |---|---:|---|
-| Auto Claim Reward | `true` | Claims an available Silver Box reward automatically. |
+| Auto Claim Reward | `true` | Claims an available Silver Box reward independently from `T`. |
 
-This setting takes effect after entering the game and is independent from the
-`T` automation toggle. The game's native Silver Box maximum is unchanged.
+The native Silver Box storage maximum and consumption behavior are unchanged.
 
 ## Quests
 
@@ -74,58 +74,82 @@ This setting takes effect after entering the game and is independent from the
 |---|---:|---|
 | Enabled | `true` | Master switch for every quest option below. |
 | Auto Claim Completed Quests | `true` | Claims completed Daily and Weekly Quests. |
-| Regenerate Daily Quests | `true` | Generates a new Daily set when available. |
-| Regenerate Weekly Quests | `true` | Generates a new Weekly set when available. |
-| Unlimited Quest Rerolls | `true` | Keeps Daily/Weekly rerolls available while `T` automation is active. |
-| Prefer 180000 Rage Weekly | `false` | Rerolls a newly generated Weekly slot to the minimum Rage-kill target. |
-| Filter Generated Daily Quests | `false` | Rerolls selected inconvenient objectives in a new Daily set. |
-| Reset Portal Cooldown | `true` | Removes the normal Portal cooldown. |
+| Regenerate Daily Quests | `true` | Generates another Daily set when no active Daily Quests remain. |
+| Regenerate Weekly Quests | `true` | Generates another Weekly set when no active Weekly Quests remain. |
+| Unlimited Quest Rerolls | `true` | Keeps Daily and Weekly rerolls available while `T` is active. |
+| Prefer 180k Rage Weekly Quest | `false` | Rerolls one newly generated Weekly slot until the 180,000 Rage Mode kill objective appears. |
+| Filter Generated Daily Quests | `false` | Rerolls documented inconvenient objectives in newly generated Daily slots. |
+| Reset Portal Cooldown | `true` | Keeps the normal Portal cooldown at zero while `T` is active. |
+
+Generated-set filtering does not rewrite old quests or react to later manual
+rerolls. Completed quests are skipped.
 
 ## Craftables
 
 | Setting | Default | Meaning |
 |---|---:|---|
-| Enabled | `false` | Master switch for all craftables and their automatic material purchases. |
-| Use Rage Pill | `true` | Refreshes Rage cooldown. |
-| Use Whetstone | `true` | Maintains Whetstone duration. |
-| Use Alternate Dimension Staff | `true` | Maintains its duration. |
-| Use Bidimensional Staff | `true` | Maintains its duration. |
-| Use Deathwave Scepter | `true` | Maintains it while preserving feathers. |
-| Deathwave Scepter Feather Reserve | `300` | Minimum Simurgh Feathers retained. |
-| Use Shards Necklace | `true` | Consumes excess Scrap. |
-| Shards Necklace Scrap Threshold Percent | `97` | Crafts until Scrap falls below this trigger; no duration cap applies. |
-| Use Dragon Scale Overflow Items | `true` | Consumes excess scales with four effects. |
-| Dragon Scale Threshold Percent | `95` | Dragon Scale percentage trigger. |
-| Ascendant Badge Boost Enabled | `false` | Crafts the one-use Armory boost when Dragon Scales are above the fixed 50% requirement. |
-| Timed Item Target Minutes | `6` | Shared target and overflow-effect ceiling. Refilling starts at half this value. |
-| Use Quest Assist Craftables | `true` | Enables Specialization and Key Manifest. Specialization will not craft if its cost would leave Scrap below the fixed 50% reserve. |
-| Quest Assist Feather Threshold Amount | `1000` | Shared Specialization and Key Manifest Feather threshold. `0` disables both items. |
-| Buy Missing With Jewels | `false` | Buys eligible ordinary materials with Jewels only while the Craftables master switch is enabled. |
-| Material Purchase Percent | `100` | Purchase option: 25, 50, or 100 percent. |
+| Enabled | `false` | Master switch for all automatic craftables and material purchases in this section. |
+| Buy Missing With Jewels | `false` | Spends Jewels of Soul on eligible ordinary missing recipe materials. Never buys Scrap, Simurgh Feathers, or Dragon Scales. |
+| Material Purchase Percent | `100` | Jewel refill size. Supported values: 25, 50, or 100 percent. |
+| Timed Items Target Minutes | `6` | Shared target; timed refilling begins automatically at half this value. |
+| Rage Pill Enabled | `true` | Refreshes an active Rage cooldown. |
+| Whetstone Enabled | `true` | Maintains Whetstone duration. |
+| Alternate Dimension Staff Enabled | `true` | Maintains Alternate Dimension Staff duration. |
+| Bidimensional Staff Enabled | `true` | Maintains Bidimensional Staff duration. |
+| Deathwave Scepter Enabled | `true` | Maintains Deathwave Scepter duration while preserving its Feather reserve. |
+| Deathwave Scepter Feather Reserve Amount | `300` | Minimum Simurgh Feather amount preserved for Deathwave Scepter. |
+| Shards Necklace Scrap Overflow Enabled | `true` | Consumes excess Scrap without using the timed duration cap. |
+| Shards Necklace Scrap Threshold Percent | `97` | Starts at or above this Scrap percentage and stops below it. |
+| Dragon Scale Overflow Craftables Enabled | `true` | Enables Random Box Staff, Necklace of Collectables, CpS Compass, and Souls Compass as one overflow group. |
+| Dragon Scale Overflow Threshold Percent | `95` | Starts one overflow cycle above this Dragon Scale percentage. |
+| Ascendant Badge Boost Enabled | `false` | Arms the one-use Armory boost when Dragon Scales are strictly above the fixed 50% requirement. |
+| Quest Assist Craftables Enabled | `true` | Enables Specialization and Key Manifest under their task and resource rules. |
+| Quest Assist Feather Threshold Amount | `1000` | Shared Feather threshold. `0` disables both items; crafting must preserve this amount. |
 
-## Purchases
+Rage Pill attempts are limited internally to once every ten seconds.
+Quest-triggered Specialization and Key Manifest have separate fixed
+five-minute cooldowns.
+
+`Quest Assist Feather Threshold Amount` controls both quest-assist items:
+
+- `0` disables Specialization and Key Manifest completely.
+- Above zero, current Feathers must be strictly greater than the value.
+- Crafting must leave at least the configured amount.
+- Key Manifest also uses it as an independent Feather-overflow trigger.
+- Specialization still requires a normal quest or its Scrap/Dragon Scale
+  overflow conditions.
+
+## Manual Armory Boxes
 
 | Setting | Default | Meaning |
 |---|---:|---|
-| Buy Skills | `true` | Enables shop-skill purchasing. |
-| Buy Equipment | `true` | Enables unlocked normal equipment purchasing. |
-| Block Vertical Magnet Skills | `true` | Always blocks two vertical Random Box magnet upgrades, independently from `T`. |
+| Boxes Per Press | `10` | Maximum selected Armory boxes or eggs opened per trigger. |
+| Select Box Key | `B` | Records the highlighted Armory box, Dragon Egg, or Simurgh Egg. |
+| Open Boxes Key | `N` | Opens the selected item in the background independently from `T`. |
 
-Rage Pill attempts are internally limited to once every 10 seconds. Each
-quest-triggered assist item has an independent five-minute cooldown. The
-equipment buyer sleeps for ten minutes after one minute without an eligible
-purchase.
+The two keys must differ. Opening stops when materials, eggs, or free Armory
+slots run out.
 
-`Quest Assist Feather Threshold Amount` applies to both quest-assist items.
-When it is above zero, the current Simurgh Feather amount must be strictly
-greater than the threshold and crafting must leave at least that amount.
-Key Manifest also uses it as the independent Feather-overflow trigger.
-Specialization still requires its normal quest or Scrap/Dragon Scale trigger.
-Setting the value to zero disables both Specialization and Key Manifest.
+## Manual Casino Crawler Eyes
 
-> `Use Paid 500x Bonuses`, `Casino Crawler Eyes`, and `Buy Missing With
-> Jewels` can spend premium currency. All direct Jewel-spending switches are
-> disabled by default and should only be enabled after their behavior is
-> understood.
+| Setting | Default | Meaning |
+|---|---:|---|
+| Enabled | `false` | Enables the manual Jewel-spending bulk-purchase tool independently from `T`. |
+| Purchase Key | `M` | Starts one operation on the correct Village Casino purchase screen. |
+| Eyes Per Press | `1000` | Requested amount, rounded down to a multiple of ten. |
+
+The service uses sequential native 10-eye transactions and stops on
+insufficient Jewels, a closed screen, or a safety timeout.
+
+## Premium-Currency Warning
+
+These settings can spend Jewels of Soul:
+
+- `Use Paid 500x Bonuses`
+- `Buy Missing With Jewels`
+- `Manual Casino Crawler Eyes > Enabled`
+
+All three are disabled by default. Enable them only after understanding their
+cost.
 
 [Back to the Complete Manual](../MANUAL.md)

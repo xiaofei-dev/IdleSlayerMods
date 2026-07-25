@@ -106,6 +106,17 @@ internal sealed class BonusJumpPlanner
     // narrow pillar. Keep a small rounded value that does not assume the
     // sphere's own trigger radius.
     private const float SpherePickupHorizontalReach = 0.60f;
+    // Stage-2 Ground 1 contains one authored 15-soul arch. Its X coordinates
+    // are the consecutive local integers -10..+4; these are the corresponding
+    // heights above the registered flat top at local Y=-2. Keep the signature
+    // local to ordinary Section 3 so neither another stage nor Spirit routing
+    // can inherit an authored objective contract.
+    private static readonly float[] Stage2Ground1SoulArchHeightOffsets =
+    {
+        1f, 1f, 1f, 1f, 2f,
+        3f, 4f, 4f, 4f, 3f,
+        2f, 1f, 1f, 1f, 1f
+    };
     // Two independent completed wall exits (A30 and A42) landed 0.135-0.138
     // world units farther than the FlightTimeScale-calibrated integral. This
     // is the small body-to-wall release offset that is absent when contactX is
@@ -126,6 +137,13 @@ internal sealed class BonusJumpPlanner
     // and hold are solved together from the live speed and wall height.
     private const float WallApproachEarlyContactSeconds = 0.52f;
     private const float WallApproachPreferredContactSeconds = 0.44f;
+    // Stage-2 Ground 4's ordinary soul-deck entry has two solutions at nearly
+    // the same face height: an early descending contact and a later rising
+    // contact. Repeated live runs proved that the descending branch stalls
+    // below the first stair, while the rising branch carries the body onto it.
+    // Keep a small positive margin so fixed-step/input uncertainty cannot turn
+    // the selected rising solution into an apex contact.
+    private const float RisingStairMinimumContactVelocityY = 0.50f;
     // A four-unit trench cannot be crossed by passive falling: V0.24
     // repeatedly reached the pit guard roughly 0.77 units before the wall.
     // V0.25 then aimed below the physical bottom of the raised wall and flew
@@ -188,6 +206,10 @@ internal sealed class BonusJumpPlanner
             return Invalid(scan.Reason, scan.Reason);
         if (!routeTargetIsAuthoritative)
             scan = SelectLowerRouteWhenItContinues(scan, hazard);
+        bool stage2Ground6ShallowDepressionSoulSweep =
+            useStage2LiveTopologyProfile &&
+            sectionIndex == 3 &&
+            IsStage2Ground6ShallowDepressionSoulSweep(scan);
 
         float speed = Mathf.Abs(playerVelocity.x);
         bool stage2Section1Domain =
@@ -266,7 +288,8 @@ internal sealed class BonusJumpPlanner
                     underpass.CandidateSummary);
         }
 
-        if (TryPlanSameSurfaceSphereCollection(
+        if (!stage2Ground6ShallowDepressionSoulSweep &&
+            TryPlanSameSurfaceSphereCollection(
                 scan,
                 playerPosition,
                 playerVelocity,
@@ -281,6 +304,8 @@ internal sealed class BonusJumpPlanner
                     sectionIndex >= 0 &&
                     sectionIndex < 2,
                 spiritBoost,
+                useStage2LiveTopologyProfile,
+                sectionIndex,
                 out BonusJumpPlan sphereCollection))
         {
             return sphereCollection;
@@ -291,6 +316,20 @@ internal sealed class BonusJumpPlanner
 
         if (speed < 1f)
             return Invalid("HorizontalSpeedTooLow", $"Speed={speed:F2}");
+
+        bool stage2Section1Ground4TriggerTimingEnvelope =
+            stage2Section1Domain &&
+            spiritBoost.Enabled &&
+            IsStage2Section1Ground4TriggerExit(scan, spiritBoost);
+        float triggerInputDelayFloorSeconds =
+            stage2Section1Ground4TriggerTimingEnvelope
+                ? Mathf.Max(
+                    physics.InputDelaySeconds,
+                    2f * Mathf.Clamp(
+                        physics.FixedDeltaTime,
+                        0.005f,
+                        0.05f))
+                : 0f;
 
         BonusObstacleAssessment obstacle =
             BonusObstacleClassifier.Classify(scan);
@@ -310,6 +349,22 @@ internal sealed class BonusJumpPlanner
                 hazard,
                 out inferredBodyWidth,
                 out walkableGapLimit);
+        float stage2SpiritRunnableGapLimit = walkableGapLimit;
+        bool stage2SpiritGapRequiresJump = false;
+        if (walkableMicroGap &&
+            useStage2LiveTopologyProfile &&
+            spiritBoost.Enabled)
+        {
+            stage2SpiritRunnableGapLimit =
+                GetStage2SpiritRunnableGapLimit(
+                    walkableGapLimit,
+                    speed,
+                    physics.FixedDeltaTime);
+            stage2SpiritGapRequiresJump =
+                scan.Gap > stage2SpiritRunnableGapLimit;
+            if (stage2SpiritGapRequiresJump)
+                walkableMicroGap = false;
+        }
         int walkablePassiveSphereObjectives = 0;
         int walkableElevatedSphereObjectives = 0;
         if (walkableMicroGap && sphereObjectives != null)
@@ -386,34 +441,68 @@ internal sealed class BonusJumpPlanner
         // reach the face before the pit guard, so they remain true passive
         // entries. Wider authored trenches need a separately solved low
         // descending entry hop (handled below).
-        bool proactiveAdjacentWallApproach =
+        BonusBoardSegment ordinaryStage2Ground4Deck = default;
+        int ordinaryStage2Ground4DeckObjectives = 0;
+        bool ordinaryStage2Ground4SoulDeckEntry =
+            useStage2LiveTopologyProfile &&
+            (sectionIndex == 0 || sectionIndex == 1) &&
+            preferSphereCoverage &&
+            !spiritBoost.Enabled &&
+            obstacle.Kind == BonusObstacleKind.AdjacentWall &&
+            TryDescribeStage2Ground4SoulDeck(
+                scan,
+                sphereObjectives,
+                out ordinaryStage2Ground4Deck,
+                out ordinaryStage2Ground4DeckObjectives);
+        bool stage2SpiritRisingStairApproach =
             useStage2LiveTopologyProfile &&
             spiritBoost.Enabled &&
             obstacle.Kind == BonusObstacleKind.AdjacentWall &&
             scan.Gap <= 0.12f &&
             scan.HeightDelta >= 1.50f;
+        bool proactiveAdjacentWallApproach =
+            ordinaryStage2Ground4SoulDeckEntry ||
+            stage2SpiritRisingStairApproach;
         string proactiveAdjacentWallFallback = string.Empty;
         if (proactiveAdjacentWallApproach)
         {
+            string proactiveRouteEvidence =
+                ordinaryStage2Ground4SoulDeckEntry
+                    ? $"Stage2Ground4SoulDeckEntry[Deck=" +
+                      $"[{ordinaryStage2Ground4Deck.Left:F2}," +
+                      $"{ordinaryStage2Ground4Deck.Right:F2}]@" +
+                      $"{ordinaryStage2Ground4Deck.Top:F2},Objectives=" +
+                      $"{ordinaryStage2Ground4DeckObjectives}]"
+                    : $"Stage2SpiritRisingStair[{obstacle.Evidence}]";
             BonusJumpPlan proactiveWallApproach = PlanWallApproach(
                 scan,
                 playerPosition,
                 speed,
                 physics,
                 hazard,
-                $"Stage2SpiritRisingStair[{obstacle.Evidence}]",
+                proactiveRouteEvidence,
                 spiritBoost,
-                triggerTolerance: actionTriggerTolerance);
+                triggerTolerance: actionTriggerTolerance,
+                requireRisingFaceContact:
+                    ordinaryStage2Ground4SoulDeckEntry);
             if (proactiveWallApproach.IsValid)
             {
                 return proactiveWallApproach with
                 {
                     Reason = proactiveWallApproach.ShouldJumpNow
-                        ? "Stage2SpiritRisingStairContact"
-                        : "ApproachingStage2SpiritRisingStair",
+                        ? ordinaryStage2Ground4SoulDeckEntry
+                            ? "Stage2Ground4SoulDeckStairContact"
+                            : "Stage2SpiritRisingStairContact"
+                        : ordinaryStage2Ground4SoulDeckEntry
+                            ? "ApproachingWallContact"
+                            : "ApproachingStage2SpiritRisingStair",
                     CandidateSummary =
                         proactiveWallApproach.CandidateSummary +
-                        " | RouteProfile=Stage2SpiritProactiveAdjacentWall. " +
+                        (ordinaryStage2Ground4SoulDeckEntry
+                            ? " | RouteProfile=" +
+                              "Stage2Ground4SoulDeckProactiveEntry. "
+                            : " | RouteProfile=" +
+                              "Stage2SpiritProactiveAdjacentWall. ") +
                         "The nearly gapless rising step is approached with " +
                         "a speed-proved jump so wall contact is established " +
                         "before the passive drop route can miss the face."
@@ -436,7 +525,11 @@ internal sealed class BonusJumpPlanner
                 physics,
                 hazard,
                 proactiveAdjacentWallApproach
-                    ? $"Stage2SpiritProactiveFallback[" +
+                    ? ordinaryStage2Ground4SoulDeckEntry
+                        ? $"Stage2Ground4SoulDeckProactiveFallback[" +
+                          $"{obstacle.Evidence}]" +
+                          proactiveAdjacentWallFallback
+                        : $"Stage2SpiritProactiveFallback[" +
                       $"{obstacle.Evidence}]" +
                       proactiveAdjacentWallFallback
                     : $"Obstacle={obstacle.Kind}[{obstacle.Evidence}]");
@@ -858,11 +951,13 @@ internal sealed class BonusJumpPlanner
                 scan.HeightDelta,
                 out _,
                 out int tierSampleCount);
-            string soulLaunchSelection = "SoulLaunchSearch=Inactive";
+            string soulLaunchSelection =
+                "SoulLaunchSearch=Inactive";
             bool allowSoulLaunchSearch =
                 preferSphereCoverage &&
                 !spiritBoost.Enabled &&
-                sectionIndex >= 0 && sectionIndex <= 2 &&
+                (sectionIndex >= 0 && sectionIndex <= 2 ||
+                 stage2Ground6ShallowDepressionSoulSweep) &&
                 sphereObjectives != null && sphereObjectives.Count > 0 &&
                 usableRight - usableLeft >= 0.04f;
             if (allowSoulLaunchSearch)
@@ -1059,6 +1154,9 @@ internal sealed class BonusJumpPlanner
                 }
 
                 soulLaunchSelection =
+                    (stage2Ground6ShallowDepressionSoulSweep
+                        ? "Stage2Ground6Depression;"
+                        : string.Empty) +
                     $"SoulLaunchAnalytic[Original={originalLaunchX:F3}," +
                     $"Earliest={earliestSoulProbeLaunchX:F3},Midpoint=" +
                     $"{midpointSoulProbeLaunchX:F3},Selected=" +
@@ -1090,6 +1188,7 @@ internal sealed class BonusJumpPlanner
                         allowStage1Section1VerifiedBoostMargin,
                         hasTierCalibration,
                         tierSampleCount,
+                        triggerInputDelayFloorSeconds,
                         out float robustLaunchX,
                         out float robustWindowLeft,
                         out float robustWindowRight,
@@ -1167,7 +1266,8 @@ internal sealed class BonusJumpPlanner
                         physics,
                         noPickupTravel + fixedStepInputTravel,
                         useRawTargetBounds: false,
-                        sphereObjectives);
+                        sphereObjectives,
+                        triggerInputDelayFloorSeconds);
                 liveTravel = liveSafeEnvelope.ExpectedTravel;
                 liveMinimumTravel = liveSafeEnvelope.MinimumTravel;
                 liveMaximumTravel = liveSafeEnvelope.MaximumTravel;
@@ -1320,7 +1420,7 @@ internal sealed class BonusJumpPlanner
                 ? "Missed"
                 : playerPosition.x >=
                     plannedLaunchX - actionTriggerTolerance
-                    ? "Jump"
+                    ? "TriggerReached"
                     : "Wait";
 
             AppendEvaluation(evaluations,
@@ -1399,6 +1499,32 @@ internal sealed class BonusJumpPlanner
                  predictedInsideSafeTarget &&
                  liveLaunchClearsTargetFace &&
                  actualTrajectorySafe);
+            // Stage 2 Section 2 contains one-physics-step landing windows.
+            // A longer hold can retain an excellent nominal landing margin
+            // after its launch point is already behind the live body, while a
+            // shorter hold is executable now. Ranking that stale WAIT above
+            // the short live command made the runner coast off the support.
+            // Reject only ordinary Stage-2 candidates whose exact live proof
+            // did not authorize input after their planned launch; late routes
+            // already accepted by the bounded recovery contracts above remain
+            // valid.
+            bool expiredOrdinaryStage2Launch =
+                stage2Section1Domain &&
+                !spiritBoost.Enabled &&
+                !shouldJump &&
+                playerPosition.x > plannedLaunchX + 0.001f;
+            if (expiredOrdinaryStage2Launch)
+            {
+                AppendEvaluation(
+                    evaluations,
+                    $"Stage2OrdinaryExpiredLaunchRejected[Now=" +
+                    $"{playerPosition.x:F3},Planned={plannedLaunchX:F3}," +
+                    $"LiveLanding={playerPosition.x + liveTravel:F3}," +
+                    $"TargetSafe=[{scan.Next.SafeLeft:F3}," +
+                    $"{scan.Next.SafeRight:F3}]," +
+                    $"FixedStepCommitTravel={fixedStepInputTravel:F3}]");
+                continue;
+            }
             float predictedLandingX = shouldJump
                 ? playerPosition.x + liveTravel
                 : plannedLandingX;
@@ -1597,6 +1723,18 @@ internal sealed class BonusJumpPlanner
         }
 
         string evaluationSummary = evaluations.ToString();
+        if (stage2SpiritGapRequiresJump)
+        {
+            evaluationSummary +=
+                $" | Stage2SpiritRunnableGapRejected[Gap={scan.Gap:F3}," +
+                $"GeometricLimit={walkableGapLimit:F3}," +
+                $"PhysicsStepLimit={stage2SpiritRunnableGapLimit:F3}," +
+                $"VX={speed:F3},FixedDelta=" +
+                $"{physics.FixedDeltaTime:F3}]. The live Spirit speed cannot " +
+                "move the grounded contact point onto the next support in " +
+                "one physics step, so the body-width seam shortcut is not " +
+                "allowed to suppress a proved jump.";
+        }
         if (best.IsValid)
         {
             if (walkableMicroGap &&
@@ -1605,6 +1743,8 @@ internal sealed class BonusJumpPlanner
                 return Invalid(
                     "WalkableMicroGap",
                     $"Gap={scan.Gap:F3},Limit={walkableGapLimit:F3}," +
+                    $"Stage2SpiritRunnableLimit=" +
+                    $"{stage2SpiritRunnableGapLimit:F3}," +
                     $"InferredBodyWidth={inferredBodyWidth:F3}," +
                     $"DeltaY={scan.HeightDelta:F3},HazardClear=True," +
                     $"PredictedJumpHits={best.ExpectedSphereHits}," +
@@ -1676,6 +1816,8 @@ internal sealed class BonusJumpPlanner
             return Invalid(
                 "WalkableMicroGap",
                 $"Gap={scan.Gap:F3},Limit={walkableGapLimit:F3}," +
+                $"Stage2SpiritRunnableLimit=" +
+                $"{stage2SpiritRunnableGapLimit:F3}," +
                 $"InferredBodyWidth={inferredBodyWidth:F3}," +
                 $"DeltaY={scan.HeightDelta:F3},HazardClear=True," +
                 $"PassiveWalkObjectives=" +
@@ -2153,6 +2295,619 @@ internal sealed class BonusJumpPlanner
         };
     }
 
+    private static bool TryDescribeStage2Ground4SoulDeck(
+        BonusBoardScanResult scan,
+        IReadOnlyList<Vector2> sphereObjectives,
+        out BonusBoardSegment deck,
+        out int objectiveCount)
+    {
+        deck = default;
+        objectiveCount = 0;
+        if (!scan.IsValid ||
+            !scan.HasNext ||
+            sphereObjectives == null ||
+            sphereObjectives.Count == 0 ||
+            !string.Equals(
+                scan.Current.MapPieceName,
+                "Stage2 Ground 4",
+                StringComparison.Ordinal) ||
+            scan.Current.StaticSurfaceIndex != 0 ||
+            scan.Current.MapPieceInstanceId == 0 ||
+            scan.Current.RegistryGeneration <= 0)
+        {
+            return false;
+        }
+
+        // Ground 4 has a continuous lower road and a short staircase leading
+        // to its ten-unit upper soul deck (static surface 4). The generic
+        // lower-continuation normalizer correctly prefers the road for pure
+        // survival, but doing so while active objectives remain on that deck
+        // makes an ordinary run deliberately leave every visible soul behind.
+        // Identify the authored deck rather than using a coordinate or pooled
+        // instance number, so every recycled occurrence receives the same
+        // route policy.
+        deck = new[] { scan.Next }
+            .Concat(scan.Alternatives ?? Array.Empty<BonusBoardSegment>())
+            .Where(candidate =>
+                string.Equals(
+                    candidate.MapPieceName,
+                    "Stage2 Ground 4",
+                    StringComparison.Ordinal) &&
+                candidate.StaticSurfaceIndex == 4 &&
+                candidate.Width >= 6.0f &&
+                candidate.Top - scan.Current.Top >= 7.5f &&
+                candidate.MapPieceInstanceId ==
+                    scan.Current.MapPieceInstanceId &&
+                candidate.RegistryGeneration ==
+                    scan.Current.RegistryGeneration)
+            .OrderByDescending(candidate => candidate.Width)
+            .ThenBy(candidate => candidate.Left)
+            .FirstOrDefault();
+        if (deck.Width < 6.0f)
+            return false;
+
+        // The immediate stair is a live collider segment and can lack static
+        // annotation. Verify its authored Ground-4 geometry relative to the
+        // exact current/deck pair instead of requiring a missing surface ID:
+        // S1 is one unit wide, four units above S0, and ends one unit before
+        // the S4 deck begins.
+        bool observedEntryStair =
+            scan.Next.Width >= 0.70f &&
+            scan.Next.Width <= 1.35f &&
+            scan.Next.Top - scan.Current.Top >= 3.65f &&
+            scan.Next.Top - scan.Current.Top <= 4.35f &&
+            deck.Left - scan.Next.Right >= 0.65f &&
+            deck.Left - scan.Next.Right <= 1.35f;
+        if (!observedEntryStair)
+            return false;
+
+        // Ground 4 also owns one soul on the continuous lower road. The
+        // generic source-to-target vertical attachment band intentionally
+        // spans both levels and would count that road soul as a reason to
+        // climb an already-empty deck. This authored policy counts only
+        // objectives physically above the deck top.
+        BonusBoardSegment resolvedDeck = deck;
+        objectiveCount = sphereObjectives.Count(sphere =>
+            sphere.x >= resolvedDeck.Left - 0.50f &&
+            sphere.x <= resolvedDeck.Right + 0.75f &&
+            sphere.y >= resolvedDeck.Top - 0.45f &&
+            sphere.y <= resolvedDeck.Top + 4.25f);
+        return objectiveCount > 0;
+    }
+
+    private static bool TryDescribeStage2Ground6ShallowDepressionSoulSweep(
+        BonusBoardScanResult observedScan,
+        IReadOnlyList<BonusBoardSegment> allForwardSurfaces,
+        IReadOnlyList<Vector2> sphereObjectives,
+        out BonusBoardSegment canonicalDepression,
+        out BonusBoardSegment canonicalExit,
+        out Vector2[] elevatedObjectives,
+        out string evidence)
+    {
+        canonicalDepression = default;
+        canonicalExit = default;
+        elevatedObjectives = Array.Empty<Vector2>();
+        evidence = "Stage2Ground6DepressionNotRecognized";
+        if (!observedScan.IsValid ||
+            !observedScan.HasNext ||
+            allForwardSurfaces == null ||
+            allForwardSurfaces.Count == 0 ||
+            sphereObjectives == null ||
+            sphereObjectives.Count == 0)
+        {
+            return false;
+        }
+
+        BonusBoardSegment[] candidates =
+            new[] { observedScan.Next }
+                .Concat(
+                    observedScan.HasIntermediate
+                        ? new[] { observedScan.Intermediate }
+                        : Array.Empty<BonusBoardSegment>())
+                .Concat(allForwardSurfaces)
+                .Where(surface =>
+                    surface.Width > 0.05f &&
+                    IsStage2Ground6AuthoredSurface(surface))
+                .ToArray();
+        BonusBoardSegment depression = candidates
+            .Where(surface =>
+                surface.StaticSurfaceIndex == 0 &&
+                float.IsFinite(surface.MapPieceOriginX))
+            .OrderBy(surface =>
+                Mathf.Abs(
+                    surface.Left -
+                    (surface.MapPieceOriginX - 2f)) +
+                Mathf.Abs(
+                    surface.Right -
+                    (surface.MapPieceOriginX + 2f)))
+            .FirstOrDefault();
+        if (depression.Width <= 0.05f)
+            return false;
+
+        float origin = depression.MapPieceOriginX;
+        float depressionLeft = origin - 2f;
+        float depressionRight = origin + 2f;
+        float exitLeft = origin + 2f;
+        float exitRight = origin + 12f;
+        if (Mathf.Abs(depression.Left - depressionLeft) > 0.20f ||
+            Mathf.Abs(depression.Right - depressionRight) > 0.20f ||
+            Mathf.Abs(observedScan.Current.Right - depressionLeft) > 0.35f ||
+            Mathf.Abs(
+                depression.Top -
+                (observedScan.Current.Top - 1f)) > 0.35f)
+        {
+            return false;
+        }
+
+        BonusBoardSegment exit = candidates
+            .Where(surface =>
+                surface.StaticSurfaceIndex == 2 &&
+                SameStage2AuthoredSurfaceIdentity(
+                    surface,
+                    depression) &&
+                Mathf.Abs(surface.Left - exitLeft) <= 0.25f &&
+                surface.Right >= exitRight - 0.20f &&
+                Mathf.Abs(
+                    surface.Top -
+                    observedScan.Current.Top) <= 0.35f)
+            .OrderBy(surface =>
+                Mathf.Abs(surface.Left - exitLeft) +
+                Mathf.Abs(surface.Right - exitRight))
+            .FirstOrDefault();
+        if (exit.Width <= 0.05f)
+            return false;
+
+        float depressionLeftInset = Mathf.Clamp(
+            depression.SafeLeft - depression.Left,
+            0.30f,
+            1.25f);
+        float depressionRightInset = Mathf.Clamp(
+            depression.Right - depression.SafeRight,
+            0.30f,
+            1.25f);
+        float exitLeftInset = Mathf.Clamp(
+            exit.SafeLeft - exit.Left,
+            0.30f,
+            1.25f);
+        float exitRightInset = Mathf.Clamp(
+            exit.Right - exit.SafeRight,
+            0.30f,
+            1.25f);
+        canonicalDepression = depression with
+        {
+            Left = depressionLeft,
+            Right = depressionRight,
+            SafeLeft = depressionLeft + depressionLeftInset,
+            SafeRight = depressionRight - depressionRightInset
+        };
+        canonicalExit = exit with
+        {
+            Left = exitLeft,
+            Right = exitRight,
+            SafeLeft = exitLeft + exitLeftInset,
+            SafeRight = exitRight - exitRightInset
+        };
+        elevatedObjectives = sphereObjectives
+            .Where(sphere =>
+                sphere.x >= depressionLeft - 1.25f &&
+                sphere.x <= depressionRight + 0.75f &&
+                sphere.y >
+                    observedScan.Current.Top +
+                    SpherePickupAboveFeet +
+                    0.05f)
+            .OrderBy(sphere => sphere.x)
+            .ThenBy(sphere => sphere.y)
+            .Take(16)
+            .ToArray();
+        if (elevatedObjectives.Length == 0)
+        {
+            evidence =
+                $"Stage2Ground6DepressionRecognized[Origin={origin:F2}," +
+                "ElevatedObjectives=0]";
+            return false;
+        }
+
+        evidence =
+            $"Stage2Ground6DepressionRecognized[Origin={origin:F2}," +
+            $"Depression=[{canonicalDepression.Left:F2}," +
+            $"{canonicalDepression.Right:F2}]@" +
+            $"{canonicalDepression.Top:F2},Exit=" +
+            $"[{canonicalExit.Left:F2},{canonicalExit.Right:F2}]@" +
+            $"{canonicalExit.Top:F2},ElevatedObjectives=" +
+            $"{elevatedObjectives.Length}]";
+        return true;
+    }
+
+    private static bool IsStage2Ground6ShallowDepressionSoulSweep(
+        BonusBoardScanResult scan)
+    {
+        if (!scan.IsValid ||
+            !scan.HasNext ||
+            !scan.HasIntermediate ||
+            !IsStage2Ground6AuthoredSurface(scan.Intermediate) ||
+            !IsStage2Ground6AuthoredSurface(scan.Next) ||
+            scan.Intermediate.StaticSurfaceIndex != 0 ||
+            scan.Next.StaticSurfaceIndex != 2 ||
+            !SameStage2AuthoredSurfaceIdentity(
+                scan.Intermediate,
+                scan.Next) ||
+            !float.IsFinite(scan.Intermediate.MapPieceOriginX))
+        {
+            return false;
+        }
+
+        float origin = scan.Intermediate.MapPieceOriginX;
+        return Mathf.Abs(scan.Current.Right - (origin - 2f)) <= 0.35f &&
+            Mathf.Abs(scan.Intermediate.Left - (origin - 2f)) <= 0.20f &&
+            Mathf.Abs(scan.Intermediate.Right - (origin + 2f)) <= 0.20f &&
+            Mathf.Abs(scan.Next.Left - (origin + 2f)) <= 0.20f &&
+            Mathf.Abs(scan.Next.Right - (origin + 12f)) <= 0.20f &&
+            Mathf.Abs(scan.Next.Top - scan.Current.Top) <= 0.35f &&
+            Mathf.Abs(
+                scan.Intermediate.Top -
+                (scan.Next.Top - 1f)) <= 0.35f;
+    }
+
+    private static bool TryDescribeStage2Ground6ExitToGround1SoulLane(
+        BonusBoardScanResult scan,
+        float playerX,
+        IReadOnlyList<Vector2> sphereObjectives,
+        out Vector2[] laneObjectives,
+        out string evidence)
+    {
+        laneObjectives = Array.Empty<Vector2>();
+        evidence = "Stage2Ground6ExitToGround1SoulLaneNotRecognized";
+        if (!scan.IsValid ||
+            sphereObjectives == null ||
+            sphereObjectives.Count == 0 ||
+            scan.Current.Width < 18f ||
+            !IsStage2Ground6AuthoredSurface(scan.Current) ||
+            scan.Current.StaticSurfaceIndex != 2 ||
+            !float.IsFinite(scan.Current.MapPieceOriginX))
+        {
+            return false;
+        }
+
+        // Ground 6 ends with S2 [origin+2, origin+12] at the same height as
+        // the following Ground-1 S0 [nextOrigin-12,nextOrigin+12]. The live
+        // CompositeCollider2D merges those level supports, but static
+        // enrichment retains the Ground-6 identity until the player's feet
+        // cross the seam. That transient identity must not send the following
+        // 15-soul Ground-1 arc through the old exhaustive generic sampler.
+        float ground6Origin = scan.Current.MapPieceOriginX;
+        float exitLeft = ground6Origin + 2f;
+        float seamX = ground6Origin + 12f;
+        if (playerX < exitLeft - 0.35f ||
+            playerX > seamX + 0.35f ||
+            scan.Current.Right < seamX - 0.20f)
+        {
+            return false;
+        }
+
+        BonusBoardSegment ground1 = new[] { scan.Next }
+            .Concat(scan.Alternatives ?? Array.Empty<BonusBoardSegment>())
+            .Where(candidate =>
+                candidate.RegistryGeneration > 0 &&
+                candidate.RegistryGeneration ==
+                    scan.Current.RegistryGeneration &&
+                candidate.MapPieceInstanceId != 0 &&
+                string.Equals(
+                    candidate.MapPieceName,
+                    "Stage2 Ground 1",
+                    StringComparison.Ordinal) &&
+                candidate.StaticSurfaceIndex == 0 &&
+                float.IsFinite(candidate.MapPieceOriginX) &&
+                Mathf.Abs(
+                    candidate.MapPieceOriginX -
+                    (ground6Origin + 24f)) <= 0.30f &&
+                Mathf.Abs(candidate.Top - scan.Current.Top) <= 0.12f &&
+                Mathf.Abs(
+                    seamX -
+                    (candidate.MapPieceOriginX - 12f)) <= 0.20f)
+            .OrderBy(candidate =>
+                Mathf.Abs(
+                    candidate.MapPieceOriginX -
+                    (ground6Origin + 24f)))
+            .FirstOrDefault();
+        if (ground1.RegistryGeneration <= 0 ||
+            ground1.MapPieceInstanceId == 0 ||
+            !float.IsFinite(ground1.MapPieceOriginX))
+            return false;
+
+        // Ground 1's complete authored sphere arc occupies local X -10..+4.
+        // Restrict the bounded planner to that one typed arc so a farther
+        // pooled copy cannot alter the immediate WAIT/jump decision.
+        float objectiveLeft = ground1.MapPieceOriginX - 10.5f;
+        float objectiveRight = ground1.MapPieceOriginX + 4.5f;
+        laneObjectives = sphereObjectives
+            .Where(sphere =>
+                sphere.x >= objectiveLeft &&
+                sphere.x <= objectiveRight)
+            .OrderBy(sphere => sphere.x)
+            .ThenBy(sphere => sphere.y)
+            .ToArray();
+        int elevatedObjectives = laneObjectives.Count(sphere =>
+            !TrajectoryBodyOverlapsSphere(
+                scan.Current.Top,
+                sphere.y));
+        if (elevatedObjectives == 0)
+        {
+            laneObjectives = Array.Empty<Vector2>();
+            return false;
+        }
+
+        evidence =
+            $"Stage2Ground6ExitToGround1SoulLane[Generation=" +
+            $"{scan.Current.RegistryGeneration},Ground6Origin=" +
+            $"{ground6Origin:F2},Ground1Origin=" +
+            $"{ground1.MapPieceOriginX:F2},PlayerX={playerX:F2}," +
+            $"Objectives={laneObjectives.Length},ElevatedObjectives=" +
+            $"{elevatedObjectives}]";
+        return true;
+    }
+
+    private static bool TryDescribeStage2Section3Ground1SoulArch(
+        BonusBoardScanResult scan,
+        float playerX,
+        IReadOnlyList<Vector2> sphereObjectives,
+        out float archOriginX,
+        out Vector2[] laneObjectives,
+        out string evidence)
+    {
+        archOriginX = float.NaN;
+        laneObjectives = Array.Empty<Vector2>();
+        evidence = "Stage2Ground1SoulArchNotRecognized";
+        if (!scan.IsValid ||
+            sphereObjectives == null ||
+            sphereObjectives.Count == 0)
+        {
+            return false;
+        }
+
+        List<(float OriginX, float Top, string Source)> candidates = new();
+        void AddGround1Candidate(
+            BonusBoardSegment segment,
+            string source)
+        {
+            if (segment.RegistryGeneration <= 0 ||
+                segment.MapPieceInstanceId == 0 ||
+                !string.Equals(
+                    segment.MapPieceName,
+                    "Stage2 Ground 1",
+                    StringComparison.Ordinal) ||
+                segment.StaticSurfaceIndex != 0 ||
+                !float.IsFinite(segment.MapPieceOriginX))
+            {
+                return;
+            }
+
+            bool duplicate = candidates.Any(candidate =>
+                Mathf.Abs(
+                    candidate.OriginX -
+                    segment.MapPieceOriginX) <= 0.20f);
+            if (!duplicate)
+            {
+                candidates.Add((
+                    segment.MapPieceOriginX,
+                    segment.Top,
+                    source));
+            }
+        }
+
+        AddGround1Candidate(scan.Current, "CurrentGround1");
+        if (scan.HasNext)
+            AddGround1Candidate(scan.Next, "NextGround1");
+        foreach (BonusBoardSegment alternative in
+                 scan.Alternatives ??
+                 Array.Empty<BonusBoardSegment>())
+        {
+            AddGround1Candidate(
+                alternative,
+                "AlternativeGround1");
+        }
+
+        // Immediately before the Ground-6/Ground-1 seam, the live composite
+        // collider can still report Ground 6 S2 after the adjacent Ground 1
+        // has disappeared from Next/Alternatives. The extracted three-piece
+        // cycle fixes the next origin at +24; the active 15-point signature
+        // below remains mandatory evidence before this derived origin is used.
+        if (IsStage2Ground6AuthoredSurface(scan.Current) &&
+            scan.Current.StaticSurfaceIndex == 2 &&
+            float.IsFinite(scan.Current.MapPieceOriginX))
+        {
+            float derivedOrigin =
+                scan.Current.MapPieceOriginX + 24f;
+            bool duplicate = candidates.Any(candidate =>
+                Mathf.Abs(
+                    candidate.OriginX -
+                    derivedOrigin) <= 0.20f);
+            if (!duplicate)
+            {
+                candidates.Add((
+                    derivedOrigin,
+                    scan.Current.Top,
+                    "Ground6S2DerivedGround1"));
+            }
+        }
+
+        Vector2[] bestObjectives = Array.Empty<Vector2>();
+        float bestOrigin = float.NaN;
+        string bestSource = string.Empty;
+        int bestElevatedAhead = -1;
+        float bestForwardDistance = float.PositiveInfinity;
+        foreach (var candidate in candidates)
+        {
+            if (Mathf.Abs(candidate.Top - scan.Current.Top) > 0.20f)
+                continue;
+
+            float arcLeft = candidate.OriginX - 10f;
+            float arcRight = candidate.OriginX + 4f;
+            if (playerX > arcRight + 0.80f)
+                continue;
+
+            Vector2[] matched = sphereObjectives
+                .Where(sphere =>
+                    IsStage2Ground1SoulArchObjective(
+                        sphere,
+                        candidate.OriginX,
+                        candidate.Top))
+                .OrderBy(sphere => sphere.x)
+                .ThenBy(sphere => sphere.y)
+                .ToArray();
+            int elevatedAhead = matched.Count(sphere =>
+                sphere.x >= playerX - TriggerTolerance &&
+                !TrajectoryBodyOverlapsSphere(
+                    candidate.Top,
+                    sphere.y));
+            // Five exact active points are enough after the leading passive
+            // row has already been collected, but at least one remaining high
+            // point is required for this jump route to own the flat lane.
+            if (matched.Length < 5 || elevatedAhead <= 0)
+                continue;
+
+            float forwardDistance = Mathf.Max(
+                0f,
+                arcLeft - playerX);
+            bool replace =
+                bestObjectives.Length == 0 ||
+                forwardDistance <
+                    bestForwardDistance - 0.20f ||
+                Mathf.Abs(
+                    forwardDistance -
+                    bestForwardDistance) <= 0.20f &&
+                elevatedAhead > bestElevatedAhead;
+            if (!replace)
+                continue;
+
+            bestObjectives = matched;
+            bestOrigin = candidate.OriginX;
+            bestSource = candidate.Source;
+            bestElevatedAhead = elevatedAhead;
+            bestForwardDistance = forwardDistance;
+        }
+
+        if (bestObjectives.Length == 0 ||
+            !float.IsFinite(bestOrigin))
+        {
+            return false;
+        }
+
+        archOriginX = bestOrigin;
+        laneObjectives = bestObjectives;
+        int passiveAhead = laneObjectives.Count(sphere =>
+            sphere.x >= playerX - SpherePickupHorizontalReach &&
+            TrajectoryBodyOverlapsSphere(
+                scan.Current.Top,
+                sphere.y));
+        evidence =
+            $"Stage2Ground1SoulArch[Source={bestSource},Origin=" +
+            $"{archOriginX:F2},PlayerX={playerX:F2},Active=" +
+            $"{laneObjectives.Length},ElevatedAhead=" +
+            $"{bestElevatedAhead},PassiveAhead={passiveAhead}]";
+        return true;
+    }
+
+    private static bool IsStage2Ground1SoulArchObjective(
+        Vector2 sphere,
+        float originX,
+        float surfaceTop)
+    {
+        int localIndex = Mathf.RoundToInt(
+            sphere.x - (originX - 10f));
+        if (localIndex < 0 ||
+            localIndex >=
+                Stage2Ground1SoulArchHeightOffsets.Length)
+        {
+            return false;
+        }
+
+        float expectedX = originX - 10f + localIndex;
+        float expectedY =
+            surfaceTop +
+            Stage2Ground1SoulArchHeightOffsets[localIndex];
+        return Mathf.Abs(sphere.x - expectedX) <= 0.20f &&
+            Mathf.Abs(sphere.y - expectedY) <= 0.20f;
+    }
+
+    private static bool IsStage2Ground6AuthoredSurface(
+        BonusBoardSegment surface) =>
+        surface.RegistryGeneration > 0 &&
+        surface.MapPieceInstanceId != 0 &&
+        string.Equals(
+            surface.MapPieceName,
+            "Stage2 Ground 6",
+            StringComparison.Ordinal) &&
+        surface.StaticSurfaceIndex >= 0 &&
+        surface.StaticSurfaceIndex <= 2;
+
+    private static bool SameStage2AuthoredSurfaceIdentity(
+        BonusBoardSegment left,
+        BonusBoardSegment right) =>
+        left.RegistryGeneration > 0 &&
+        left.RegistryGeneration == right.RegistryGeneration &&
+        left.MapPieceInstanceId != 0 &&
+        left.MapPieceInstanceId == right.MapPieceInstanceId &&
+        string.Equals(
+            left.MapPieceName,
+            right.MapPieceName,
+            StringComparison.Ordinal);
+
+    private static bool SameStage2AuthoredSurfaceRole(
+        BonusBoardSegment left,
+        BonusBoardSegment right) =>
+        SameStage2AuthoredSurfaceIdentity(left, right) &&
+        left.StaticSurfaceIndex == right.StaticSurfaceIndex;
+
+    private static bool IsStage2Section1Ground4TriggerExit(
+        BonusBoardScanResult scan,
+        SpiritBoostRouteContext spiritBoost)
+    {
+        if (!scan.IsValid ||
+            !scan.HasNext ||
+            scan.Current.RegistryGeneration <= 0 ||
+            scan.Next.RegistryGeneration !=
+                scan.Current.RegistryGeneration ||
+            scan.Current.MapPieceInstanceId == 0 ||
+            scan.Next.MapPieceInstanceId == 0 ||
+            !string.Equals(
+                scan.Current.MapPieceName,
+                "Stage2 Ground 4",
+                StringComparison.Ordinal) ||
+            scan.Current.StaticSurfaceIndex != 0 ||
+            !string.Equals(
+                scan.Next.MapPieceName,
+                "Stage2 Ground 3",
+                StringComparison.Ordinal) ||
+            scan.Next.StaticSurfaceIndex != 1 ||
+            scan.Gap < 3.50f ||
+            scan.Gap > 4.50f ||
+            Mathf.Abs(scan.HeightDelta) > 0.35f ||
+            scan.Next.Width < 2.50f ||
+            scan.Next.Width > 3.50f)
+        {
+            return false;
+        }
+
+        // Section 1 repeats this authored exit every 72 world units. Its
+        // Spirit trigger occupies the final part of the Ground-4 source lane,
+        // while the next Ground-3 support has only a 1.5-unit safe centre
+        // corridor. Input can become airborne two native steps after DOWN even
+        // when the rolling median is near zero; that lower body path can touch
+        // the trigger although the nominal path clears it. Identify the exact
+        // typed route and source-edge trigger so the timing uncertainty cannot
+        // leak into Stage 1, Stage 3, ordinary Stage 2, or other Ground-4 uses.
+        return (spiritBoost.ActiveTriggers ??
+                Array.Empty<BonusSpeedBoostTrigger>())
+            .Any(trigger =>
+                trigger.IsValid &&
+                trigger.Left <= scan.Current.Right + 0.35f &&
+                trigger.Right >= scan.Current.Right - 1.50f &&
+                scan.Current.Top + spiritBoost.PlayerTopOffset >=
+                    trigger.Bottom &&
+                scan.Current.Top + spiritBoost.PlayerBottomOffset <=
+                    trigger.Top);
+    }
+
     private static Stage2Section1RouteDomain
         ClassifyStage2Section1RouteDomain(
             BonusBoardScanResult scan,
@@ -2478,6 +3233,30 @@ internal sealed class BonusJumpPlanner
     }
 
     /// <summary>
+    /// Stage 2 uses a rounded/point-like grounded contact on composite
+    /// colliders. A seam narrower than the complete body can therefore still
+    /// lose ground for one or more physics steps. In Spirit mode, coast only
+    /// when the current fixed-step displacement can establish the next
+    /// support in one step. Other maps retain the mature body-width rule.
+    /// </summary>
+    internal static float GetStage2SpiritRunnableGapLimit(
+        float geometricGapLimit,
+        float horizontalSpeed,
+        float fixedDeltaTime)
+    {
+        float fixedDelta = Mathf.Clamp(
+            fixedDeltaTime,
+            0.005f,
+            0.05f);
+        float oneStepTravel =
+            Mathf.Abs(horizontalSpeed) * fixedDelta;
+        return Mathf.Clamp(
+            oneStepTravel + 0.08f,
+            0.10f,
+            Mathf.Max(0.10f, geometricGapLimit));
+    }
+
+    /// <summary>
     /// Replaces an impossible immediate landing with a verified downstream
     /// landing. The scanner supplies the ordered live/static support graph;
     /// this selector changes the target only after the immediate route has a
@@ -2501,7 +3280,8 @@ internal sealed class BonusJumpPlanner
         out BonusJumpPlan selectedPlan,
         out bool selectedPlanAvailable,
         int continuationDepth = 1,
-        bool useStage2LiveTopologyProfile = false)
+        bool useStage2LiveTopologyProfile = false,
+        bool preferVerifiedObjectiveNetGain = false)
     {
         selection = "ImmediateRouteRetained";
         selectedPlan = default;
@@ -2549,10 +3329,35 @@ internal sealed class BonusJumpPlanner
                     observedScan.Current,
                     observedScan.Next)
                 : Array.Empty<Vector2>();
+        BonusBoardSegment stage2Ground4SoulDeck = default;
+        int stage2Ground4SoulDeckObjectives = 0;
+        bool retainStage2Ground4SoulDeckRoute =
+            lowerContinuationChanged &&
+            useStage2LiveTopologyProfile &&
+            (sectionIndex == 0 || sectionIndex == 1) &&
+            preferSphereCoverage &&
+            !spiritBoost.Enabled &&
+            TryDescribeStage2Ground4SoulDeck(
+                observedScan,
+                sphereObjectives,
+                out stage2Ground4SoulDeck,
+                out stage2Ground4SoulDeckObjectives);
         string topologyDecision = useStage2LiveTopologyProfile
             ? stage2TopologyDecision
             : "ObservedImmediate";
-        if (lowerContinuationChanged &&
+        if (retainStage2Ground4SoulDeckRoute)
+        {
+            // Retain the observed first stair. Plan will prove the ordinary
+            // wall/step action from live physics; this policy changes only
+            // which already-observed topology is offered to that proof.
+            topologyDecision =
+                $"Stage2Ground4SoulDeckRouteRetained[Deck=" +
+                $"[{stage2Ground4SoulDeck.Left:F2}," +
+                $"{stage2Ground4SoulDeck.Right:F2}]@" +
+                $"{stage2Ground4SoulDeck.Top:F2},Objectives=" +
+                $"{stage2Ground4SoulDeckObjectives}]";
+        }
+        else if (lowerContinuationChanged &&
             observedImmediateObjectives.Length == 0)
         {
             scan = lowerContinuation;
@@ -2602,6 +3407,102 @@ internal sealed class BonusJumpPlanner
                 .OrderBy(candidate => candidate.Left)
                 .ThenBy(candidate => candidate.Top)
                 .ToArray();
+
+        if (useStage2LiveTopologyProfile &&
+            sectionIndex == 3 &&
+            preferSphereCoverage &&
+            !spiritBoost.Enabled &&
+            TryDescribeStage2Ground6ShallowDepressionSoulSweep(
+                observedScan,
+                allForwardSurfaces,
+                sphereObjectives,
+                out BonusBoardSegment stage2Ground6Depression,
+                out BonusBoardSegment stage2Ground6Exit,
+                out Vector2[] stage2Ground6ElevatedObjectives,
+                out string stage2Ground6Evidence))
+        {
+            BonusBoardScanResult sweepScan = observedScan with
+            {
+                HasNext = true,
+                Next = stage2Ground6Exit,
+                Gap = Mathf.Max(
+                    0f,
+                    stage2Ground6Exit.Left -
+                    observedScan.Current.Right),
+                HeightDelta =
+                    stage2Ground6Exit.Top -
+                    observedScan.Current.Top,
+                Reason = "Stage2Ground6ShallowDepressionSoulSweep",
+                HasIntermediate = true,
+                Intermediate = stage2Ground6Depression,
+                Alternatives = allForwardSurfaces
+                    .Where(surface =>
+                        !SameStage2AuthoredSurfaceRole(
+                            surface,
+                            stage2Ground6Depression) &&
+                        !SameStage2AuthoredSurfaceRole(
+                            surface,
+                            stage2Ground6Exit) &&
+                        !(Mathf.Abs(
+                               surface.Top -
+                               stage2Ground6Exit.Top) <= 0.12f &&
+                          surface.Left <=
+                              stage2Ground6Exit.Left + 0.12f &&
+                          surface.Right >=
+                              stage2Ground6Exit.Right - 0.12f) &&
+                        surface.Right >
+                            observedScan.Current.Right + 0.05f &&
+                        surface.Left <
+                            stage2Ground6Exit.Right - 0.05f)
+                    .ToArray()
+            };
+            BonusJumpPlan sweepPlan = Plan(
+                sweepScan,
+                playerPosition,
+                playerVelocity,
+                physics,
+                hazard,
+                stage2Ground6ElevatedObjectives,
+                sectionIndex: sectionIndex,
+                preferSphereCoverage: true,
+                allowRecoverableLowerFaceCatch:
+                    allowRecoverableLowerFaceCatch,
+                useFixedStepAlignedHolds: useFixedStepAlignedHolds,
+                spiritBoost: spiritBoost,
+                routeTargetIsAuthoritative: true,
+                useStage2LiveTopologyProfile: true,
+                minimumSphereHits: 1);
+            if (sweepPlan.IsValid &&
+                sweepPlan.Maneuver ==
+                    BonusManeuverKind.GroundJumpToLanding &&
+                sweepPlan.ExpectedSphereHits >= 1)
+            {
+                selection =
+                    $"Stage2Ground6ShallowDepressionSoulSweepSelected[" +
+                    $"{stage2Ground6Evidence},Hold=" +
+                    $"{sweepPlan.HoldSeconds:F3},Launch=" +
+                    $"{sweepPlan.PlannedLaunchX:F3},Landing=" +
+                    $"{sweepPlan.PredictedLandingX:F3},Guaranteed=" +
+                    $"{sweepPlan.ExpectedSphereHits}]";
+                selectedPlan = sweepPlan with
+                {
+                    CandidateSummary =
+                        sweepPlan.CandidateSummary +
+                        $" | {stage2Ground6Evidence} | " +
+                        "The authored four-unit, one-unit-deep depression " +
+                        "keeps its fixed exit bounds; pooled equal-height " +
+                        "surface merging cannot move this soul launch."
+                };
+                selectedPlanAvailable = true;
+                return sweepScan;
+            }
+
+            topologyDecision +=
+                $";Stage2Ground6SoulSweepFallback[Evidence=" +
+                $"{stage2Ground6Evidence},Plan={sweepPlan.Reason}/" +
+                $"{sweepPlan.Maneuver},Expected=" +
+                $"{sweepPlan.ExpectedSphereHits}]";
+        }
 
         // A Spirit reset can turn a narrow support into a one-physics-step
         // touch. When this selector is evaluating that projected support (or
@@ -2678,6 +3579,7 @@ internal sealed class BonusJumpPlanner
                 allowRecoverableLowerFaceCatch,
                 useFixedStepAlignedHolds,
                 spiritBoost,
+                useStage2LiveTopologyProfile,
                 continuationDepth,
                 out immediateContinuationSafety,
                 out immediateContinuation);
@@ -2776,6 +3678,7 @@ internal sealed class BonusJumpPlanner
                         allowRecoverableLowerFaceCatch,
                         useFixedStepAlignedHolds,
                         spiritBoost,
+                        useStage2LiveTopologyProfile,
                         continuationDepth,
                         out edgeContinuationSafety,
                         out edgeContinuation);
@@ -2839,6 +3742,9 @@ internal sealed class BonusJumpPlanner
         float bestForwardDistance = immediateStableLandingCandidate
             ? Mathf.Max(0f, scan.Next.Left - scan.Current.Right)
             : float.PositiveInfinity;
+        bool bestIsStage2SpiritLowCorridorSteppingStone = false;
+        float bestStage2SpiritLowCorridorRawMargin =
+            float.NegativeInfinity;
         HashSet<int> immediateRouteObjectiveIds =
             GetObjectiveIndicesAttachedToTarget(
                 sphereObjectives,
@@ -2908,6 +3814,22 @@ internal sealed class BonusJumpPlanner
                 preferSphereCoverage
                     ? bestGuaranteedObjectiveIds.Count
                     : 0);
+            bestIsStage2SpiritLowCorridorSteppingStone =
+                IsStage2SpiritLowCorridorSteppingStone(
+                    scan.Current,
+                    scan.Next,
+                    immediatePlan,
+                    immediateLaunchX,
+                    speed,
+                    physics,
+                    immediateContinuationViable,
+                    immediateContinuation,
+                    sectionIndex,
+                    useStage2LiveTopologyProfile,
+                    spiritBoost,
+                    bestLandingSafety,
+                    out bestStage2SpiritLowCorridorRawMargin,
+                    out _);
             evaluation.Append(
                 $",ImmediateLandingSafety={bestLandingSafety:F3}," +
                 $"ImmediateRunway={immediateRunway:F3}," +
@@ -2927,27 +3849,97 @@ internal sealed class BonusJumpPlanner
             // important in Section 4, where two distant surfaces remained in
             // the horizon and cost 20-26 ms every final-proof FixedUpdate even
             // though the base-speed endpoint ended several units short.
-            if (spiritBoost.Enabled)
+            if (spiritBoost.Enabled || useStage2LiveTopologyProfile)
             {
-                float optimisticHold = Mathf.Min(
+                float maximumBroadPhaseHold = Mathf.Min(
                     MaximumHoldSeconds,
                     physics.EffectiveHoldCapSeconds);
-                bool hasOptimisticFlight = TryPredictFlightTime(
-                    optimisticHold,
-                    target.Top - scan.Current.Top,
-                    physics,
-                    out float optimisticFlightSeconds,
-                    out _,
-                    out _);
-                float optimisticNoPickupTravel = hasOptimisticFlight
-                    ? PredictHorizontalTravel(
-                        speed,
-                        optimisticFlightSeconds,
+                float optimisticHold = maximumBroadPhaseHold;
+                float optimisticNoPickupTravel = 0f;
+                bool hasOptimisticFlight = false;
+                float broadPhaseHeightDelta =
+                    target.Top - scan.Current.Top;
+                if (useStage2LiveTopologyProfile)
+                {
+                    optimisticHold = 0f;
+                    // Maximum hold is not necessarily maximum travel after
+                    // per-tier duration feedback and landing bias. Stage 2
+                    // evaluates the same nine cheap scalar tiers as Plan and
+                    // takes their true calibrated maximum before rejecting
+                    // geometry. No trajectory probes, objective intersections
+                    // or continuation recursion run in this broad phase.
+                    foreach (float candidateHold in
+                             FixedStepAlignedHoldCandidates)
+                    {
+                        if (candidateHold >
+                            maximumBroadPhaseHold + 0.0001f)
+                        {
+                            continue;
+                        }
+                        if (!TryPredictFlightTime(
+                                candidateHold,
+                                broadPhaseHeightDelta,
+                                physics,
+                                out float candidateFlightSeconds,
+                                out _,
+                                out _))
+                        {
+                            continue;
+                        }
+
+                        candidateFlightSeconds *= physics.FlightTimeScale;
+                        candidateFlightSeconds =
+                            CalibrateBaseSpeedFlightDuration(
+                                speed,
+                                candidateHold,
+                                broadPhaseHeightDelta,
+                                candidateFlightSeconds,
+                                physics,
+                                out _);
+                        float candidateTravel = PredictHorizontalTravel(
+                            speed,
+                            candidateFlightSeconds,
+                            candidateHold,
+                            broadPhaseHeightDelta,
+                            physics,
+                            out string candidateTravelSource);
+                        candidateTravel = ApplyLandingBias(
+                            candidateTravel,
+                            broadPhaseHeightDelta,
+                            candidateHold,
+                            physics,
+                            ref candidateTravelSource);
+                        hasOptimisticFlight = true;
+                        if (candidateTravel >
+                            optimisticNoPickupTravel)
+                        {
+                            optimisticNoPickupTravel = candidateTravel;
+                            optimisticHold = candidateHold;
+                        }
+                    }
+                }
+                else
+                {
+                    // Preserve the mature Stage-1/3 Spirit broad phase
+                    // byte-for-byte in behavior. V1.13's calibrated
+                    // alternative eligibility is a Stage-2-only correction.
+                    hasOptimisticFlight = TryPredictFlightTime(
                         optimisticHold,
-                        target.Top - scan.Current.Top,
+                        broadPhaseHeightDelta,
                         physics,
-                        out _)
-                    : 0f;
+                        out float optimisticFlightSeconds,
+                        out _,
+                        out _);
+                    optimisticNoPickupTravel = hasOptimisticFlight
+                        ? PredictHorizontalTravel(
+                            speed,
+                            optimisticFlightSeconds,
+                            optimisticHold,
+                            broadPhaseHeightDelta,
+                            physics,
+                            out _)
+                        : 0f;
+                }
                 float fixedStepReserve = PredictHorizontalTravelAtTime(
                     speed,
                     Mathf.Clamp(
@@ -3155,15 +4147,41 @@ internal sealed class BonusJumpPlanner
                     allowRecoverableLowerFaceCatch,
                     useFixedStepAlignedHolds,
                     spiritBoost,
+                    useStage2LiveTopologyProfile,
                     continuationDepth,
                     out candidateContinuationSafety,
                     out candidateContinuation);
+            bool candidateIsStage2SpiritLowCorridorSteppingStone =
+                IsStage2SpiritLowCorridorSteppingStone(
+                    scan.Current,
+                    target,
+                    candidatePlan,
+                    plannedLaunchX,
+                    speed,
+                    physics,
+                    candidateContinuationViable,
+                    candidateContinuation,
+                    sectionIndex,
+                    useStage2LiveTopologyProfile,
+                    spiritBoost,
+                    candidateLandingSafety,
+                    out float candidateStage2SpiritLowCorridorRawMargin,
+                    out float requiredStage2SpiritLowCorridorRawMargin);
             evaluation.Append(
                 $",LandingSafety={candidateLandingSafety:F3}," +
                 $"Runway={candidateRunway:F3}," +
                 $"Continuation={candidateContinuationViable}/" +
                 $"Safety={candidateContinuationSafety:F3}" +
                 $"[{candidateContinuation}]," +
+                $"Stage2SpiritLowCorridorSteppingStone=" +
+                $"{candidateIsStage2SpiritLowCorridorSteppingStone}" +
+                (candidateIsStage2SpiritLowCorridorSteppingStone
+                    ? $"[RawMargin=" +
+                      $"{candidateStage2SpiritLowCorridorRawMargin:F3}," +
+                      $"Required=" +
+                      $"{requiredStage2SpiritLowCorridorRawMargin:F3}]"
+                    : string.Empty) +
+                "," +
                 $"Envelope=" +
                 $"{DescribeLandingEnvelope(candidatePlan, target, plannedLaunchX)}");
             bool replaceBest = ShouldReplaceRouteCandidate(
@@ -3183,6 +4201,61 @@ internal sealed class BonusJumpPlanner
                 bestForwardDistance,
                 bestScore,
                 out string rankingDecision);
+            if (!replaceBest &&
+                preferVerifiedObjectiveNetGain &&
+                candidateContinuationViable &&
+                candidateGuaranteedObjectiveIds.Count >
+                    bestGuaranteedObjectiveIds.Count)
+            {
+                // One authored repeated pickup fixture may explicitly prefer
+                // a verified downstream landing when it preserves the ground
+                // pickups and adds at least one guaranteed airborne pickup.
+                // Plan already proved the landing, every crossed surface and
+                // the continuation above; this opt-in changes no generic
+                // route and cannot rescue a failed clearance proof.
+                replaceBest = true;
+                rankingDecision =
+                    $"Replace:VerifiedObjectiveNetGain[" +
+                    $"{candidateGuaranteedObjectiveIds.Count}>" +
+                    $"{bestGuaranteedObjectiveIds.Count}," +
+                    $"ContinuationSafety=" +
+                    $"{candidateContinuationSafety:F3}]";
+            }
+            if (candidateIsStage2SpiritLowCorridorSteppingStone &&
+                !bestIsStage2SpiritLowCorridorSteppingStone)
+            {
+                // Ground 3 S2 is the authored low-corridor stepping stone.
+                // Its centred raw envelope retains more than one fixed-step
+                // of runway and its projected landing proves the following
+                // wall catch. At Spirit speed the generic uncertainty reserve
+                // can make that otherwise safe first landing slightly
+                // negative; a farther S3 must not erase the executable
+                // two-action route merely because it offers a wider top.
+                replaceBest = true;
+                rankingDecision =
+                    $"Replace:Stage2SpiritLowCorridorSteppingStone[" +
+                    $"RawMargin=" +
+                    $"{candidateStage2SpiritLowCorridorRawMargin:F3}," +
+                    $"Required=" +
+                    $"{requiredStage2SpiritLowCorridorRawMargin:F3}," +
+                    $"AdjustedSafety={candidateLandingSafety:F3}]";
+            }
+            else if (bestIsStage2SpiritLowCorridorSteppingStone &&
+                     !candidateIsStage2SpiritLowCorridorSteppingStone &&
+                     forwardDistance >
+                         bestForwardDistance + RouteDistanceTier)
+            {
+                // Once the exact S2 stepping stone owns the decision, later
+                // surfaces are alternatives after its already-verified wall
+                // continuation, not substitutes for it.
+                replaceBest = false;
+                rankingDecision =
+                    $"Keep:Stage2SpiritLowCorridorSteppingStoneIncumbent[" +
+                    $"RawMargin=" +
+                    $"{bestStage2SpiritLowCorridorRawMargin:F3}," +
+                    $"BestDistance={bestForwardDistance:F3}," +
+                    $"CandidateDistance={forwardDistance:F3}]";
+            }
             evaluation.Append($",Ranking={rankingDecision}");
             if (!replaceBest)
                 continue;
@@ -3196,6 +4269,12 @@ internal sealed class BonusJumpPlanner
             bestExpectedSpeedBoostHits =
                 predictedSpeedBoostHits;
             bestScore = score;
+            bestIsStage2SpiritLowCorridorSteppingStone =
+                candidateIsStage2SpiritLowCorridorSteppingStone;
+            bestStage2SpiritLowCorridorRawMargin =
+                candidateIsStage2SpiritLowCorridorSteppingStone
+                    ? candidateStage2SpiritLowCorridorRawMargin
+                    : float.NegativeInfinity;
             bestScan = candidateScan;
             bestPlan = candidatePlan;
         }
@@ -3406,6 +4485,95 @@ internal sealed class BonusJumpPlanner
         Mathf.Max(0f, launchWindowWidth) * 0.85f +
         landingRunway * 0.75f +
         Mathf.Max(0, guaranteedObjectiveHits) * 0.25f;
+
+    private static bool IsStage2SpiritLowCorridorSteppingStone(
+        BonusBoardSegment source,
+        BonusBoardSegment target,
+        BonusJumpPlan plan,
+        float launchX,
+        float speed,
+        JumpPhysicsSnapshot physics,
+        bool continuationViable,
+        string continuation,
+        int sectionIndex,
+        bool useStage2LiveTopologyProfile,
+        SpiritBoostRouteContext spiritBoost,
+        float adjustedLandingSafety,
+        out float rawLandingMargin,
+        out float requiredRawLandingMargin)
+    {
+        rawLandingMargin = float.NegativeInfinity;
+        requiredRawLandingMargin = float.PositiveInfinity;
+        bool exactAuthoredRoute =
+            useStage2LiveTopologyProfile &&
+            spiritBoost.Enabled &&
+            sectionIndex == 1 &&
+            string.Equals(
+                source.MapPieceName,
+                "Stage2 Ground 3",
+                System.StringComparison.Ordinal) &&
+            source.StaticSurfaceIndex == 0 &&
+            string.Equals(
+                target.MapPieceName,
+                "Stage2 Ground 3",
+                System.StringComparison.Ordinal) &&
+            target.StaticSurfaceIndex == 2 &&
+            source.MapPieceInstanceId != 0 &&
+            target.MapPieceInstanceId ==
+                source.MapPieceInstanceId &&
+            source.RegistryGeneration > 0 &&
+            target.RegistryGeneration ==
+                source.RegistryGeneration &&
+            Mathf.Abs(target.Top - source.Top) <= 0.35f;
+        bool verifiedWallContinuation =
+            continuationViable &&
+            !string.IsNullOrEmpty(continuation) &&
+            continuation.IndexOf(
+                "Stage2LowCorridorWallCatch",
+                System.StringComparison.Ordinal) >= 0;
+        bool shortNativeHold =
+            plan.IsValid &&
+            plan.Maneuver == BonusManeuverKind.GroundJumpToLanding &&
+            plan.HoldSeconds <= 0.0401f;
+        bool onlySlightlyOutsideAdjustedMargin =
+            float.IsFinite(adjustedLandingSafety) &&
+            adjustedLandingSafety >= -RouteLandingSafetyTier;
+        if (!exactAuthoredRoute ||
+            !verifiedWallContinuation ||
+            !shortNativeHold ||
+            !onlySlightlyOutsideAdjustedMargin)
+        {
+            return false;
+        }
+
+        float minimumTravel = plan.MinimumHorizontalTravel > 0f
+            ? plan.MinimumHorizontalTravel
+            : plan.HorizontalTravel;
+        float maximumTravel = plan.MaximumHorizontalTravel > 0f
+            ? plan.MaximumHorizontalTravel
+            : plan.HorizontalTravel;
+        float envelopeLeft = launchX + Mathf.Min(
+            minimumTravel,
+            maximumTravel);
+        float envelopeRight = launchX + Mathf.Max(
+            minimumTravel,
+            maximumTravel);
+        rawLandingMargin = Mathf.Min(
+            envelopeLeft - target.SafeLeft,
+            target.SafeRight - envelopeRight);
+        float fixedDelta = Mathf.Clamp(
+            physics.FixedDeltaTime,
+            0.005f,
+            0.05f);
+        float oneFixedStepTravel = PredictHorizontalTravelAtTime(
+            Mathf.Abs(speed),
+            fixedDelta,
+            physics);
+        requiredRawLandingMargin = Mathf.Max(
+            0.35f,
+            oneFixedStepTravel);
+        return rawLandingMargin >= requiredRawLandingMargin;
+    }
 
     /// <summary>
     /// Route comparison is deliberately lexicographic. First-contact landing
@@ -3704,6 +4872,7 @@ internal sealed class BonusJumpPlanner
         bool allowRecoverableLowerFaceCatch,
         bool useFixedStepAlignedHolds,
         SpiritBoostRouteContext spiritBoost,
+        bool useStage2LiveTopologyProfile,
         int continuationDepth,
         out float worstLandingSafety,
         out string summary)
@@ -3757,6 +4926,7 @@ internal sealed class BonusJumpPlanner
             allowRecoverableLowerFaceCatch,
             useFixedStepAlignedHolds,
             spiritBoost,
+            useStage2LiveTopologyProfile,
             continuationDepth,
             "Slow",
             out float slowLandingSafety,
@@ -3788,6 +4958,7 @@ internal sealed class BonusJumpPlanner
                 allowRecoverableLowerFaceCatch,
                 useFixedStepAlignedHolds,
                 spiritBoost,
+                useStage2LiveTopologyProfile,
                 continuationDepth,
                 "Fast",
                 out fastLandingSafety,
@@ -3820,6 +4991,7 @@ internal sealed class BonusJumpPlanner
         bool allowRecoverableLowerFaceCatch,
         bool useFixedStepAlignedHolds,
         SpiritBoostRouteContext spiritBoost,
+        bool useStage2LiveTopologyProfile,
         int continuationDepth,
         string speedLabel,
         out float landingSafety,
@@ -3895,6 +5067,7 @@ internal sealed class BonusJumpPlanner
             allowRecoverableLowerFaceCatch,
             useFixedStepAlignedHolds,
             continuationSpirit,
+            useStage2LiveTopologyProfile,
             continuationDepth,
             speedLabel,
             out landingSafety,
@@ -3915,6 +5088,7 @@ internal sealed class BonusJumpPlanner
         bool allowRecoverableLowerFaceCatch,
         bool useFixedStepAlignedHolds,
         SpiritBoostRouteContext spiritBoost,
+        bool useStage2LiveTopologyProfile,
         int continuationDepth,
         string speedLabel,
         out float landingSafety,
@@ -3954,7 +5128,9 @@ internal sealed class BonusJumpPlanner
             selection: out string routeSelection,
             selectedPlan: out BonusJumpPlan continuationPlan,
             selectedPlanAvailable: out bool planAvailable,
-            continuationDepth: Mathf.Max(0, continuationDepth - 1));
+            continuationDepth: Mathf.Max(0, continuationDepth - 1),
+            useStage2LiveTopologyProfile:
+                useStage2LiveTopologyProfile);
         if (!planAvailable)
         {
             continuationPlan = Plan(
@@ -3970,7 +5146,9 @@ internal sealed class BonusJumpPlanner
                     allowRecoverableLowerFaceCatch,
                 useFixedStepAlignedHolds: useFixedStepAlignedHolds,
                 spiritBoost: speedContext,
-                routeTargetIsAuthoritative: true);
+                routeTargetIsAuthoritative: true,
+                useStage2LiveTopologyProfile:
+                    useStage2LiveTopologyProfile);
         }
 
         bool viable = continuationPlan.IsValid ||
@@ -4092,6 +5270,18 @@ internal sealed class BonusJumpPlanner
                             launchX + 0.02f)
                      .OrderBy(surface => surface.Left))
         {
+            if (IsStage2Ground3OverheadForLowRoute(
+                    target,
+                    surface))
+            {
+                checks.Append(
+                    $"Stage2Ground3OverheadIgnored[" +
+                    $"{surface.StaticSurfaceIndex}:" +
+                    $"[{surface.Left:F2},{surface.Right:F2}]@" +
+                    $"{surface.Top:F2}];");
+                continue;
+            }
+
             float entryX = Mathf.Max(
                 launchX + 0.02f,
                 surface.Left - inferredHalfWidth);
@@ -4253,6 +5443,42 @@ internal sealed class BonusJumpPlanner
         return Mathf.Abs(left.Left - right.Left) <= 0.20f &&
             Mathf.Abs(left.Right - right.Right) <= 0.20f &&
                Mathf.Abs(left.Top - right.Top) <= 0.25f;
+    }
+
+    internal static bool IsStage2Ground3OverheadForLowRoute(
+        BonusBoardSegment target,
+        BonusBoardSegment surface)
+    {
+        if (!string.Equals(
+                target.MapPieceName,
+                "Stage2 Ground 3",
+                StringComparison.Ordinal) ||
+            !string.Equals(
+                surface.MapPieceName,
+                "Stage2 Ground 3",
+                StringComparison.Ordinal) ||
+            target.StaticSurfaceIndex < 0 ||
+            target.StaticSurfaceIndex > 3 ||
+            surface.StaticSurfaceIndex < 4 ||
+            surface.StaticSurfaceIndex > 5 ||
+            target.MapPieceInstanceId == 0 ||
+            surface.MapPieceInstanceId == 0 ||
+            target.MapPieceInstanceId != surface.MapPieceInstanceId ||
+            target.RegistryGeneration <= 0 ||
+            surface.RegistryGeneration <= 0 ||
+            target.RegistryGeneration != surface.RegistryGeneration ||
+            surface.Top - target.Top < 9.65f ||
+            surface.Top - target.Top > 10.35f ||
+            float.IsFinite(surface.WallFaceX))
+        {
+            return false;
+        }
+
+        // The caller already proved this exact authored high surface lies in
+        // the launch-to-landing X corridor. Ground 3's S4/S5 are underpass
+        // ceilings throughout that corridor, even when the final low target
+        // is S2/S3 rather than the low support directly below the ceiling.
+        return true;
     }
 
     private static bool IsMappedGround6UnderpassWallRoute(
@@ -5003,7 +6229,8 @@ internal sealed class BonusJumpPlanner
         bool preferLowerTrenchContact = false,
         bool requireBelowSourceContact = false,
         float triggerTolerance = TriggerTolerance,
-        bool compensateInputCommit = false)
+        bool compensateInputCommit = false,
+        bool requireRisingFaceContact = false)
     {
         bool spiritBoostPassThroughWall =
             spiritBoost.Enabled &&
@@ -5091,6 +6318,7 @@ internal sealed class BonusJumpPlanner
         float chosenApproachHold = 0f;
         float preferredContactTime = 0f;
         float predictedContactFeetY = float.NegativeInfinity;
+        float predictedContactVelocityY = float.NegativeInfinity;
         float contactChoiceScore = float.PositiveInfinity;
         const int contactSamples = 28;
         float minimumFaceClearance = spiritBoostPassThroughWall
@@ -5160,9 +6388,16 @@ internal sealed class BonusJumpPlanner
                     hold,
                     sampledContactTime,
                     physics);
+                float contactVelocityY = PredictVerticalVelocityAtTime(
+                    hold,
+                    sampledContactTime,
+                    physics);
                 float faceClearance = scan.Next.Top - contactFeetY;
                 if (faceClearance < minimumFaceClearance ||
-                    faceClearance > maximumFaceClearance)
+                    faceClearance > maximumFaceClearance ||
+                    requireRisingFaceContact &&
+                    contactVelocityY <
+                        RisingStairMinimumContactVelocityY)
                 {
                     continue;
                 }
@@ -5179,6 +6414,7 @@ internal sealed class BonusJumpPlanner
                 chosenApproachHold = hold;
                 preferredContactTime = sampledContactTime;
                 predictedContactFeetY = contactFeetY;
+                predictedContactVelocityY = contactVelocityY;
             }
         }
 
@@ -5190,7 +6426,9 @@ internal sealed class BonusJumpPlanner
                 $" | WallApproachRejected[WallX={wallContactX:F2}," +
                 $"Rise={scan.HeightDelta:F2}," +
                 $"ContactT=[{geometryContactStart:F3},{geometryContactEnd:F3}]," +
-                $"RequiredClearance=[{minimumFaceClearance:F2},{maximumFaceClearance:F2}]]");
+                $"RequiredClearance=[{minimumFaceClearance:F2},{maximumFaceClearance:F2}]," +
+                $"RequiredContactPhase=" +
+                $"{(requireRisingFaceContact ? $"Rising(VY>={RisingStairMinimumContactVelocityY:F2})" : "Any")}]");
         }
 
         float acceptedContactStart = float.PositiveInfinity;
@@ -5206,9 +6444,16 @@ internal sealed class BonusJumpPlanner
                 chosenApproachHold,
                 sampledContactTime,
                 physics);
+            float contactVelocityY = PredictVerticalVelocityAtTime(
+                chosenApproachHold,
+                sampledContactTime,
+                physics);
             float faceClearance = scan.Next.Top - contactFeetY;
             if (faceClearance < minimumFaceClearance ||
-                faceClearance > maximumFaceClearance)
+                faceClearance > maximumFaceClearance ||
+                requireRisingFaceContact &&
+                contactVelocityY <
+                    RisingStairMinimumContactVelocityY)
             {
                 continue;
             }
@@ -5263,6 +6508,10 @@ internal sealed class BonusJumpPlanner
             chosenApproachHold,
             contactTime,
             physics);
+        predictedContactVelocityY = PredictVerticalVelocityAtTime(
+            chosenApproachHold,
+            contactTime,
+            physics);
         bool missed = playerPosition.x > usableRight;
 
         // The preferred launch window is only valid for the hold selected at
@@ -5289,6 +6538,7 @@ internal sealed class BonusJumpPlanner
                     : minimumFaceClearance;
             float salvageHold = 0f;
             float salvageContactFeetY = float.NegativeInfinity;
+            float salvageContactVelocityY = float.NegativeInfinity;
             float salvageScore = float.PositiveInfinity;
             string salvageHazardCheck = "NotEvaluated";
             StringBuilder salvageEvaluations = new();
@@ -5317,15 +6567,23 @@ internal sealed class BonusJumpPlanner
                     hold,
                     liveContactTimeFromNow,
                     physics);
+                float candidateVelocityY = PredictVerticalVelocityAtTime(
+                    hold,
+                    liveContactTimeFromNow,
+                    physics);
                 float candidateClearance = scan.Next.Top - candidateFeetY;
                 bool hitsFaceBand =
                     candidateClearance >= salvageMinimumFaceClearance &&
-                    candidateClearance <= maximumFaceClearance;
+                    candidateClearance <= maximumFaceClearance &&
+                    (!requireRisingFaceContact ||
+                     candidateVelocityY >=
+                         RisingStairMinimumContactVelocityY);
                 if (!hitsFaceBand)
                 {
                     AppendEvaluation(
                         salvageEvaluations,
                         $"H={hold:F3}:FeetY={candidateFeetY:F2}," +
+                        $"VY={candidateVelocityY:F2}," +
                         $"Clearance={candidateClearance:F2},FaceHit=False");
                     continue;
                 }
@@ -5343,6 +6601,7 @@ internal sealed class BonusJumpPlanner
                 AppendEvaluation(
                     salvageEvaluations,
                     $"H={hold:F3}:FeetY={candidateFeetY:F2}," +
+                    $"VY={candidateVelocityY:F2}," +
                     $"Clearance={candidateClearance:F2},FaceHit=True," +
                     $"Safe={candidateSafe},{candidateHazardCheck}");
                 if (!candidateSafe)
@@ -5359,6 +6618,7 @@ internal sealed class BonusJumpPlanner
                 salvageScore = score;
                 salvageHold = hold;
                 salvageContactFeetY = candidateFeetY;
+                salvageContactVelocityY = candidateVelocityY;
                 salvageHazardCheck = candidateHazardCheck;
             }
 
@@ -5402,6 +6662,7 @@ internal sealed class BonusJumpPlanner
                 $"H={salvageHold:F3},EH={salvageEffectiveHold:F3}," +
                 $"MaxRise={salvageMaximumRise:F2}," +
                 $"ContactFeetY={salvageContactFeetY:F2}," +
+                $"ContactVY={salvageContactVelocityY:F2}," +
                 $"Action=ImmediateJump,{salvageHazardCheck}]";
             string salvageReason = requireBelowSourceContact
                 ? "LateDeepTrenchPhysicalFaceSalvage"
@@ -5439,10 +6700,18 @@ internal sealed class BonusJumpPlanner
             chosenApproachHold,
             liveContactTime,
             physics);
+        float liveContactVelocityY = PredictVerticalVelocityAtTime(
+            chosenApproachHold,
+            liveContactTime,
+            physics);
         bool liveHitsWallFace =
             liveContactFeetY <= scan.Next.Top - minimumFaceClearance &&
             liveContactFeetY >= scan.Next.Top - maximumFaceClearance;
-        shouldJump &= liveHitsWallFace;
+        bool liveMatchesContactPhase =
+            !requireRisingFaceContact ||
+            liveContactVelocityY >=
+                RisingStairMinimumContactVelocityY;
+        shouldJump &= liveHitsWallFace && liveMatchesContactPhase;
         bool trajectorySafe = TrajectoryClearsHazard(
             hazard,
             shouldJump ? playerPosition.x : plannedLaunchX,
@@ -5474,7 +6743,13 @@ internal sealed class BonusJumpPlanner
             $"ContactT={contactTime:F3},ContactWindow=" +
             $"[{acceptedContactStart:F3},{acceptedContactEnd:F3}]," +
             $"ContactFeetY={predictedContactFeetY:F2}," +
-            $"LiveContactFeetY={liveContactFeetY:F2},FaceHit={liveHitsWallFace}," +
+            $"ContactVY={predictedContactVelocityY:F2}," +
+            $"ContactPhase=" +
+            $"{(requireRisingFaceContact ? "RisingRequired" : "Any")}," +
+            $"LiveContactFeetY={liveContactFeetY:F2}," +
+            $"LiveContactVY={liveContactVelocityY:F2}," +
+            $"FaceHit={liveHitsWallFace}," +
+            $"PhaseMatch={liveMatchesContactPhase}," +
             $"Window=[{usableLeft:F2},{usableRight:F2}]," +
             $"Launch={plannedLaunchX:F2},Now={playerPosition.x:F2}," +
             $"Action={(shouldJump ? "Jump" : missed ? "Missed" : "Wait")}," +
@@ -5908,6 +7183,8 @@ internal sealed class BonusJumpPlanner
         IReadOnlyList<float> holdCandidates,
         bool preferComfortableSphereCoverage,
         SpiritBoostRouteContext spiritBoost,
+        bool useStage2LiveTopologyProfile,
+        int sectionIndex,
         out BonusJumpPlan plan)
     {
         plan = default;
@@ -5917,6 +7194,71 @@ internal sealed class BonusJumpPlanner
         float speed = Mathf.Abs(playerVelocity.x);
         if (speed < 1f)
             return false;
+
+        // Stage 2's registered Ground 1 is a completely flat 24-unit soul
+        // lane. Keep its bounded objective search behind the typed Stage-2
+        // profile so the mature Stage-1/3 sampler below remains unchanged.
+        Vector2[] stage2Ground1ArchObjectives =
+            Array.Empty<Vector2>();
+        string stage2Ground1ArchEvidence = string.Empty;
+        float stage2Ground1ArchOriginX = float.NaN;
+        bool stage2Section3Ground1SoulArch =
+            useStage2LiveTopologyProfile &&
+            sectionIndex == 3 &&
+            !spiritBoost.Enabled &&
+            TryDescribeStage2Section3Ground1SoulArch(
+                scan,
+                playerPosition.x,
+                sphereObjectives,
+                out stage2Ground1ArchOriginX,
+                out stage2Ground1ArchObjectives,
+                out stage2Ground1ArchEvidence);
+        bool stage2FlatSoulLaneFast =
+            useStage2LiveTopologyProfile &&
+            sectionIndex >= 2 &&
+            scan.Current.Width >= 18f &&
+            (string.Equals(
+                 scan.Current.MapPieceName,
+                 "Stage2 Ground 1",
+                 StringComparison.Ordinal) ||
+             string.IsNullOrWhiteSpace(scan.Current.MapPieceName) ||
+             string.Equals(
+                 scan.Current.MapPieceName,
+                 "Unknown",
+                 StringComparison.OrdinalIgnoreCase)) ||
+            stage2Section3Ground1SoulArch;
+        if (stage2FlatSoulLaneFast)
+        {
+            bool planned = TryPlanStage2FlatSoulLaneFast(
+                scan,
+                playerPosition,
+                playerVelocity,
+                physics,
+                hazard,
+                stage2Section3Ground1SoulArch
+                    ? stage2Ground1ArchObjectives
+                    : sphereObjectives,
+                holdCandidates,
+                spiritBoost,
+                preferImmediateComfortableLaunch:
+                    sectionIndex == 2 && !spiritBoost.Enabled ||
+                    stage2Section3Ground1SoulArch,
+                prioritizeWholeLaneCoverage:
+                    stage2Section3Ground1SoulArch,
+                prioritizedLaneOriginX:
+                    stage2Ground1ArchOriginX,
+                out plan);
+            if (planned && stage2Section3Ground1SoulArch)
+            {
+                plan = plan with
+                {
+                    CandidateSummary =
+                        $"{stage2Ground1ArchEvidence} | " +
+                        plan.CandidateSummary
+                };
+            }
+            return planned;
+        }
 
         Vector2[] elevatedAhead = sphereObjectives
             .Where(sphere =>
@@ -6307,6 +7649,1021 @@ internal sealed class BonusJumpPlanner
 
         plan = best with { CandidateSummary = evaluations.ToString() };
         return true;
+    }
+
+    private bool TryPlanStage2FlatSoulLaneFast(
+        BonusBoardScanResult scan,
+        Vector3 playerPosition,
+        Vector2 playerVelocity,
+        JumpPhysicsSnapshot physics,
+        BonusHazard hazard,
+        IReadOnlyList<Vector2> sphereObjectives,
+        IReadOnlyList<float> holdCandidates,
+        SpiritBoostRouteContext spiritBoost,
+        bool preferImmediateComfortableLaunch,
+        bool prioritizeWholeLaneCoverage,
+        float prioritizedLaneOriginX,
+        out BonusJumpPlan plan)
+    {
+        // The old 0.12-unit sweep can evaluate more than one thousand
+        // slow/fast trajectories. Generate cheap launch events from the slow
+        // arc first, then spend the existing authoritative proofs on at most
+        // eight events per native hold tier. Candidate generation and ranking
+        // are bounded too; this is an end-to-end budget, not merely a cap on
+        // the final slow/fast validators.
+        const int maximumCandidatesPerHold = 8;
+        const int maximumCandidatesPerPlan = 72;
+
+        plan = default;
+        float speed = Mathf.Abs(playerVelocity.x);
+        Vector2[] elevatedAhead = sphereObjectives
+            .Where(sphere =>
+                sphere.x >= playerPosition.x - TriggerTolerance &&
+                sphere.x <= scan.Current.SafeRight + 0.40f &&
+                !TrajectoryBodyOverlapsSphere(
+                    scan.Current.Top,
+                    sphere.y))
+            .OrderBy(sphere => sphere.x)
+            .ThenBy(sphere => sphere.y)
+            .Take(24)
+            .ToArray();
+        if (elevatedAhead.Length == 0)
+            return false;
+
+        float postLandingRunway = scan.HasNext
+            ? Mathf.Clamp(speed * 0.18f, 1.50f, 5.00f)
+            : 0f;
+        float landingRightLimit =
+            scan.Current.SafeRight - postLandingRunway;
+        if (landingRightLimit <= scan.Current.SafeLeft + 0.10f)
+            return false;
+
+        BonusBoardSegment collectionTarget = scan.Current with
+        {
+            SafeLeft = scan.Current.SafeLeft,
+            SafeRight = landingRightLimit
+        };
+        BonusJumpPlan best = default;
+        int bestSphereHits = -1;
+        int bestWholeLaneCoverage = -1;
+        int bestSpeedBoostHits = -1;
+        float bestLandingSafety = float.NegativeInfinity;
+        float bestDistanceToLaunch = float.PositiveInfinity;
+        float bestLaneLaunchCenterDistance =
+            float.PositiveInfinity;
+        bool bestComfortable = false;
+        int generatedCandidates = 0;
+        int selectedCandidates = 0;
+        int exactValidations = 0;
+        int safeCandidates = 0;
+        StringBuilder evaluations = new();
+
+        foreach (float hold in holdCandidates)
+        {
+            if (exactValidations >= maximumCandidatesPerPlan)
+                break;
+            if (!TryPredictFlightTime(
+                    hold,
+                    0f,
+                    physics,
+                    out float flightSeconds,
+                    out float effectiveHold,
+                    out _))
+            {
+                continue;
+            }
+
+            flightSeconds *= physics.FlightTimeScale;
+            flightSeconds = CalibrateBaseSpeedFlightDuration(
+                speed,
+                hold,
+                0f,
+                flightSeconds,
+                physics,
+                out string flightSource);
+            float travel = PredictHorizontalTravel(
+                speed,
+                flightSeconds,
+                hold,
+                0f,
+                physics,
+                out string travelSource);
+            travel = ApplyLandingBias(
+                travel,
+                0f,
+                hold,
+                physics,
+                ref travelSource);
+            float usableLeft = Mathf.Max(
+                scan.Current.SafeLeft,
+                playerPosition.x - TriggerTolerance);
+            float usableRight = landingRightLimit - travel;
+            if (usableRight < usableLeft)
+            {
+                AppendEvaluation(
+                    evaluations,
+                    $"H={hold:F2}:D={travel:F2},NoSameSurfaceLanding");
+                continue;
+            }
+
+            List<float> launchCandidates =
+                BuildStage2FlatSoulLaneLaunchCandidates(
+                    elevatedAhead,
+                    scan.Current.Top,
+                    playerPosition.x,
+                    speed,
+                    hold,
+                    flightSeconds,
+                    physics,
+                    travel,
+                    usableLeft,
+                    usableRight,
+                    collectionTarget.SafeLeft,
+                    collectionTarget.SafeRight,
+                    maximumCandidatesPerHold,
+                    prioritizeWholeLaneCoverage
+                        ? prioritizedLaneOriginX
+                        : float.NaN,
+                    out int generatedForHold);
+            generatedCandidates += generatedForHold;
+            selectedCandidates += launchCandidates.Count;
+            int holdExactValidations = 0;
+
+            foreach (float launchX in launchCandidates)
+            {
+                if (holdExactValidations >= maximumCandidatesPerHold ||
+                    exactValidations >= maximumCandidatesPerPlan)
+                {
+                    break;
+                }
+                if (!MayTrajectoryHitAnySphereBroadPhase(
+                        elevatedAhead,
+                        launchX,
+                        scan.Current.Top,
+                        speed,
+                        hold,
+                        flightSeconds,
+                        physics,
+                        travel))
+                {
+                    continue;
+                }
+
+                holdExactValidations++;
+                exactValidations++;
+                float candidateTravel = travel;
+                float minimumTravel = travel;
+                float maximumTravel = travel;
+                bool futureSpeedTransitionExpected = false;
+                int speedBoostHits = 0;
+                string speedEnvelopeCheck =
+                    "SpiritEnvelope=NotRequired";
+                SpeedEnvelopeEvaluation candidateEnvelope = default;
+                if (spiritBoost.RequiresSpeedEnvelope)
+                {
+                    candidateEnvelope =
+                        EvaluateSpiritBoostTrajectoryEnvelope(
+                            scan.Current,
+                            collectionTarget,
+                            Array.Empty<BonusBoardSegment>(),
+                            hazard,
+                            spiritBoost,
+                            launchX,
+                            speed,
+                            hold,
+                            flightSeconds,
+                            physics,
+                            travel,
+                            useRawTargetBounds: false);
+                    if (!candidateEnvelope.IsSafe)
+                        continue;
+
+                    candidateTravel =
+                        candidateEnvelope.ExpectedTravel;
+                    minimumTravel =
+                        candidateEnvelope.MinimumTravel;
+                    maximumTravel =
+                        candidateEnvelope.MaximumTravel;
+                    futureSpeedTransitionExpected =
+                        spiritBoost.RequiresConservativeImmediateBoost ||
+                        candidateEnvelope.TriggerHits > 0;
+                    speedBoostHits = candidateEnvelope.TriggerHits;
+                    speedEnvelopeCheck = candidateEnvelope.Summary;
+                }
+
+                float landingX = launchX + candidateTravel;
+                string hazardCheck = "SpeedEnvelopeOwnsHazardProof";
+                if (!spiritBoost.RequiresSpeedEnvelope &&
+                    !TrajectoryClearsHazard(
+                        hazard,
+                        launchX,
+                        landingX,
+                        scan.Current.Top,
+                        speed,
+                        hold,
+                        flightSeconds,
+                        physics,
+                        out hazardCheck))
+                {
+                    continue;
+                }
+
+                float envelopeLeft = launchX + Mathf.Min(
+                    minimumTravel,
+                    maximumTravel);
+                float envelopeRight = launchX + Mathf.Max(
+                    minimumTravel,
+                    maximumTravel);
+                float landingSafety = Mathf.Min(
+                    envelopeLeft - collectionTarget.SafeLeft,
+                    collectionTarget.SafeRight - envelopeRight);
+                if (landingSafety < -0.001f)
+                    continue;
+
+                safeCandidates++;
+                int hits = CountTrajectorySphereHitsAcrossSpeedScenarios(
+                    elevatedAhead,
+                    launchX,
+                    scan.Current.Top,
+                    speed,
+                    hold,
+                    flightSeconds,
+                    physics,
+                    spiritBoost,
+                    travel);
+                if (hits <= 0)
+                    continue;
+
+                int wholeLaneCoverage = hits;
+                if (prioritizeWholeLaneCoverage)
+                {
+                    BonusJumpPlan coverageCandidate =
+                        new(
+                            true,
+                            false,
+                            hold,
+                            flightSeconds,
+                            candidateTravel,
+                            launchX,
+                            landingX,
+                            launchX - TriggerTolerance,
+                            launchX + TriggerTolerance,
+                            "Stage2Ground1SoulArchCoverageCandidate",
+                            string.Empty,
+                            BonusManeuverKind.SphereCollectionJump,
+                            hits,
+                            minimumTravel,
+                            maximumTravel,
+                            futureSpeedTransitionExpected,
+                            speedBoostHits);
+                    HashSet<int> covered =
+                        GetGuaranteedRouteObjectiveHitIndices(
+                            sphereObjectives,
+                            scan.Current,
+                            playerPosition.x,
+                            speed,
+                            coverageCandidate,
+                            physics,
+                            spiritBoost);
+                    // Ground 1 remains flat through local +12. Any low soul
+                    // from the landing body onward through the authored
+                    // arch's local +4 tail is therefore collected by coasting
+                    // before another objective route becomes eligible.
+                    float archRight =
+                        prioritizedLaneOriginX + 4f;
+                    for (int objectiveIndex = 0;
+                         objectiveIndex < sphereObjectives.Count;
+                         objectiveIndex++)
+                    {
+                        Vector2 sphere =
+                            sphereObjectives[objectiveIndex];
+                        if (sphere.x >=
+                                landingX -
+                                SpherePickupHorizontalReach &&
+                            sphere.x <=
+                                archRight +
+                                SpherePickupHorizontalReach &&
+                            TrajectoryBodyOverlapsSphere(
+                                scan.Current.Top,
+                                sphere.y))
+                        {
+                            covered.Add(objectiveIndex);
+                        }
+                    }
+                    wholeLaneCoverage = covered.Count;
+                }
+
+                float distanceToLaunch = Mathf.Max(
+                    0f,
+                    launchX - playerPosition.x);
+                float executionTolerance =
+                    prioritizeWholeLaneCoverage
+                        ? Mathf.Max(
+                            TriggerTolerance,
+                            speed *
+                            Mathf.Clamp(
+                                physics.FixedDeltaTime,
+                                0.005f,
+                                0.05f) *
+                            0.60f)
+                        : TriggerTolerance;
+                bool candidateShouldJumpNow =
+                    Mathf.Abs(launchX - playerPosition.x) <=
+                        executionTolerance;
+                float laneLaunchCenterDistance =
+                    prioritizeWholeLaneCoverage
+                        ? Mathf.Abs(
+                            launchX -
+                            (prioritizedLaneOriginX - 8f))
+                        : float.PositiveInfinity;
+                bool candidateComfortable =
+                    landingSafety >= ComfortableSoulLandingMargin;
+                bool replaceBest;
+                if (!best.IsValid ||
+                    candidateComfortable != bestComfortable)
+                {
+                    replaceBest =
+                        !best.IsValid || candidateComfortable;
+                }
+                else if (!candidateComfortable)
+                {
+                    // A merely valid edge landing is recovery material, not
+                    // a soul-optimization lane. Preserve as much reserve as
+                    // possible until a comfortable candidate exists.
+                    replaceBest =
+                        landingSafety > bestLandingSafety + 0.001f ||
+                        Mathf.Abs(
+                            landingSafety - bestLandingSafety) <= 0.001f &&
+                        hits > bestSphereHits;
+                }
+                else
+                {
+                    // Once every candidate retains the complete safety
+                    // reserve, flat terrain is an objective lane: soul count
+                    // owns the decision, then boost. Ordinary Stage-2
+                    // Section 2 spends no more runway chasing a fractionally
+                    // safer future launch when an equally useful comfortable
+                    // command is executable now; every other section retains
+                    // the mature safety-first tie break.
+                    bool sameObjectiveUtility =
+                        wholeLaneCoverage ==
+                            bestWholeLaneCoverage &&
+                        hits == bestSphereHits &&
+                        speedBoostHits == bestSpeedBoostHits;
+                    bool candidateEarlier =
+                        distanceToLaunch <
+                            bestDistanceToLaunch - 0.001f;
+                    bool sameLaunchDistance =
+                        Mathf.Abs(
+                            distanceToLaunch -
+                            bestDistanceToLaunch) <= 0.001f;
+                    bool candidateSafer =
+                        landingSafety >
+                            bestLandingSafety + 0.001f;
+                    bool sameLandingSafety =
+                        Mathf.Abs(
+                            landingSafety -
+                            bestLandingSafety) <= 0.001f;
+                    bool immediateTieBreak =
+                        candidateShouldJumpNow != best.ShouldJumpNow
+                            ? candidateShouldJumpNow
+                            : candidateEarlier ||
+                              sameLaunchDistance && candidateSafer;
+                    bool wholeLaneTieBreak =
+                        candidateShouldJumpNow != best.ShouldJumpNow
+                            ? candidateShouldJumpNow
+                            : laneLaunchCenterDistance <
+                                bestLaneLaunchCenterDistance - 0.001f ||
+                              Mathf.Abs(
+                                  laneLaunchCenterDistance -
+                                  bestLaneLaunchCenterDistance) <= 0.001f &&
+                              (candidateSafer ||
+                               sameLandingSafety &&
+                               candidateEarlier);
+                    bool existingSafetyTieBreak =
+                        candidateSafer ||
+                        sameLandingSafety && candidateEarlier;
+                    bool betterWholeLaneCoverage =
+                        prioritizeWholeLaneCoverage &&
+                        wholeLaneCoverage >
+                            bestWholeLaneCoverage;
+                    bool wholeLaneCoverageTied =
+                        !prioritizeWholeLaneCoverage ||
+                        wholeLaneCoverage ==
+                            bestWholeLaneCoverage;
+                    replaceBest =
+                        betterWholeLaneCoverage ||
+                        wholeLaneCoverageTied &&
+                        (hits > bestSphereHits ||
+                         hits == bestSphereHits &&
+                         speedBoostHits > bestSpeedBoostHits ||
+                         sameObjectiveUtility &&
+                         (prioritizeWholeLaneCoverage
+                             ? wholeLaneTieBreak
+                             : preferImmediateComfortableLaunch
+                                 ? immediateTieBreak
+                                 : existingSafetyTieBreak));
+                }
+                if (!replaceBest)
+                    continue;
+
+                bool shouldJump = candidateShouldJumpNow;
+                bestSphereHits = hits;
+                bestWholeLaneCoverage = wholeLaneCoverage;
+                bestSpeedBoostHits = speedBoostHits;
+                bestLandingSafety = landingSafety;
+                bestDistanceToLaunch = distanceToLaunch;
+                bestLaneLaunchCenterDistance =
+                    laneLaunchCenterDistance;
+                bestComfortable = candidateComfortable;
+                best = new BonusJumpPlan(
+                    true,
+                    shouldJump,
+                    hold,
+                    flightSeconds,
+                    candidateTravel,
+                    launchX,
+                    landingX,
+                    launchX - executionTolerance,
+                    launchX + executionTolerance,
+                    shouldJump
+                        ? "SameSurfaceSphereCollection"
+                        : "ApproachingSameSurfaceSphereCollection",
+                    string.Empty,
+                    BonusManeuverKind.SphereCollectionJump,
+                    hits,
+                    minimumTravel,
+                    maximumTravel,
+                    futureSpeedTransitionExpected,
+                    speedBoostHits);
+                evaluations.Append(
+                    $"Best[H={hold:F2},EH={effectiveHold:F2}," +
+                    $"L={launchX:F2},P={landingX:F2},D=" +
+                    $"{candidateTravel:F2},T={flightSeconds:F3}," +
+                    $"SoulHits={hits},BoostHits={speedBoostHits}," +
+                    $"WholeLaneCoverage={wholeLaneCoverage}," +
+                    $"LandingSafety={landingSafety:F3}," +
+                    $"ReservedRunway={postLandingRunway:F2}," +
+                    $"Flight={flightSource},Travel={travelSource}," +
+                    $"{hazardCheck},{speedEnvelopeCheck}] | ");
+            }
+
+            // The exact ordinary arch has no speed-trigger branch. Once one
+            // native hold proves every still-active point with comfortable
+            // landing reserve, later hold tiers cannot improve its primary
+            // or secondary utility. Ending here keeps the shape-specific
+            // scoring cheaper than the generic bounded maximum.
+            if (prioritizeWholeLaneCoverage &&
+                bestComfortable &&
+                bestWholeLaneCoverage >= sphereObjectives.Count)
+            {
+                break;
+            }
+        }
+
+        if (!best.IsValid)
+            return false;
+
+        plan = best with
+        {
+            CandidateSummary =
+                $"Stage2FlatSoulLaneFast[Objectives=" +
+                $"{elevatedAhead.Length},Generated={generatedCandidates}," +
+                $"Selected={selectedCandidates},Exact=" +
+                $"{exactValidations}/{maximumCandidatesPerPlan},Safe=" +
+                $"{safeCandidates},PerHoldCap={maximumCandidatesPerHold}," +
+                $"GeneratedPerHoldCap=64," +
+                $"ImmediateComfortablePriority=" +
+                $"{preferImmediateComfortableLaunch}," +
+                $"WholeLanePriority={prioritizeWholeLaneCoverage}," +
+                $"WholeLaneBest={bestWholeLaneCoverage}," +
+                $"SoulPriority=AllSections,Piece=" +
+                $"{scan.Current.MapPieceName}] | {evaluations}"
+        };
+        return true;
+    }
+
+    private static List<float> BuildStage2FlatSoulLaneLaunchCandidates(
+        IReadOnlyList<Vector2> spheres,
+        float sourceTop,
+        float playerX,
+        float speed,
+        float requestedHold,
+        float flightSeconds,
+        JumpPhysicsSnapshot physics,
+        float calibratedTravel,
+        float usableLeft,
+        float usableRight,
+        float landingLeft,
+        float landingRight,
+        int maximumCandidates,
+        float prioritizedLaneOriginX,
+        out int generatedCandidates)
+    {
+        const int maximumGeneratedCandidatesPerHold = 64;
+        List<float> anchors = new(5);
+        if (playerX >= usableLeft - 0.001f &&
+            playerX <= usableRight + 0.001f)
+        {
+            AddStage2FlatLaunchCandidate(
+                anchors,
+                playerX,
+                usableLeft,
+                usableRight,
+                playerX);
+        }
+        AddStage2FlatLaunchCandidate(
+            anchors,
+            usableLeft,
+            usableLeft,
+            usableRight,
+            playerX);
+        AddStage2FlatLaunchCandidate(
+            anchors,
+            usableRight,
+            usableLeft,
+            usableRight,
+            playerX);
+        AddStage2FlatLaunchCandidate(
+            anchors,
+            (usableLeft + usableRight) * 0.5f,
+            usableLeft,
+            usableRight,
+            playerX);
+        AddStage2FlatLaunchCandidate(
+            anchors,
+            (landingLeft + landingRight) * 0.5f - calibratedTravel,
+            usableLeft,
+            usableRight,
+            playerX);
+
+        List<float> generated =
+            new(maximumGeneratedCandidatesPerHold);
+        foreach (float anchor in anchors)
+            AddStage2FlatLaunchCandidate(
+                generated,
+                anchor,
+                usableLeft,
+                usableRight,
+                playerX);
+
+        if (float.IsFinite(prioritizedLaneOriginX))
+        {
+            // Preserve three bounded events around the authored arch's
+            // complete-coverage corridor. Exact live physics validation,
+            // rather than these anchors, still decides whether any event is
+            // usable at the current speed. This prevents the elevated-only
+            // coarse pre-ranker from spending all eight slots on earlier
+            // five-high-soul solutions that jump over the leading low row.
+            AddStage2FlatLaunchCandidate(
+                generated,
+                prioritizedLaneOriginX - 8.25f,
+                usableLeft,
+                usableRight,
+                playerX);
+            AddStage2FlatLaunchCandidate(
+                generated,
+                prioritizedLaneOriginX - 8.0f,
+                usableLeft,
+                usableRight,
+                playerX);
+            AddStage2FlatLaunchCandidate(
+                generated,
+                prioritizedLaneOriginX - 7.75f,
+                usableLeft,
+                usableRight,
+                playerX);
+        }
+
+        float trajectoryTravelScale =
+            GetCalibratedHorizontalTravelScale(
+                speed,
+                flightSeconds,
+                calibratedTravel,
+                physics);
+        foreach (Vector2 sphere in spheres)
+        {
+            if (generated.Count >=
+                maximumGeneratedCandidatesPerHold)
+            {
+                break;
+            }
+            AddStage2FlatSphereLaunchCandidates(
+                generated,
+                sphere,
+                sourceTop,
+                playerX,
+                speed,
+                requestedHold,
+                flightSeconds,
+                physics,
+                trajectoryTravelScale,
+                usableLeft,
+                usableRight,
+                maximumGeneratedCandidatesPerHold);
+        }
+        generatedCandidates = generated.Count;
+
+        List<float> selected = new(maximumCandidates);
+        // Preserve one executable-now option and one maximum-reserve option.
+        // The remaining budget belongs to sphere-derived events rather than
+        // being consumed by five generic boundary anchors.
+        if (playerX >= usableLeft - 0.001f &&
+            playerX <= usableRight + 0.001f)
+        {
+            AddStage2FlatLaunchCandidate(
+                selected,
+                playerX,
+                usableLeft,
+                usableRight,
+                playerX);
+        }
+        AddStage2FlatLaunchCandidate(
+            selected,
+            (landingLeft + landingRight) * 0.5f - calibratedTravel,
+            usableLeft,
+            usableRight,
+            playerX);
+        if (float.IsFinite(prioritizedLaneOriginX))
+        {
+            // These replace, rather than expand, the eight-candidate exact
+            // budget. Keeping them in the selected set guarantees that the
+            // full-lane scorer sees the shape-specific corridor even when
+            // several earlier launches tie on the five elevated objectives.
+            AddStage2FlatLaunchCandidate(
+                selected,
+                prioritizedLaneOriginX - 8.25f,
+                usableLeft,
+                usableRight,
+                playerX);
+            AddStage2FlatLaunchCandidate(
+                selected,
+                prioritizedLaneOriginX - 8.0f,
+                usableLeft,
+                usableRight,
+                playerX);
+            AddStage2FlatLaunchCandidate(
+                selected,
+                prioritizedLaneOriginX - 7.75f,
+                usableLeft,
+                usableRight,
+                playerX);
+        }
+
+        List<(float LaunchX, int Hits, float Distance)> ranked = new();
+        foreach (float launchX in generated)
+        {
+            if (ContainsStage2FlatLaunchCandidate(selected, launchX))
+                continue;
+
+            int hits = EstimateStage2FlatCoarseTrajectorySphereHits(
+                spheres,
+                launchX,
+                sourceTop,
+                speed,
+                requestedHold,
+                flightSeconds,
+                physics,
+                calibratedTravel);
+            ranked.Add((
+                launchX,
+                hits,
+                Mathf.Max(0f, launchX - playerX)));
+        }
+        ranked.Sort((left, right) =>
+        {
+            int hitOrder = right.Hits.CompareTo(left.Hits);
+            if (hitOrder != 0)
+                return hitOrder;
+            int distanceOrder =
+                left.Distance.CompareTo(right.Distance);
+            if (distanceOrder != 0)
+                return distanceOrder;
+            return left.LaunchX.CompareTo(right.LaunchX);
+        });
+        foreach (var rankedCandidate in ranked)
+        {
+            if (selected.Count >= maximumCandidates)
+                break;
+            AddStage2FlatLaunchCandidate(
+                selected,
+                rankedCandidate.LaunchX,
+                usableLeft,
+                usableRight,
+                playerX);
+        }
+
+        return selected;
+    }
+
+    private static void AddStage2FlatSphereLaunchCandidates(
+        List<float> candidates,
+        Vector2 sphere,
+        float sourceTop,
+        float playerX,
+        float speed,
+        float requestedHold,
+        float flightSeconds,
+        JumpPhysicsSnapshot physics,
+        float trajectoryTravelScale,
+        float usableLeft,
+        float usableRight,
+        int maximumGeneratedCandidates)
+    {
+        const int verticalSamples = 20;
+        float previousTime = 0f;
+        bool previousInside = TrajectoryBodyOverlapsSphere(
+            sourceTop,
+            sphere.y);
+        float intervalStart = previousInside ? 0f : float.NaN;
+        for (int sample = 1; sample <= verticalSamples; sample++)
+        {
+            float time =
+                flightSeconds * sample / verticalSamples;
+            float feetY = sourceTop +
+                PredictVerticalDisplacementAtTime(
+                    requestedHold,
+                    time,
+                    physics);
+            bool inside = TrajectoryBodyOverlapsSphere(
+                feetY,
+                sphere.y);
+            if (inside != previousInside)
+            {
+                float boundary =
+                    FindStage2FlatVerticalOverlapBoundary(
+                        sphere.y,
+                        sourceTop,
+                        requestedHold,
+                        previousTime,
+                        time,
+                        previousInside,
+                        physics);
+                if (inside)
+                {
+                    intervalStart = boundary;
+                }
+                else if (!float.IsNaN(intervalStart))
+                {
+                    AddStage2FlatSphereIntervalLaunchCandidates(
+                        candidates,
+                        sphere.x,
+                        playerX,
+                        speed,
+                        intervalStart,
+                        boundary,
+                        physics,
+                        trajectoryTravelScale,
+                        usableLeft,
+                        usableRight,
+                        maximumGeneratedCandidates);
+                    intervalStart = float.NaN;
+                }
+            }
+            previousInside = inside;
+            previousTime = time;
+        }
+
+        if (previousInside && !float.IsNaN(intervalStart))
+        {
+            AddStage2FlatSphereIntervalLaunchCandidates(
+                candidates,
+                sphere.x,
+                playerX,
+                speed,
+                intervalStart,
+                flightSeconds,
+                physics,
+                trajectoryTravelScale,
+                usableLeft,
+                usableRight,
+                maximumGeneratedCandidates);
+        }
+    }
+
+    private static float FindStage2FlatVerticalOverlapBoundary(
+        float sphereY,
+        float sourceTop,
+        float requestedHold,
+        float leftTime,
+        float rightTime,
+        bool leftInside,
+        JumpPhysicsSnapshot physics)
+    {
+        float left = leftTime;
+        float right = rightTime;
+        for (int iteration = 0; iteration < 5; iteration++)
+        {
+            float midpoint = (left + right) * 0.5f;
+            float feetY = sourceTop +
+                PredictVerticalDisplacementAtTime(
+                    requestedHold,
+                    midpoint,
+                    physics);
+            bool midpointInside =
+                TrajectoryBodyOverlapsSphere(feetY, sphereY);
+            if (midpointInside == leftInside)
+                left = midpoint;
+            else
+                right = midpoint;
+        }
+        return (left + right) * 0.5f;
+    }
+
+    private static void AddStage2FlatSphereIntervalLaunchCandidates(
+        List<float> candidates,
+        float sphereX,
+        float playerX,
+        float speed,
+        float intervalStart,
+        float intervalEnd,
+        JumpPhysicsSnapshot physics,
+        float trajectoryTravelScale,
+        float usableLeft,
+        float usableRight,
+        int maximumGeneratedCandidates)
+    {
+        if (candidates.Count >= maximumGeneratedCandidates)
+            return;
+
+        float intervalMiddle =
+            (intervalStart + intervalEnd) * 0.5f;
+        // One vertical-centre event represents this ascending or descending
+        // overlap interval. Exact validation already models the trigger
+        // width; extra entry/exit/boundary events only multiply pre-ranking.
+        AddStage2FlatLaunchCandidateAtTime(
+            candidates,
+            sphereX,
+            playerX,
+            speed,
+            intervalMiddle,
+            physics,
+            trajectoryTravelScale,
+            usableLeft,
+            usableRight);
+    }
+
+    private static void AddStage2FlatLaunchCandidateAtTime(
+        List<float> candidates,
+        float sphereX,
+        float playerX,
+        float speed,
+        float time,
+        JumpPhysicsSnapshot physics,
+        float trajectoryTravelScale,
+        float usableLeft,
+        float usableRight)
+    {
+        float travelAtTime =
+            PredictHorizontalTravelAtTime(
+                speed,
+                time,
+                physics) *
+            trajectoryTravelScale;
+        AddStage2FlatLaunchCandidate(
+            candidates,
+            sphereX - travelAtTime,
+            usableLeft,
+            usableRight,
+            playerX);
+    }
+
+    private static int EstimateStage2FlatCoarseTrajectorySphereHits(
+        IReadOnlyList<Vector2> spheres,
+        float launchX,
+        float launchFeetY,
+        float speed,
+        float requestedHold,
+        float flightSeconds,
+        JumpPhysicsSnapshot physics,
+        float calibratedTravel)
+    {
+        // This is deliberately a cheap ranking approximation. Each objective
+        // receives one linear crossing estimate, one secant correction, and
+        // a three-point pickup-window check. Unlike fixed time samples, it
+        // cannot step completely over a narrow sphere at Spirit speed. The
+        // selected candidates still receive the full slow/reset proof.
+        int hits = 0;
+        float trajectoryTravelScale =
+            GetCalibratedHorizontalTravelScale(
+                speed,
+                flightSeconds,
+                calibratedTravel,
+                physics);
+        int objectiveCount = Mathf.Min(24, spheres.Count);
+        float landingX = launchX + calibratedTravel;
+        float averageHorizontalSpeed =
+            Mathf.Max(1f, calibratedTravel / Mathf.Max(0.01f, flightSeconds));
+        for (int objectiveIndex = 0;
+             objectiveIndex < objectiveCount;
+             objectiveIndex++)
+        {
+            Vector2 sphere = spheres[objectiveIndex];
+            if (sphere.x <
+                    launchX - SpherePickupHorizontalReach ||
+                sphere.x >
+                    landingX + SpherePickupHorizontalReach)
+            {
+                continue;
+            }
+
+            float requiredTravel = Mathf.Clamp(
+                sphere.x - launchX,
+                0f,
+                calibratedTravel);
+            float crossingTime =
+                flightSeconds *
+                requiredTravel /
+                Mathf.Max(0.01f, calibratedTravel);
+            float predictedTravel =
+                PredictHorizontalTravelAtTime(
+                    speed,
+                    crossingTime,
+                    physics) *
+                trajectoryTravelScale;
+            float correction =
+                (requiredTravel - predictedTravel) /
+                averageHorizontalSpeed;
+            crossingTime = Mathf.Clamp(
+                crossingTime + correction,
+                0f,
+                flightSeconds);
+            float pickupHalfWindow = Mathf.Min(
+                0.08f,
+                (SpherePickupHorizontalReach + 0.08f) /
+                averageHorizontalSpeed);
+            bool intersects = false;
+            for (int timeOffsetIndex = -1;
+                 timeOffsetIndex <= 1;
+                 timeOffsetIndex++)
+            {
+                float sampleTime = Mathf.Clamp(
+                    crossingTime +
+                    timeOffsetIndex * pickupHalfWindow,
+                    0f,
+                    flightSeconds);
+                float sampleX = launchX +
+                    PredictHorizontalTravelAtTime(
+                        speed,
+                        sampleTime,
+                        physics) *
+                    trajectoryTravelScale;
+                float sampleFeetY = launchFeetY +
+                    PredictVerticalDisplacementAtTime(
+                        requestedHold,
+                        sampleTime,
+                        physics);
+                if (Mathf.Abs(sampleX - sphere.x) <=
+                        SpherePickupHorizontalReach + 0.08f &&
+                    TrajectoryBodyOverlapsSphere(
+                        sampleFeetY,
+                        sphere.y))
+                {
+                    intersects = true;
+                    break;
+                }
+            }
+            if (intersects)
+                hits++;
+        }
+        return hits;
+    }
+
+    private static void AddStage2FlatLaunchCandidate(
+        List<float> candidates,
+        float launchX,
+        float usableLeft,
+        float usableRight,
+        float playerX)
+    {
+        if (float.IsNaN(launchX) || float.IsInfinity(launchX))
+            return;
+
+        float candidate = Mathf.Clamp(
+            launchX,
+            usableLeft,
+            usableRight);
+        if (playerX >= usableLeft - 0.001f &&
+            playerX <= usableRight + 0.001f &&
+            Mathf.Abs(candidate - playerX) <= TriggerTolerance)
+        {
+            candidate = playerX;
+        }
+        if (ContainsStage2FlatLaunchCandidate(candidates, candidate))
+            return;
+        candidates.Add(candidate);
+    }
+
+    private static bool ContainsStage2FlatLaunchCandidate(
+        IReadOnlyList<float> candidates,
+        float launchX)
+    {
+        foreach (float candidate in candidates)
+        {
+            if (Mathf.Abs(candidate - launchX) <= 0.015f)
+                return true;
+        }
+        return false;
     }
 
     internal BonusJumpPlan PlanSameSurfaceHazard(
@@ -8224,6 +10581,7 @@ internal sealed class BonusJumpPlanner
         bool allowVerifiedBoostMargin,
         bool hasTierCalibration,
         int tierSampleCount,
+        float triggerInputDelayFloorSeconds,
         out float robustLaunchX,
         out float robustWindowLeft,
         out float robustWindowRight,
@@ -8268,7 +10626,8 @@ internal sealed class BonusJumpPlanner
                 physics,
                 baselineTravel,
                 useRawTargetBounds: false,
-                sphereObjectives);
+                sphereObjectives,
+                triggerInputDelayFloorSeconds);
 
         // The retained V0.68 Spirit trace proved that the former 0.08-unit
         // sweep could evaluate up to 33 launches for every hold, target and
@@ -8368,7 +10727,8 @@ internal sealed class BonusJumpPlanner
                     physics,
                     baselineTravel,
                     useRawTargetBounds: false,
-                    sphereObjectives);
+                    sphereObjectives,
+                    triggerInputDelayFloorSeconds);
             if (!evaluation.IsSafe)
             {
                 probeEvidence.Append(
@@ -8534,7 +10894,8 @@ internal sealed class BonusJumpPlanner
         JumpPhysicsSnapshot physics,
         float baselineTravel,
         bool useRawTargetBounds,
-        IReadOnlyList<Vector2> sphereObjectives = null)
+        IReadOnlyList<Vector2> sphereObjectives = null,
+        float triggerInputDelayFloorSeconds = 0f)
     {
         SpiritBoostTrajectoryTrace noPickupTrace =
             BuildSpiritBoostTrajectoryTrace(
@@ -8578,7 +10939,9 @@ internal sealed class BonusJumpPlanner
                     flightSeconds,
                     physics,
                     allowTriggerPickups: true,
-                    worldTravelScale: calibratedTraceScale)
+                    worldTravelScale: calibratedTraceScale,
+                    triggerInputDelayFloorSeconds:
+                        triggerInputDelayFloorSeconds)
                 : noPickupTrace;
         float boostTraceReadScale =
             triggerCanIntersectHorizontalSweep
@@ -8740,7 +11103,9 @@ internal sealed class BonusJumpPlanner
             $"{slowFaceCheck};{slowHazardCheck};" +
             $"{slowIntermediateCheck},Fast={fastFaceCheck};" +
             $"{fastHazardCheck};{fastIntermediateCheck},SoulHits=" +
-            $"{guaranteedSphereHits}]";
+            $"{guaranteedSphereHits},TriggerDelayFloor=" +
+            $"{triggerInputDelayFloorSeconds:F3}/" +
+            $"{physics.InputDelaySeconds:F3}]";
         return new SpeedEnvelopeEvaluation(
             safe,
             expectedTravel,
@@ -8780,7 +11145,8 @@ internal sealed class BonusJumpPlanner
         float elapsedSeconds,
         JumpPhysicsSnapshot physics,
         bool allowTriggerPickups,
-        float worldTravelScale)
+        float worldTravelScale,
+        float triggerInputDelayFloorSeconds = 0f)
     {
         float duration = Mathf.Max(0f, elapsedSeconds);
         float horizontalScale = Mathf.Clamp(
@@ -8812,6 +11178,27 @@ internal sealed class BonusJumpPlanner
             physics.FixedDeltaTime,
             0.005f,
             0.05f);
+        float nominalTriggerInputDelay = Mathf.Clamp(
+            physics.InputDelaySeconds,
+            0f,
+            0.25f);
+        float triggerInputDelay = Mathf.Clamp(
+            Mathf.Max(
+                nominalTriggerInputDelay,
+                triggerInputDelayFloorSeconds),
+            0f,
+            0.25f);
+        bool triggerTimingEnvelopeActive =
+            allowTriggerPickups &&
+            triggerInputDelay >
+                nominalTriggerInputDelay + 0.0001f;
+        JumpPhysicsSnapshot delayedTriggerPhysics =
+            triggerTimingEnvelopeActive
+                ? physics with
+                {
+                    InputDelaySeconds = triggerInputDelay
+                }
+                : physics;
         if (!spiritBoost.RequiresSpeedEnvelope ||
             elapsedSeconds <= 0f ||
             stableBaseSpeedWithoutReset)
@@ -8847,6 +11234,7 @@ internal sealed class BonusJumpPlanner
         float elapsed = 0f;
         int sampleCount = 0;
         int triggerHits = 0;
+        int delayedOnlyTriggerHits = 0;
         string triggerSignature = "None";
         ulong pickedMask = 0UL;
 
@@ -8871,6 +11259,14 @@ internal sealed class BonusJumpPlanner
                     requestedHold,
                     elapsed,
                     physics);
+            float delayedBodyFeetY =
+                triggerTimingEnvelopeActive
+                    ? launchFeetY +
+                      PredictVerticalDisplacementAtTime(
+                          requestedHold,
+                          elapsed,
+                          delayedTriggerPhysics)
+                    : bodyFeetY;
             int triggerLimit = Mathf.Min(63, triggers.Length);
             for (int index = 0; index < triggerLimit; index++)
             {
@@ -8879,18 +11275,30 @@ internal sealed class BonusJumpPlanner
                     continue;
 
                 BonusSpeedBoostTrigger trigger = triggers[index];
-                bool overlaps =
+                bool horizontalOverlap =
                     bodyX + spiritBoost.PlayerRightOffset >=
                         trigger.Left &&
                     bodyX + spiritBoost.PlayerLeftOffset <=
-                        trigger.Right &&
+                        trigger.Right;
+                bool nominalVerticalOverlap =
                     bodyFeetY + spiritBoost.PlayerTopOffset >=
                         trigger.Bottom &&
                     bodyFeetY + spiritBoost.PlayerBottomOffset <=
                         trigger.Top;
+                bool delayedVerticalOverlap =
+                    triggerTimingEnvelopeActive &&
+                    delayedBodyFeetY + spiritBoost.PlayerTopOffset >=
+                        trigger.Bottom &&
+                    delayedBodyFeetY + spiritBoost.PlayerBottomOffset <=
+                        trigger.Top;
+                bool overlaps =
+                    horizontalOverlap &&
+                    (nominalVerticalOverlap || delayedVerticalOverlap);
                 if (!overlaps)
                     continue;
 
+                if (!nominalVerticalOverlap && delayedVerticalOverlap)
+                    delayedOnlyTriggerHits++;
                 pickedMask |= bit;
                 triggerHits++;
                 speed = Mathf.Max(
@@ -8913,6 +11321,14 @@ internal sealed class BonusJumpPlanner
 
         if (pickedMask != 0UL)
             triggerSignature = $"Mask=0x{pickedMask:X}";
+        if (triggerTimingEnvelopeActive)
+        {
+            triggerSignature +=
+                $";Stage2Section1Ground4TriggerTiming[" +
+                $"NominalDelay={nominalTriggerInputDelay:F3}," +
+                $"DelayFloor={triggerInputDelay:F3}," +
+                $"DelayedOnlyHits={delayedOnlyTriggerHits}]";
+        }
         return new SpiritBoostTrajectoryTrace(
             times,
             travels,
@@ -9358,6 +11774,18 @@ internal sealed class BonusJumpPlanner
                             launchX + 0.02f)
                      .OrderBy(surface => surface.Left))
         {
+            if (IsStage2Ground3OverheadForLowRoute(
+                    target,
+                    surface))
+            {
+                checks.Append(
+                    $"Stage2Ground3OverheadIgnored[" +
+                    $"{surface.StaticSurfaceIndex}:" +
+                    $"[{surface.Left:F2},{surface.Right:F2}]@" +
+                    $"{surface.Top:F2}];");
+                continue;
+            }
+
             float entryX = Mathf.Max(
                 launchX + 0.02f,
                 surface.Left - inferredHalfWidth);
@@ -9481,6 +11909,25 @@ internal sealed class BonusJumpPlanner
         }
 
         return launchFeetY + height;
+    }
+
+    private static float PredictVerticalVelocityAtTime(
+        float requestedHold,
+        float elapsedSinceInput,
+        JumpPhysicsSnapshot physics)
+    {
+        float motionTime = Mathf.Max(
+            0f,
+            elapsedSinceInput - physics.InputDelaySeconds);
+        float effectiveHold = Mathf.Min(
+            requestedHold,
+            physics.EffectiveHoldCapSeconds);
+        if (motionTime <= effectiveHold)
+            return physics.JumpVelocity;
+
+        float releasedTime = motionTime - effectiveHold;
+        return physics.JumpVelocity -
+            physics.GravityMagnitude * releasedTime;
     }
 
     private bool TrajectoryClearsRaisedTargetFace(

@@ -1,5 +1,7 @@
 # AutoProgression
 
+![AutoProgression 2.0 - Auto Upgrade](Assets/AutoProgression-Final-Cover.png)
+
 AutoProgression automates long-term progression and repeatable account
 maintenance in Idle Slayer. It combines purchases, normal Ascension,
 craftables, materials, quests, eggs, and paid bonuses behind one global runtime
@@ -24,15 +26,15 @@ gameplay and quest objectives, while AutoClimber handles Ascending Heights.
 - Uses Dragon Scale overflow on Random Box Staff, Necklace of Collectables, CpS Compass, and Souls Compass while respecting the shared maximum effect duration.
 - Buys missing craftable materials with Jewels of Soul when allowed.
 - Crafts Shards Necklaces without a duration cap when Scrap reaches a configurable percentage of its current capacity (97% by default).
-- Arms Ascendant Badge Boost whenever its one-use effect is available and Dragon Scales are above 50% of current capacity.
+- Optionally arms Ascendant Badge Boost whenever its one-use effect is available and Dragon Scales are above 50% of current capacity; disabled by default.
 - Optionally opens Dragon Eggs and Simurgh Eggs in the background while preserving configurable reserves.
 - Provides a manual Village Casino shortcut for sequential bulk Crawler Eye purchases with Jewels of Soul.
 - Purchases available skills and unlocked normal equipment.
 - Performs normal Ascension at a configurable soul-bonus threshold and can buy skills afterward.
 - Optionally performs Ultra Ascension after native requirements are met and at least 24 Astral Keys are available; disabled by default because this is a major reset.
 - Claims completed Daily and Weekly Quests, regenerates exhausted quest sets, keeps rerolls available, and resets the normal Portal cooldown. Periodic automation requires the global `T` toggle; configured vertical-magnet skill blocking remains active independently.
-- Uses Specialization for active normal Goblin or Bonus Stage quests and Key Manifest for active normal Chest Hunt quests. Every Specialization use requires Dragon Scales above 50%. It can also consume overflow Scrap above 80% without a quest; this resource path ignores quest cooldowns and relies on native availability, but pauses while any active quest requires normal, Silver, or Golden Random Boxes. Scrap, Simurgh Feathers, and Dragon Scales must already be available; other materials follow the global Jewel purchase settings. Daily and Weekly Quests do not trigger these craftables.
-- Independently crafts Key Manifest without a quest or cooldown when Simurgh Feathers exceed the configured amount (1,000 by default) and its native one-use effect is available; `0` disables this resource path.
+- Uses Specialization for active normal Goblin or Bonus Stage quests and Key Manifest for active normal Chest Hunt quests. Both share a Simurgh Feather threshold; `0` disables both, and crafting must preserve the configured Feather amount. Specialization requires Dragon Scales above 50% and preserves at least 50% Scrap. Daily and Weekly Quests do not trigger these craftables.
+- Uses the shared quest-assist Feather threshold as Key Manifest's independent overflow trigger when its native one-use effect is available.
 - Dragon Scale-percentage duration items respect the normal maximum-duration setting. Shards Necklace intentionally ignores that cap and consumes Scrap until storage falls below its configured threshold.
 - Successful background Weekly Quest rerolls suppress only the trailing native UI exception; genuine reroll failures continue to surface normally.
 - Newly generated Daily Quest sets can automatically reroll Goblin, material-collection, temporary-craftable crafting, Chest Hunt, normal or Silver Random Box, normal Boost-use, Rage Mode-use, Bonus Stage entry/full completion/section, Ascending Heights, and Grapple Run objectives. Rage Mode kill and Wind Dash kill quests are retained. Existing quests and manual rerolls do not trigger the filter.
@@ -56,7 +58,7 @@ ModLoader/UserData/AutoProgression.cfg
 Settings are grouped into these sections:
 
 - `AutoProgression`: configuration version and debug logging.
-- `Ascension`: normal Ascension threshold, optional 24-key Ultra Ascension, check interval, and post-Ascension skill purchasing.
+- `Ascension`: normal Ascension threshold, optional 24-key Ultra Ascension, and post-Ascension skill purchasing.
 - `Paid Bonuses`: paid 500x bonus automation.
 - `Minions`: automatic mission claiming/sending and maximum-level prestige.
 - `Egg Opening`: master switch plus Dragon Egg and Simurgh Egg reserve amounts.
@@ -64,7 +66,7 @@ Settings are grouped into these sections:
 - `Craftables`: master switch, supported craftables, durations, thresholds, and Jewel material purchasing.
 - Deathwave Scepter uses the shared timed-item refill and target durations, but
   only crafts while Simurgh Feathers remain above its configured reserve.
-- `Purchases`: skill and equipment switches, blocked skill options, and equipment sleep timing. The latest unlocked equipment is purchased in 10-level increments; older equipment must afford at least 50 levels and is purchased in 50-level increments. Only a purchase meeting those thresholds resets the no-purchase timer.
+- `Purchases`: skill and equipment switches plus persistent blocked-skill protection. The latest unlocked equipment is purchased first; older equipment is processed only after the newer item no longer meets its bulk threshold.
 
 > **Currency warning:** `Use Paid 500x Bonuses` directly spends Jewels of Soul. `Buy Missing With Jewels` allows enabled craftable features to spend Jewels of Soul automatically when recipe materials are insufficient. Review these settings before enabling AutoProgression on an unmodified save.
 
@@ -103,14 +105,17 @@ The build creates the DLL and `Publish/Debug/AutoProgression.zip`. It does not d
 ## Full Automation Suite
 
 - **AutoAdventurer** handles active gameplay, quest objectives, dimension
-  travel, Rage, movement abilities, Bonus assistance, and boss fights.
+  travel, normal automatic jumping, Rage, movement abilities, and boss fights.
 - **AutoProgression** handles purchases, normal Ascension, craftables,
   materials, quests, eggs, and repeatable account maintenance.
 - **AutoClimber** automates Ascending Heights route planning, recovery,
   rewards, and compatible quest enemies.
+- **AutoBonusRunner** automates Bonus Stage routes, jumping, sphere
+  requirements, Spirit Boost sections, slider confirmation, and retry.
 
-Each mod can be used independently. Together, they cover complementary parts
-of a fully automated Idle Slayer setup.
+AutoAdventurer 2.0 replaces Auto Jump for normal gameplay. AutoBonusRunner
+replaces Bonus Stage Completer. Each mod can be used independently; together,
+the four modules cover complementary parts of a fully automated setup.
 
 ## Acknowledgements
 

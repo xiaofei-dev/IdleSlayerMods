@@ -29,6 +29,7 @@ from reportlab.platypus import (
 
 ROOT = Path(__file__).resolve().parents[1]
 OUTPUT = ROOT / "output" / "pdf"
+VERSION = "1.2.0"
 PAGE_WIDTH, PAGE_HEIGHT = A4
 
 NAVY = colors.HexColor("#17233A")
@@ -382,7 +383,7 @@ def cover(title: str, subtitle: str):
             Table([[""]], colWidths=[45 * mm], rowHeights=[1.2 * mm], style=[("BACKGROUND", (0, 0), (-1, -1), CYAN)]),
             Spacer(1, 8 * mm),
             Paragraph(subtitle, STYLES["cover_meta"]),
-            Paragraph("Version 1.0.1  |  Tashi", STYLES["cover_meta"]),
+            Paragraph(f"Version {VERSION}  |  Tashi", STYLES["cover_meta"]),
             PageBreak(),
         ]
     )
@@ -390,7 +391,7 @@ def cover(title: str, subtitle: str):
 
 
 def build_user_guide():
-    target = OUTPUT / "AutoClimber-User-Guide-1.0.1.pdf"
+    target = OUTPUT / f"AutoClimber-User-Guide-{VERSION}.pdf"
     story = cover(
         "User Guide",
         "Installation, quick setup, modes, controls, and everyday use",
@@ -401,7 +402,7 @@ def build_user_guide():
 
 
 def build_complete_manual():
-    target = OUTPUT / "AutoClimber-Complete-Manual-1.0.1.pdf"
+    target = OUTPUT / f"AutoClimber-Complete-Manual-{VERSION}.pdf"
     story = cover(
         "Complete Manual",
         "Routes, platforms, modes, enemies, configuration, logging, and troubleshooting",

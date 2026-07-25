@@ -4,7 +4,7 @@ AutoProgression is the account-progression and maintenance module in Tashi's
 Full Automation Suite. It coordinates normal Ascension, purchases,
 craftables, materials, eggs, paid bonuses, and quest maintenance.
 
-This manual covers configuration version 28. New users should begin with the
+This manual covers configuration version 31. New users should begin with the
 [User Guide](USER_GUIDE.md).
 
 ## Reference Chapters
@@ -27,8 +27,13 @@ This manual covers configuration version 28. New users should begin with the
 - **AutoAdventurer** selects and performs supported quest objectives, travels
   between dimensions, and controls Rage and movement helpers.
 - **AutoClimber** controls Ascending Heights routes, enemies, and rewards.
+- **AutoBonusRunner** controls Bonus Stage routes, jumping, sphere
+  requirements, Spirit Boost sections, and retry.
 
 The mods can be used independently or together.
+
+AutoAdventurer 2.0 replaces Auto Jump for normal gameplay. AutoBonusRunner
+replaces Bonus Stage Completer.
 
 ## Default Control
 
@@ -47,11 +52,3 @@ turned off.
 - Ascension applies a global two-second lock and clears cached game objects.
 - Item actions are limited to one per second.
 - Missing IL2CPP objects cause a safe retry instead of a forced action.
-- Jewel-spending behavior is explicit in configuration descriptions and logs.
-- Quest filters react to generated sets rather than continuously rewriting
-  existing or manually rerolled tasks.
-
-## Support Development
-
-If these mods save you time, you can support continued development through
-[PayPal](https://www.paypal.com/donate/?business=HK85PL8AREEXY&no_recurring=0&currency_code=USD).

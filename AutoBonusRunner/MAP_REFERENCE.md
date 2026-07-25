@@ -1,5 +1,336 @@
 # AutoBonusRunner Map Reference
 
+## V1.21 Stage-2 Ground-1 15-soul objective signature
+
+The ordinary Stage-2 fourth section uses the same authored Ground-1 arch at
+the initial module and after Ground 6. Relative to Ground-1 origin and its
+flat top, the signature is:
+
+- local X: every integer from `-10` through `+4`;
+- height above the flat top:
+  `1,1,1,1,2,3,4,4,4,3,2,1,1,1,1`; and
+- five objectives above the grounded pickup band.
+
+Runtime accepts an active objective as part of this arch only when both its
+translated X and translated height match within `0.20` units. At least five
+active points and one elevated point ahead of the player are required.
+Ground-1 identity may come from current, next, or alternative static
+enrichment. At the Ground-6 S2 seam only, `Ground6 origin+24` is a candidate
+Ground-1 origin, and the same live objective signature must validate it.
+
+This evidence is translation-safe and repeat-safe. It does not identify the
+shape from a world coordinate, pooled instance number, sprite, or screenshot.
+
+## V1.20 Stage-2 fourth-section level handoff
+
+The ordinary Stage-2 Section-3 cycle contains a Ground-6 module followed by
+a Ground-1 module. Their relevant authored geometry is:
+
+- Ground-6 S2: local `[+2,+12]` at top `-2`;
+- next Ground-1 S0: local `[-12,+12]` at the same top;
+- prefab-origin stride: `+24`, so both faces meet at
+  `Ground6 origin+12 == Ground1 origin-12`; and
+- Ground-1's 15-sphere arc: local X `-10..+4`, with five spheres above the
+  grounded pickup band.
+
+The V1.19 trace showed live current support expanding beyond the seam while
+remaining annotated as Ground-6 S2; the same scan exposed the translated
+Ground-1 S0 in its static alternatives. This is an identity handoff inside
+one physical level corridor, not a new gap or a different jump trajectory.
+V1.20 uses the prefab origins, surface roles, registry generation, top, and
+active arc objectives to recognize every pooled repetition. Absolute world X
+and pooled instance numbers remain diagnostic only.
+
+## V1.19 Stage-2 Ground-4 ordinary soul-deck staircase
+
+The ordinary Stage-2 Ground-4 module contains these relevant authored
+surfaces in local coordinates:
+
+- S0: `[-12,12] @ y=-2`, the broad lower road;
+- S1: `[-3,-2] @ y=2`, the first one-unit stair;
+- S3: `[-2,-1] @ y=5`, the second one-unit stair;
+- S4: `[-1,9] @ y=6`, the ten-unit upper deck carrying five spheres.
+
+The module repeats by pooling/translation, so the route is identified by
+map-piece instance and static-surface roles, never world X. The retained
+ordinary trace contained four failed S0-to-S1 approaches at translated
+copies. Each touched S1 while descending at approximately
+`feetY=1.347`, after starting about `4.1` units before its physical face.
+Three rejected wall inputs followed each contact.
+
+A fifth copy provided the successful control case. Its later launch touched
+the same S1 face at approximately the same height but with positive vertical
+velocity (`VY=+4.893`), carried onto S1, and continued to S3/S4. This proves
+that contact phase, not just contact height, distinguishes the viable route.
+
+The lookahead for all five copies also selected S0 as an `IntentionalDrop`
+successor after S1. S0 geometrically contains the narrow staircase, but it is
+not a valid forward successor while the S4 objective route is active. V1.19
+rejects that exact typed backward/downward relation so the rising chain can
+remain authoritative.
+
+## V1.18 Ground-3 identity across a live registry refresh
+
+The repeated ordinary Stage-2 Section-1 failure proves that one physical
+Ground-3 instance may remain at the same prefab origin while the global map
+registry advances during an airborne action. The two observed failures used
+the same typed low/high geometry at translations 72 units apart:
+
+- low S1 target generation `266`, overhead S4 contact generation `267`;
+- low S1 target generation `274`, overhead S4 contact generation `275`.
+
+The instance IDs and prefab origins remained identical. Generation therefore
+cannot be the sole runtime identity boundary for a committed flight. V1.18
+accepts a newer generation only inside the ordinary Section-1 low-route
+contact guard after same-instance and same-origin proof; static planner
+snapshots retain strict generation equality.
+
+## V1.17 Ground-3 low-corridor control roles
+
+V1.17 adds no geometry and no absolute-X route. It reuses the extracted
+Stage-2 Ground-3 identity:
+
+- S0-S3 are low supports at `y=-2`;
+- S4-S5 are overlapping overhead surfaces at `y=8`;
+- low and overhead roles must share a nonzero map-piece instance and registry
+  generation, and differ in top by approximately ten units.
+
+In ordinary Section 1, contact with the overlapping high face cannot turn a
+still-valid low landing into a wall climb. In Spirit Section 1, S2 may own the
+route as the low-corridor stepping stone only from same-instance S0 and only
+when the short landing plus the following wall catch are both proved. The
+known module translation and repetition count are diagnostic evidence, not
+runtime inputs.
+
+The section object hierarchy is also an authored inventory boundary:
+`All Pools/Bonus Map Level 0` through `Bonus Map Level 3`. Each level root
+contains inactive pooled `BonusSphere` and `SpiritBoost` rows, so one
+include-inactive component inventory covers later activations in that
+section.
+
+## V1.16 Ground-4 surface-4 ownership boundary
+
+V1.16 adds no geometry. It uses the existing Stage-2 Ground-4 role:
+surface 4 is the wide upper soul deck `[575,585] @ 6` in the retained
+ordinary Section-1 module, with translated repetitions every 72 world units.
+After the player is physically grounded on that same typed top for two
+consecutive fixed steps, the earlier passive stair/wall route is complete and
+must no longer own input. Recognition uses the map-piece/surface identity and
+live bounds rather than the absolute coordinates, so every translated module
+is covered while Spirit, Stage 1, and Stage 3 remain outside the correction.
+
+## V1.15 Stage-2 Section-1 Spirit exit
+
+The retained V1.14 trace confirms a repeated Stage-2 Section-1 transition:
+
+- source: `Stage2 Ground 4`, static surface 0, level `y=-2`;
+- immediate target: `Stage2 Ground 3`, static surface 1, width `3`, level
+  `y=-2`, across a `4`-unit gap; and
+- uncollected Spirit trigger: the final `1.5` units of the Ground-4 source
+  edge, vertically overlapping the grounded player band.
+
+The complete pattern repeats every `72` world units. Runtime recognition does
+not use those absolute coordinates or the repetition count: it requires the
+typed map names, surface indices, matching registry generation, level-gap
+geometry, and a live source-edge trigger. V1.15 assigns this exact transition
+a delayed-takeoff trigger envelope because the immediate target's safe centre
+band is only about `1.512` units wide; an unmodelled boost reset necessarily
+turns an otherwise centred landing into an overshoot.
+
+## V1.14 Stage-2 objective-route roles
+
+V1.14 adds no new extracted geometry. It assigns two more exact route roles
+to the V1.12 Stage-2 map:
+
+- `Stage2 Ground 4` surface 4 is the upper five-soul deck. In ordinary
+  Sections 0 and 1, active deck souls retain the geometrically verified
+  one-unit first stair and authorize a proactive wall/stair approach.
+- `Stage2 Ground 6` is treated as a shallow soul recess only in ordinary
+  Section 3 when one translated instance exposes `S1 [-12,-2] @ -2`,
+  `S0 [-2,2] @ -3`, and `S2 [2,12] @ -2`. Runtime reconstructs the canonical
+  world bounds from that instance's prefab origin. The `S0` depression is an
+  intermediate surface, not a gap target; the route jumps from the left
+  shoulder through the high soul arc to the right shoulder.
+
+Both roles require matching map-piece instance and registry generation.
+Pooled surfaces from later pieces cannot enlarge their bounds, and the
+policies do not apply to Stage 1, Stage 3, or Spirit routing.
+
+## V1.13 Stage-2 surface roles
+
+V1.13 keeps the V1.12 extracted geometry unchanged and adds exact route roles
+for the two ambiguous pieces:
+
+- On `Stage2 Ground 3`, static surfaces 0-3 are disconnected low landing
+  supports at `y=-2`. Static surfaces 4-5 are overhead platforms at `y=8`.
+  A same-instance, same-generation overhead platform exactly ten units above
+  a low target and without a verified wall face is ignored only as an
+  intermediate blocker when the flight actually crosses it; it remains a
+  valid landing target in every other context.
+- On `Stage2 Ground 4`, surface 0 is the continuous lower road, surfaces 1
+  and 3 form the rising left stair, and surface 4 is the wide upper soul deck.
+  In ordinary Stage-2 Section 1, active objectives inside surface 4's own
+  vertical band keep the geometrically verified live first stair eligible
+  instead of collapsing the route back to surface 0. The lower-road soul does
+  not count as a deck objective. Spirit routing and every other piece retain
+  their previous selection rules.
+
+## V1.12 Stage-2 extracted fixed map
+
+Stage 2 uses six authored 24-unit ground prefabs. The live object pool may
+expose any cyclic rotation or a temporarily shorter contiguous run, so the
+registry matches topology and transform stride rather than assuming a fixed
+leftmost clone.
+
+The retained asset fixture is the `resources.assets` Stage-2 map
+MonoBehaviour at path ID `28416` (serialized size `908`). Its selected ground
+prefab path IDs are Ground 4 `9685`, Ground 3 `9716`, Ground 6 `9731`,
+Ground 1 `9751`, Ground 2 `9787`, and Ground 5 `9800`. These IDs distinguish
+the active Stage-2 set from unrelated same-name pooled prefabs; runtime
+routing never depends on the IDs.
+
+The expected section cycles are:
+
+- Section 0: `Stage2 Ground 5`, `Stage2 Ground 4`, `Stage2 Ground 3`;
+- Section 1: `Stage2 Ground 3`, `Stage2 Ground 2`, `Stage2 Ground 4`;
+- Section 2: `Stage2 Ground 5`, `Stage2 Ground 1`, `Stage2 Ground 1`;
+- Section 3: `Stage2 Ground 1`, `Stage2 Ground 6`, `Stage2 Ground 1`.
+
+The exact upward-facing surfaces below are prefab-local
+`[left,right] @ top` coordinates. Runtime routes translate them through the
+currently active pooled clone; these numbers are never treated as world
+coordinates.
+
+- `Stage2 Ground 1`: `[-12,12] @ -2`.
+- `Stage2 Ground 2`: `[-12,-11] @ -2`, `[-4,0] @ -2`,
+  `[11,12] @ -2`, `[-5,-4] @ -1`, `[0,2] @ -1`,
+  `[-6,-5] @ 0`, `[2,4] @ 0`, `[-7,-6] @ 1`, `[4,6] @ 1`,
+  `[-11,-7] @ 2`, `[6,11] @ 2`, and `[-11,11] @ 15`.
+- `Stage2 Ground 3`: `[-12,-9] @ -2`, `[-5,-2] @ -2`,
+  `[2,5] @ -2`, `[9,12] @ -2`, `[-5,-3] @ 8`, and
+  `[7,9] @ 8`.
+- `Stage2 Ground 4`: `[-12,12] @ -2`, `[-3,-2] @ 2`,
+  `[9,10] @ 3`, `[-2,-1] @ 5`, and `[-1,9] @ 6`.
+- `Stage2 Ground 5`: `[3,8] @ -3`, `[-12,-5] @ -2`,
+  `[8,12] @ -2`, `[-5,-3] @ 0`, `[-1,1] @ 0`, and
+  `[-3,-1] @ 2`.
+- `Stage2 Ground 6`: `[-2,2] @ -3`, `[-12,-2] @ -2`, and
+  `[2,12] @ -2`.
+
+The corresponding prefab-local route objects are:
+
+- `Stage2 Ground 1`: souls
+  `(-10,-1),(-9,-1),(-8,-1),(-7,-1),(-6,0),(-5,1),(-4,2),`
+  `(-3,2),(-2,2),(-1,1),(0,0),(1,-1),(2,-1),(3,-1),(4,-1)`;
+  Spirit Boost `(5.5,-1)`.
+- `Stage2 Ground 2`: souls `(-3,-1),(-2,-1),(-1,-1)`; no boost.
+- `Stage2 Ground 3`: souls
+  `(-4,-1),(-3,-1),(-1,1),(0,1),(1,1),(3,-1),(4,-1)`;
+  Spirit Boost `(-9.5,0.2)`; spike near `(-5.5,6.5)`.
+- `Stage2 Ground 4`: souls
+  `(4,0),(2,8),(3,8),(4,8),(5,8),(6,8)`; Spirit Boost `(-2,-1)`;
+  vertical spike groups near `x=-6.5/-5.5`, `y=2.5..4.5`.
+- `Stage2 Ground 5`: high souls near `x=-3..-1`, `y=3..4`, and low
+  souls near `x=4..6`, `y=-2..-1`; spike groups near
+  `x=-9.5..-7.5` and `x=4.5..5.5`, `y=1.5`.
+- `Stage2 Ground 6`: soul arc
+  `(-10,-1),(-9,-1),(-8,-1),(-7,-1),(-6,0),(-5,1),(-4,2),`
+  `(-3,3),(-2,4),(-1,4),(0,4),(1,4),(2,4)`; Spirit Boost
+  `(6.5,-1)`.
+
+These are objective evidence, not mandatory world-coordinate commands. The
+runtime still reads active trigger transforms and translates only the
+authored terrain through the live pool.
+
+This topology explains the previously unstable cases without creating local
+exceptions:
+
+- Ground 2 is one staircase/tunnel structure, not a sequence of unrelated
+  walls. Its exact intermediate tops allow the generic wall executor to
+  continue after each real contact.
+- Ground 1 is the registered wide flat soul lane. V1.12 may optimize soul and
+  boost intersections across it while retaining a comfortable same-surface
+  landing. A pending/unknown support is admitted only in Sections 2/3 after
+  the live scan proves at least 18 continuous flat units; Ground 4's
+  staircase route is deliberately excluded.
+- Ground 6 is a continuous shallow depression between two level shoulders,
+  not an unmapped fatal gap. Its three exact surfaces let the normal
+  drop/landing planner reason about Section 3 without a hard-coded world
+  position.
+
+The runtime evidence expected for this map is:
+
+- `Stage2StaticMapRegistry ... State=Ready` when the active pool is aligned;
+- `Stage2StaticMapRegistry ... State=Pending` during a section/pool hand-off,
+  with live scanning remaining authoritative;
+- `Stage2FlatSoulLaneFast[...]` only on a typed Stage-2 flat lane;
+- `Stage2PhysicalWallUnified` or `MovementStallDetected` when an actual
+  physical face, rather than a predicted route coordinate, owns recovery.
+
+## V1.09 Stage-2 completion wall and dynamic seam evidence
+
+The V1.08 Stage-2 Spirit trace ends with:
+
+- code Section 1 complete at `43/43`;
+- controller Section 2 while terrain ownership retains Section 1;
+- player `(815.201,-1.995)`, velocity `(0,0)`, grounded;
+- forward face `X=816.000`, `Touching=True`, body gap `0.005`;
+- no qualified reward target;
+- scan invalid because the authored registry is temporarily Pending.
+
+These coordinates are diagnostic only. V1.09 recognizes the general state:
+terrain control is still required, no reward object owns input, the same live
+face and zero-motion grounded body persist for three fixed steps, and a
+climbable top can be proved by authored or live collider geometry.
+
+For Stage-2 Spirit seams, the live gap is compared with the current
+fixed-step displacement rather than only the full body width. The rule is
+speed-derived and has no map coordinate or repeated-piece identity.
+
+## V1.08 Stage-2 grounded staircase contact fixture
+
+`AutoBonusRunner-20260723-184147-494-V1.07.log` records one translated
+composite staircase in Stage 2 code Section `0`:
+
+- stable player position `(189.201,2.005)`, velocity `(0,0)`;
+- current support `[189.004,189.998] @ 2`;
+- adjacent raised support `[190.000,190.997] @ 5`;
+- retained route `WallDropApproach/EnterTrenchThenWallJump`;
+- nominal arm X `189.471`, predicted face-contact centre `189.702`;
+- ray evidence `Detected=False`, `Touching=False`,
+  `NoForwardWallHit`.
+
+The coordinates diagnose the repeated topology and are not route triggers.
+V1.08 recognizes the generic relation: an existing Stage-2 adjacent-wall
+route, stable current support, two zero-velocity physics steps, and measured
+body-front distance within `0.10` of the next raised face. This geometric
+contact authority is revoked immediately when the support, target, velocity,
+or face gap changes.
+
+## V1.02 V1.01 ordinary result
+
+The V1.01 trace armed centres `1034.999`, `1131.000`, and `1226.998`.
+All three still selected the first narrow stone and reported two modeled hits;
+the first visibly collected none. After the last module, a pit was confirmed
+at `(1252.874,-4.445)`, `VX=14.5`, `VY=-28.269`. V1.02 forbids the first
+stone as the special route's terminal support and requires three modeled
+intersections on a downstream landing. The pit coordinate is diagnostic only;
+the enriched warning, not this X, will determine any later completion fix.
+
+## V1.01 repeated ordinary cross instances
+
+Ordinary Stage-1 traces expose the actual repeated entry shape:
+
+- road `[903,910] @ -2` to cross stone `[914,916] @ -2`, centre `915`;
+- translated road `[999,1006]` to stone `[1010,1012]`, centre `1011`;
+- translated road `[1095,1102]` to stone `[1106,1108]`, centre `1107`.
+
+Each stone carries `(centre-1,2)`, `(centre,1)`, `(centre,2)`,
+`(centre,3)`, `(centre+1,2)` in that translation. The old ordinary
+`0.020 s` command landed on the narrow stone with `ExpectedSphereHits=0`.
+V1.01 applies the minimum-one requirement before downstream route selection
+for every repeated instance.
+
 ## V1.00 Stage-1 ordinary third-section cross
 
 The retained detailed fixture

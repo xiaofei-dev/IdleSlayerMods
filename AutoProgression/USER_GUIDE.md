@@ -1,283 +1,501 @@
-# AutoProgression User Guide
+# AutoProgression 2.0 User Guide
 
-AutoProgression automates repeatable account progression in Idle Slayer:
-normal Ascension, skills, normal equipment, temporary craftables, materials,
-eggs, quest maintenance, and the two paid 500x bonuses.
+![AutoProgression 2.0 - Auto Upgrade](Assets/AutoProgression-Final-Cover.png)
 
-This guide is for players who want to install the mod and use it safely. For
-every setting and behavior, see the [Complete Manual](MANUAL.md).
+AutoProgression is the account-growth core of Tashi's Full Automation Suite
+for Idle Slayer. It automates Ascension, shop upgrades, normal equipment,
+Minions, craftables, materials, quest maintenance, eggs, Silver Box rewards,
+and selected premium-currency actions.
 
-## What AutoProgression Does
+This mod is deliberately modular. It does not control the character during
+normal running, choose combat targets, travel for quests, or play every
+minigame. Those responsibilities belong to companion modules listed in
+[Full Automation Suite](#full-automation-suite).
 
-- Performs normal Ascension at a configurable pending-SP percentage and can optionally Ultra Ascend at 24 Astral Keys.
-- Can spend remaining Slayer Points through the Ascension-tree Buy All action.
-- Buys available shop skills and levels unlocked normal equipment.
-- Maintains supported timed craftables and refreshes Rage with Rage Pills.
-- Uses Scrap and Dragon Scale overflow; Shards Necklace has no duration cap,
-  while Dragon Scale duration effects respect the configured maximum.
-- Optionally opens Dragon and Simurgh Eggs in the background while preserving reserves.
-- Claims completed Daily and Weekly Quests and regenerates exhausted sets.
-- Filters selected newly generated Daily Quests and selects the 180,000-kill
-  Rage Weekly Quest.
-- Can reset the normal Portal cooldown and keep quest rerolls available.
-- Can purchase the two 500x Jewels of Soul bonuses.
-- Can claim and resend Minion missions and automatically prestige eligible
-  Minions at their maximum level.
+## Read This Before Enabling the Mod
 
-AutoProgression does not travel between dimensions,
-controls the character, or fights quest targets.
+AutoProgression contains both ordinary quality-of-life automation and options
+that can strongly alter game balance.
+
+The following features can spend Jewels of Soul:
+
+- `Use Paid 500x Bonuses`
+- `Craftables > Buy Missing With Jewels`
+- `Manual Casino Crawler Eyes > Enabled`
+
+The first two automatic Jewel-spending paths are disabled by default.
+The manual Casino tool is also disabled by default. Do not enable any of them
+until you understand the cost and have reviewed the generated configuration.
+
+The following features can also have major progression consequences:
+
+- automatic Ultra Ascension
+- unlimited Daily and Weekly Quest rerolls
+- repeated Daily and Weekly Quest generation
+- Portal cooldown removal
+- maximum-level Minion prestige
+- automatic egg and material consumption
+
+Automatic Ultra Ascension, automatic Minion prestige, automatic egg opening,
+paid 500x bonuses, and the Craftables master switch are disabled by default.
+
+## Requirements and Tested Versions
+
+| Component | Tested version | Purpose |
+|---|---:|---|
+| Idle Slayer | Current mod-compatible PC release | Base game |
+| Idle Slayer Mod Manager | Current release | Installation and launch |
+| MelonLoader | `0.7.3 Open-Beta` | Mod runtime |
+| Idle Slayer Mods Core | `1.3.2` | Required shared library |
+| AutoProgression | `2.0.0` | This mod |
+
+Later compatible releases may also work, but the versions above describe the
+author's tested environment.
 
 ## Installation
 
-### Idle Slayer Mod Manager (recommended)
+### Mod Manager installation
 
 1. Install and initialize Idle Slayer Mod Manager.
-2. Install Idle Slayer Mods Core.
-3. Import the AutoProgression ZIP without extracting it.
-4. Enable AutoProgression and start the game.
+2. Install Idle Slayer Mods Core `1.3.2` or a compatible later version.
+3. Import `AutoProgression.zip` without extracting it.
+4. Enable AutoProgression in the manager.
+5. Start the game once to generate the configuration file.
+6. Close the game and review the configuration before enabling automation.
 
 ### Manual installation
 
-Place `AutoProgression.dll` in:
+Copy `AutoProgression.dll` to:
 
 ```text
 %LOCALAPPDATA%\IdleSlayerModManager\ModLoader\Mods\
 ```
 
-## Starting and Stopping
-
-Press `T` in a normal running dimension to enable AutoProgression. Press `T`
-again to disable it.
-
-The runtime starts disabled each time it is created. The `T` toggle does not
-change saved settings. It enables or pauses the configured automation groups
-together.
-
-Periodic AutoProgression behavior requires the global `T` toggle, including
-unlimited Daily and Weekly reroll availability. Blocking the two vertical
-Random Box magnet upgrades is a persistent protection and remains active while
-`T` automation is off.
-
-## Recommended First Setup
-
-Before pressing `T`, review these settings:
-
-1. Enable `Use Paid 500x Bonuses` only if you want automatic Jewel spending.
-2. Enable `Craftables` and `Buy Missing With Jewels` only if craftables may buy materials.
-3. Enable egg opening if desired, then set the Dragon and Simurgh Egg reserves you want to keep.
-4. Review the normal Ascension threshold and post-Ascension Buy All setting.
-5. Confirm the Scrap and Dragon Scale overflow thresholds.
-
-Then enter a normal Runner or Rage dimension and press `T`.
-
-## Important Currency Warning
-
-The following settings can spend Jewels of Soul:
-
-- `Use Paid 500x Bonuses`
-- `Buy Missing With Jewels`
-
-Material purchases use the configured `Purchase Percent`. Specialization and
-Key Manifest never buy Scrap, Simurgh Feathers, or Dragon Scales. Other missing
-materials follow the global Jewel setting.
-
-## Normal Ascension
-
-The default threshold is 50%: pending Slayer Points must reach the configured
-percentage of lifetime Slayer Points. Checks occur every 5 minutes by default
-and once immediately after enabling AutoProgression.
-
-Normal automatic Ascension can repeatedly invoke the Ascension-tree Buy All
-action afterward until two stable rounds spend no more points.
-
-`Automatic Ultra Ascension Enabled` is disabled by default. When explicitly
-enabled, Ultra Ascension takes priority over normal automatic Ascension once
-the game's native Ultra Ascension skill and prerequisite rules are active and
-`GetAstralKeys()` reports at least 24 keys. The threshold is fixed. This is a
-major progression reset and should be enabled only after understanding it.
-
-## Craftables
-
-The `Craftables > Enabled` setting is the master switch for every craftable
-option and any material purchase requested by those craftables. The detailed
-settings below it are evaluated only while this switch is enabled.
-
-Ascendant Badge Boost is armed whenever its one-use effect is available and
-Dragon Scales are strictly above 50% of the current unlocked capacity. This
-threshold is fixed. Dragon Scales are never bought; other missing recipe
-materials follow `Buy Missing With Jewels`.
-
-Timed items begin refilling at 3 minutes and stop at 6 minutes by default.
-Rage Pills use their own minimum interval.
-
-Scrap and Dragon Scale overflow items are triggered by inventory percentage.
-Shards Necklace has no duration cap and continues until Scrap falls below its
-configured threshold (97% by default). Dragon Scale duration items still stop
-at the shared maximum-duration setting.
-
-Quest-assist craftables use separate 5-minute cooldowns by default:
-
-- Specialization: normal Goblin and Bonus Stage quests
-- Key Manifest: normal Chest Hunt quests
-
-Every Specialization trigger requires Dragon Scales to be strictly above 50%
-of the current unlocked capacity, including the normal quest-triggered path.
-
-Specialization also has a resource-overflow trigger independent from quests:
-it is used when Scrap is above 80%, provided the shared Dragon Scale reserve
-condition and its normal crafting conditions allow it. This path neither reads nor starts
-the quest-assist cooldown; the game's native one-use state controls repetition.
-It pauses while any active quest requires normal, Silver, or Golden Random
-Boxes so those objectives remain completable.
-
-Specialization and Key Manifest share `Quest Assist Feather Threshold Amount`
-(`1000` by default). Both require the current Simurgh Feather amount to be
-strictly above this value, and crafting must leave at least the configured
-amount. Setting it to `0` disables both items completely. Key Manifest also
-uses this value as its separate Feather-overflow trigger and is crafted whenever
-its native one-use state allows. Both items require `Quest Assist Craftables
-Enabled`, the Craftables master switch, and global `T` automation.
-
-Daily and Weekly Quests do not trigger these two items.
-Specialization also preserves a fixed Scrap reserve: it is not crafted when
-its cost would leave Scrap below 50% of the player's current unlocked storage
-capacity. This safety threshold is intentionally not configurable. Key
-Manifest uses Simurgh Feathers and is unaffected by the Scrap reserve.
-
-## Manual Armory Box Opening
-
-In the craftables screen, highlight one of the five Armory boxes, the Dragon
-Egg, or the Simurgh Egg and press the configured `Select Box Key` (`B` by
-default). Press `Open Boxes Key` (`N` by default) to open up to `Boxes Per
-Press` selected boxes or eggs (`10` by default) without the slow modal
-animation. The two keys must differ. Normal crafting costs and reward rolls
-are retained. Armory boxes stop when materials or Armory slots run out; eggs
-stop when their material runs out. This feature is independent from `T`.
-
-## Casino Crawler Eyes
-
-Enable `Casino Crawler Eyes > Enabled`, open the Village Casino Crawler Eye
-purchase screen, and press `M` to purchase the configured amount. The default
-is 1,000 Eyes per press. Purchases run as sequential native 10-eye transactions
-and stop safely when Jewels of Soul are insufficient or the screen is closed.
-This manual feature is independent from `T` and can spend substantial premium
-currency.
-
-## Silver Boxes
-
-Silver Box enhancement is active independently from `T`. `Auto Claim Reward`
-checks once per second and claims an available reward through the game's normal
-reward method. The game's native storage limit and Silver Box consumption
-behavior are unchanged.
-
-## Quest Maintenance
-
-The `Quests > Enabled` setting is the master switch for this entire group. When
-it is disabled, claiming, generation, filtering, rerolls, and Portal cooldown
-automation are all inactive regardless of their individual settings.
-
-AutoProgression can claim completed Daily and Weekly Quests, generate another
-set when one type is exhausted, and keep rerolls available.
-
-After a new Weekly set is generated, the mod can reroll one generated slot
-until the 180,000 Rage Mode kill objective appears. Existing extra Weekly
-slots are preserved.
-
-After a new Daily set is generated, the mod can reroll selected inconvenient
-objectives. Existing Daily Quests and later manual rerolls do not trigger the
-filter.
-
-The filtered objectives include material collection and crafting temporary
-craftables, along with the other event and minigame objectives documented in
-the complete quest-maintenance guide.
-
-## Eggs
-
-Set `Egg Opening > Enabled = true` to open eggs in the background without the
-normal animation. This feature is disabled by default:
-
-- Simurgh Eggs open while above their reserve.
-- Dragon Eggs open while above their reserve and Dragon Scale storage is not
-  full.
-
-One item action is allowed per second, preventing a large synchronous burst.
-
-## Minions
-
-`Auto Claim and Send` claims completed missions and sends each unlocked Minion
-again when its Slayer Point cost is lower than the available balance.
-
-`Automatic Maximum-Level Prestige` acts only when the game reports that Minion
-Prestige is unlocked. A standing Minion must have a level above 1 and a maximum
-level of at least 70. The service raises that Minion to its maximum level for
-the prestige action.
-
-When this setting is enabled, manually triggered prestige uses the selected
-Minion's maximum level even when its maximum level is below 70 and while the
-global `T` automation toggle is off. The 70 maximum-level threshold applies
-only to automatic prestige. Disabling the setting restores the game's normal
-manual prestige behavior.
-
-With both settings enabled, the order is claim, prestige when eligible, then
-send. With only automatic prestige enabled, manually claiming a mission leaves
-the Minion standing by for the next automatic prestige check.
-
-## Why the Mod Sometimes Waits
-
-Automation runs only after the normal central gameplay scene is stable. It
-pauses through unsupported scenes, Ascension reconstruction, and unavailable
-game objects. A two-second Ascension lock clears cached IL2CPP references
-before other services resume.
-
-## Configuration File
-
-The first launch creates:
+The configuration file is generated at:
 
 ```text
 %LOCALAPPDATA%\IdleSlayerModManager\ModLoader\UserData\AutoProgression.cfg
 ```
 
-Edit it while the game is closed, then restart the game. See the
-[Configuration Reference](docs/08-configuration.md) for every option.
+Edit the configuration while the game is closed, then restart the game.
 
-## Quick Troubleshooting
+## Global Control
 
-### Pressing `T` does not immediately act
+| Key | Default action |
+|---|---|
+| `T` | Enable or disable periodic AutoProgression automation |
+| `B` | Select the highlighted Armory box, Dragon Egg, or Simurgh Egg |
+| `N` | Open the selected box or egg in the background |
+| `M` | Start one configured Village Casino Crawler Eye bulk purchase |
 
-Enter a normal Runner or Rage dimension and wait for the three-second stable
-screen guard. Unsupported scenes and transitions intentionally pause actions.
+The runtime starts disabled. Enter a normal Runner or Rage dimension and press
+`T`. The central gameplay screen must remain stable for approximately three
+seconds before periodic actions begin.
 
-### A craftable is not being made
+Turning `T` off pauses periodic automation without changing saved settings.
+The following intentionally remain independent from `T`:
 
-Check its feature switch, unlock state, material requirements, lower refill or
-inventory threshold, and maximum duration. If Jewel purchases are disabled,
-missing ordinary materials must be collected manually.
+- blocking the two unwanted vertical Random Box magnet upgrades
+- manual Armory box and egg opening
+- manual Crawler Eye bulk purchasing
+- automatic Silver Box reward claiming
+- the manual maximum-level Minion prestige enhancement, when enabled
 
-### Automatic Ascension does not happen
+Each independent feature is labeled in the configuration.
 
-Check the threshold calculation, 15-minute default interval, current pending
-Slayer Points, and whether the main gameplay scene is stable.
+## Recommended First Setup
 
-### A Daily or Weekly was not rerolled
+For a conservative first run:
 
-Generated-set filters run only for a new set created while AutoProgression is
-active. Manual rerolls and tasks that already existed when `T` was enabled are
-not reprocessed.
+1. Leave `Use Paid 500x Bonuses = false`.
+2. Leave `Craftables > Enabled = false`.
+3. Leave `Buy Missing With Jewels = false`.
+4. Leave automatic Ultra Ascension disabled.
+5. Leave automatic maximum-level Minion prestige disabled.
+6. Leave automatic egg opening disabled.
+7. Review the normal Ascension threshold.
+8. Decide whether quest regeneration, unlimited rerolls, Daily filtering, and
+   Portal cooldown removal match the way you want to play.
+9. Enter a normal dimension and press `T`.
 
-For more help, see [Troubleshooting](docs/10-troubleshooting.md) and
-[Logging](docs/09-logging.md).
+Enable resource-consuming groups one at a time after confirming their
+descriptions and observing the log.
+
+## Ascension
+
+### Automatic normal Ascension
+
+Normal Ascension compares pending Slayer Points with lifetime Slayer Points.
+The default threshold is `50%`. Enabling the runtime performs one immediate
+check; later checks occur every five minutes.
+
+When `Buy Skills After Automatic Ascension` is enabled, the mod repeatedly uses
+the Ascension Skill Tree Buy All action until no more Slayer Points can be
+spent. This follow-up is triggered only by an automatic normal Ascension;
+manual Ascension is unaffected.
+
+### Automatic Ultra Ascension
+
+Automatic Ultra Ascension is disabled by default. When explicitly enabled, it
+takes priority over normal Ascension only when:
+
+- the game's native Ultra Ascension requirements are satisfied;
+- the native Ultra Ascension action is available; and
+- the current Ultra Ascension would grant at least 24 Astral Keys.
+
+The 24-key threshold is fixed. Ultra Ascension is a major reset, so enable this
+option only after understanding its consequences.
+
+All other automation pauses behind a two-second Ascension transaction lock
+while game objects are rebuilt.
+
+## Shop Skills and Normal Equipment
+
+`Purchases > Skills Enabled` buys all currently affordable and eligible shop
+skills every five seconds.
+
+`Purchases > Equipment Enabled` buys only unlocked normal shop equipment. It
+starts with the newest unlocked item, purchases that item until it no longer
+meets the current bulk threshold, and then moves toward older equipment.
+Skills continue to be checked while the equipment buyer is sleeping.
+
+`Disable Vertical Magnet Upgrades` permanently blocks the two Random Box
+vertical magnet upgrades from automatic and manual purchase. This protection
+does not depend on `T`.
+
+## Minions
+
+`Auto Claim and Send` claims completed unlocked Minion missions and sends
+standing Minions again when their Slayer Point cost is affordable.
+
+`Automatic Maximum-Level Prestige` is disabled by default:
+
+- automatic prestige requires `T`;
+- the Prestige system must be unlocked;
+- a standing Minion must have a maximum level of at least 70;
+- eligible automatic prestige uses that Minion's maximum level;
+- when both Minion options are enabled, the order is claim, prestige, send.
+
+When this setting is enabled, a manually initiated prestige also uses the
+selected Minion's maximum level, including Minions below the automatic
+70-level threshold. This manual enhancement remains active while `T` is off.
+
+## Craftables and Materials
+
+`Craftables > Enabled` is the master switch for every automatic craftable
+service. When it is false, no automatic craftable is used and no material is
+purchased for a craftable.
+
+### Jewel material purchasing
+
+`Buy Missing With Jewels` allows enabled craftable services to purchase
+eligible missing materials at the selected `Material Purchase Percent`.
+Supported purchase sizes are 25%, 50%, and 100%.
+
+This option never purchases:
+
+- Scrap
+- Simurgh Feathers
+- Dragon Scales
+
+Every Jewel purchase is shown in the normal user log.
+
+### Timed craftables
+
+The shared `Timed Items Target Minutes` default is 6 minutes. Refilling begins
+automatically at half the target, so the default behavior refills from
+3 minutes toward 6 minutes.
+
+Supported timed items include:
+
+- Whetstone
+- Alternate Dimension Staff
+- Bidimensional Staff
+- Deathwave Scepter
+
+Deathwave Scepter also preserves its configured Simurgh Feather reserve.
+Rage Pill checks separately and may refresh Rage even while Rage Mode is
+already active.
+
+### Scrap and Dragon Scale overflow
+
+Shards Necklace consumes excess Scrap when storage reaches its configured
+percentage. Its default threshold is 97%. It intentionally ignores the shared
+duration target and continues until Scrap falls below the threshold.
+
+The Dragon Scale overflow group contains:
+
+- Random Box Staff
+- Necklace of Collectables
+- CpS Compass
+- Souls Compass
+
+The group begins a cycle above its configured Dragon Scale percentage and
+respects the shared duration target.
+
+### Ascendant Badge Boost
+
+`Ascendant Badge Boost Enabled` is an independent switch and is disabled by
+default. When enabled, the mod arms the one-use Armory boost only when:
+
+- Craftables and `T` automation are active;
+- Dragon Scale storage is strictly above the fixed 50% requirement;
+- the item is unlocked and its native one-use state is available; and
+- all required materials are available or eligible ordinary materials can be
+  purchased under `Buy Missing With Jewels`.
+
+Dragon Scales are never purchased. After the boost is consumed, it may be
+crafted again when the native state becomes available.
+
+### Specialization and Key Manifest
+
+`Quest Assist Craftables Enabled` controls both items:
+
+- Specialization supports active normal Goblin and Bonus Stage quests.
+- Key Manifest supports active normal Chest Hunt quests.
+- Daily and Weekly Quests do not trigger either item.
+
+Both items share `Quest Assist Feather Threshold Amount`:
+
+- `0` disables both items completely;
+- above `0`, current Simurgh Feathers must be strictly greater than the value;
+- crafting must leave at least the configured amount;
+- Simurgh Feathers are never purchased.
+
+Specialization may also run without a quest when Scrap is above 80% and Dragon
+Scales are above 50%. It preserves at least 50% Scrap and pauses this overflow
+path while an active quest requires normal, Silver, or Golden Random Boxes.
+Special Random Boxes do not block it because they start Bonus Stages.
+
+Key Manifest also uses the shared Feather value as an independent overflow
+trigger. When Feathers are above the threshold and the native one-use state is
+available, it may be crafted without a matching quest.
+
+Quest-triggered Specialization and Key Manifest each have their own internal
+five-minute cooldown. Resource-overflow triggers rely on native one-use
+availability instead.
+
+## Quest Maintenance
+
+`Quests > Enabled` is the master switch for claiming, regeneration, rerolls,
+generated-set filtering, and Portal cooldown maintenance.
+
+AutoProgression can:
+
+- claim completed Daily and Weekly Quests;
+- generate another Daily or Weekly set after that type is exhausted;
+- keep Daily and Weekly rerolls available;
+- reset the normal Portal cooldown;
+- reroll a newly generated Weekly slot until the 180,000 Rage Mode kill quest
+  appears;
+- filter selected inconvenient objectives from newly generated Daily sets.
+
+Weekly preference and Daily filtering run only after a newly generated set.
+They do not continuously rewrite existing quests and do not react to later
+manual rerolls.
+
+The optional Daily filter removes:
+
+- Goblin kills
+- material collection
+- temporary-craftable crafting
+- Chest Hunt chests
+- normal and Silver Random Boxes
+- normal Boost uses
+- Rage Mode uses
+- Bonus Stage entry, full-completion, and section objectives
+- Ascending Heights completion
+- Grapple Run completion
+
+Rage Mode kill quests and Wind Dash kill quests are retained. Completed quests
+waiting to be claimed are never rerolled.
+
+AutoProgression maintains quest data only. AutoAdventurer performs supported
+quest objectives and dimension travel.
+
+## Eggs
+
+Automatic egg opening is disabled by default and does not play the slow native
+opening animation.
+
+- Dragon Eggs open only while above their reserve and while Dragon Scale
+  storage is not full.
+- Simurgh Eggs open only while above their reserve.
+- Craftable actions have priority over egg opening.
+- Background item actions are limited to avoid a large synchronous burst.
+
+Default reserves are 300 Dragon Eggs and 10 Simurgh Eggs.
+
+## Paid 500x Bonuses
+
+`Use Paid 500x Bonuses` is disabled by default and directly spends Jewels of
+Soul. When enabled, it maintains both Souls and CpS 500x bonuses.
+
+The service uses a timer for normal operation, then reads the real remaining
+effect duration when the timer expires. This avoids constant polling and
+remains safe when game-speed effects alter cooldown timing.
+
+## Silver Boxes
+
+`Auto Claim Reward` automatically claims an available Silver Box reward after
+entering the game. It is independent from `T`. The native Silver Box storage
+limit and consumption rules are not changed.
+
+## Manual Armory Box and Egg Opening
+
+Open the Armory craftables screen and highlight one of the five Armory boxes,
+a Dragon Egg, or a Simurgh Egg.
+
+1. Press `Select Box Key` (`B` by default).
+2. Press `Open Boxes Key` (`N` by default).
+3. Up to `Boxes Per Press` items are opened in the background.
+
+The default amount is 10. Normal material costs and reward rolls remain in
+effect. Opening stops when materials, eggs, or free Armory slots run out.
+This manual tool is independent from `T`.
+
+## Manual Casino Crawler Eye Purchasing
+
+This tool is disabled by default and directly spends Jewels of Soul.
+
+1. Enable `Manual Casino Crawler Eyes > Enabled`.
+2. Open the Village Casino Crawler Eye purchase screen.
+3. Press `Purchase Key` (`M` by default).
+
+The default request is 1,000 Eyes. Purchases are performed as sequential native
+10-eye transactions and stop safely if the screen closes, Jewels become
+insufficient, or a safety timeout occurs.
+
+## Runtime Safety
+
+AutoProgression operates only after the central Runner or Rage scene is stable.
+It pauses through unsupported scenes, menus that replace central gameplay,
+Portals, minigames, and Ascension reconstruction.
+
+Safety behavior includes:
+
+- a three-second central-screen stabilization gate;
+- a two-second Ascension transaction lock;
+- cached IL2CPP object resets across relevant boundaries;
+- at most one ordinary item action per second;
+- safe waiting when objects, recipes, or native actions are unavailable;
+- delayed generated-quest processing so native quest data can stabilize;
+- concise user errors and detailed stack traces only in Debug Mode.
+
+## Logging
+
+Normal user logs show:
+
+- mod load and `T` state
+- normal and Ultra Ascension starts
+- Jewel purchases
+- Minion prestige
+- Silver Box claims
+- manual bulk actions
+- completed Daily and Weekly filtering results
+- warnings and errors
+
+`Debug Mode` adds subsystem diagnostics, object resolution, timers, state
+transitions, and aggregated activity summaries. It is disabled by default.
+
+Logs are stored under:
+
+```text
+%LOCALAPPDATA%\IdleSlayerModManager\ModLoader\MelonLoader\Logs\
+```
 
 ## Full Automation Suite
 
-- **AutoProgression** handles account growth and repeatable maintenance.
-- **AutoAdventurer** handles active gameplay, quest objectives, travel, Rage,
-  and movement abilities.
-- **AutoClimber** handles Ascending Heights routes, rewards, and compatible
-  quest enemies.
+The current first-party suite is:
 
-Each mod works independently and complements the others.
+| Mod | Version | Responsibility |
+|---|---:|---|
+| AutoProgression | `2.0.0` | Account progression, Ascension, purchases, quests, Minions, craftables, materials, eggs, and menu maintenance |
+| AutoAdventurer | `2.0.0` | Normal running, automatic jumping, combat abilities, Rage, quest selection, dimension travel, event safety, and bosses |
+| AutoClimber | `1.2.0` | Ascending Heights route planning, recovery, quest enemies, rewards, retry, and background play |
+| AutoBonusRunner | `1.0.0` | Bonus Stage route execution, jumping, sphere requirements, Spirit Boost support, start-slider handling, and optional native retry |
 
-## Support Development
+AutoAdventurer 2.0 replaces the old Auto Jump component for normal gameplay.
+AutoBonusRunner replaces Bonus Stage Completer. Do not run the replaced mods
+alongside their new replacements unless you are deliberately testing
+conflicting input automation.
 
-If these mods save you time, you can support continued development through
-[PayPal](https://www.paypal.com/donate/?business=HK85PL8AREEXY&no_recurring=0&currency_code=USD).
+Each first-party module can be used independently. Together, they divide
+account maintenance, normal gameplay, Ascending Heights, and Bonus Stages into
+separate safety domains.
+
+## Optional Third-Party Companion Mods
+
+The author's currently tested supplemental stack is:
+
+| Mod | Tested version | Responsibility |
+|---|---:|---|
+| GrappleRunAutocompleter | `1.1.0` | Grapple Run completion |
+| Perfect Chest Hunter | `2.0.0` | Chest Hunt automation |
+| Armory Manager | `1.2.2` | Automatic Armory cleanup and dismantling |
+| Idle Slayer Mods Core | `1.3.2` | Shared dependency used by the suite and several community mods |
+
+These are not all hard dependencies of AutoProgression. Install only the
+components you want and follow each author's requirements and permissions.
+
+## Troubleshooting
+
+### Pressing `T` does not immediately act
+
+Enter a normal Runner or Rage dimension and wait for the central screen to
+stabilize. Unsupported scenes and transitions intentionally pause automation.
+
+### A craftable is not being made
+
+Check, in order:
+
+1. `T` is active.
+2. `Craftables > Enabled` is true.
+3. The individual item switch is enabled.
+4. The item is unlocked and its native state allows use.
+5. Its duration or resource threshold is satisfied.
+6. Protected materials are available.
+7. `Buy Missing With Jewels` is enabled if ordinary materials must be bought.
+
+For Ascendant Badge Boost, Dragon Scales must be strictly above 50%. With a
+capacity of 249, 124 is only 49.8%; at least 125 is required.
+
+### Automatic Ascension does not happen
+
+Check pending versus lifetime Slayer Points, the configured percentage, the
+five-minute internal interval, and whether central gameplay is stable.
+Enabling `T` performs one immediate check.
+
+### A Daily or Weekly Quest was not rerolled
+
+Generated-set filters run only for a set generated while AutoProgression is
+active. Existing sets and manual rerolls are not reprocessed. Completed quests
+are intentionally skipped.
+
+### Eggs do not open
+
+The count must be above its reserve. Dragon Eggs also stop while Dragon Scale
+storage is full. Eggs yield to higher-priority craftable actions.
+
+### Reporting a problem
+
+Include:
+
+- the latest MelonLoader log;
+- the scene and open panel;
+- the action immediately before the problem;
+- your relevant configuration entries;
+- the versions of all installed automation mods.
+
+Confirm that the stack trace names AutoProgression before attributing a loader
+or another mod's error to this project.
+
+## Support and Source
+
+- Source and issue tracking:
+  [Tashi's IdleSlayerMods](https://github.com/xiaofei-dev/IdleSlayerMods)
+- Optional development support:
+  [PayPal](https://www.paypal.com/donate/?business=HK85PL8AREEXY&no_recurring=0&currency_code=USD)
+
+This is an unofficial community mod. Idle Slayer and its assets belong to
+their respective owners.

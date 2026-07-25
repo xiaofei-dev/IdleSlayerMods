@@ -91,12 +91,13 @@ internal static class BonusStageInspector
         Array.Empty<SpiritBoostColliderBinding>();
     private static int cachedSceneObjectSection = int.MinValue;
     private static bool sceneObjectCacheReady;
-    // Bonus-stage sphere rows are pooled. FindObjectsOfType<T>() only returns
-    // the rows that are active when the section cache is built, so a cache
-    // that lives for the whole section eventually contains only collected
-    // objects behind the player. Refresh only when that forward inventory is
-    // exhausted. This discovers newly activated rows without restoring the
-    // old scene-wide scan on every physics step.
+    private static bool sceneObjectCacheIncludesInactiveSectionInventory;
+    private static Transform cachedSceneObjectLevelRoot;
+    private static int cachedSceneObjectLevelRootSection = int.MinValue;
+    // Bonus-stage objective rows are pooled. The preferred section-root build
+    // includes inactive rows and therefore never needs a forward refresh.
+    // These throttles remain only for the short-lived active-object fallback
+    // used when the section hierarchy is not available yet.
     private const float SphereForwardRefreshCooldownSeconds = 0.60f;
     private const float SphereForwardRefreshMinimumAdvance = 6.0f;
     private static float nextSphereForwardRefreshTime;
@@ -534,6 +535,9 @@ internal static class BonusStageInspector
             Array.Empty<SpiritBoostColliderBinding>();
         cachedSceneObjectSection = int.MinValue;
         sceneObjectCacheReady = false;
+        sceneObjectCacheIncludesInactiveSectionInventory = false;
+        cachedSceneObjectLevelRoot = null;
+        cachedSceneObjectLevelRootSection = int.MinValue;
         nextSphereForwardRefreshTime = 0f;
         lastSphereForwardRefreshLeft = float.NegativeInfinity;
         nextSpiritBoostForwardRefreshTime = 0f;
@@ -611,6 +615,14 @@ internal static class BonusStageInspector
             if (x >= left && x <= right)
                 cachedInRange++;
         }
+
+        // A root-scoped inventory was built with includeInactive=true, so it
+        // already contains every pooled row that can become active later in
+        // this section. Forward exhaustion is then gameplay state, not cache
+        // invalidation; rescanning the same hierarchy would only stall the
+        // physics frame that owns the next launch window.
+        if (sceneObjectCacheIncludesInactiveSectionInventory)
+            return cachedBonusSpheres;
 
         // An active cached objective beyond the requested right edge proves
         // that the current pool generation is still represented. Rebuilding
@@ -746,6 +758,9 @@ internal static class BonusStageInspector
                 inRange++;
         }
 
+        if (sceneObjectCacheIncludesInactiveSectionInventory)
+            return cachedSpiritBoostBindings;
+
         if (ahead > 0 ||
             inRange > 0 ||
             Time.unscaledTime < nextSpiritBoostForwardRefreshTime ||
@@ -808,20 +823,45 @@ internal static class BonusStageInspector
             lastSpiritBoostForwardRefreshLeft =
                 float.NegativeInfinity;
         }
-        cachedBonusSpheres =
-            (UnityEngine.Object.FindObjectsOfType<BonusSphere>() ??
-             Array.Empty<BonusSphere>())
-            .Where(sphere =>
-                sphere != null &&
-                IsUnderCurrentSectionRoot(sphere.transform))
-            .ToArray();
-        cachedSpiritBoosts =
-            (UnityEngine.Object.FindObjectsOfType<SpiritBoost>() ??
-             Array.Empty<SpiritBoost>())
-            .Where(boost =>
-                boost != null &&
-                IsUnderCurrentSectionRoot(boost.transform))
-            .ToArray();
+        string inventorySource;
+        string inventoryRoot;
+        if (TryBuildSectionRootInventory(
+                section,
+                out BonusSphere[] sectionSpheres,
+                out SpiritBoost[] sectionBoosts,
+                out inventoryRoot,
+                out string scopedFailure))
+        {
+            cachedBonusSpheres = sectionSpheres;
+            cachedSpiritBoosts = sectionBoosts;
+            sceneObjectCacheIncludesInactiveSectionInventory = true;
+            inventorySource = "SectionRootIncludingInactive";
+        }
+        else
+        {
+            // Preserve the prior active-object behavior when the hierarchy is
+            // temporarily unavailable during scene or section activation.
+            // The next forward refresh retries root resolution.
+            cachedBonusSpheres =
+                (UnityEngine.Object.FindObjectsOfType<BonusSphere>() ??
+                 Array.Empty<BonusSphere>())
+                .Where(sphere =>
+                    sphere != null &&
+                    IsUnderCurrentSectionRoot(sphere.transform))
+                .ToArray();
+            cachedSpiritBoosts =
+                (UnityEngine.Object.FindObjectsOfType<SpiritBoost>() ??
+                 Array.Empty<SpiritBoost>())
+                .Where(boost =>
+                    boost != null &&
+                    IsUnderCurrentSectionRoot(boost.transform))
+                .ToArray();
+            sceneObjectCacheIncludesInactiveSectionInventory = false;
+            inventorySource = "SceneWideActiveFallback";
+            inventoryRoot =
+                $"Unavailable(Expected=All Pools/Bonus Map Level {section}," +
+                $"Reason={scopedFailure})";
+        }
         cachedSpiritBoostBindings = cachedSpiritBoosts
             .Select(boost => new SpiritBoostColliderBinding(
                 boost,
@@ -833,11 +873,143 @@ internal static class BonusStageInspector
         BonusRunnerLog.Debug(
             $"SceneObjectCache{(isRefresh ? "Refreshed" : "Built")} " +
             $"Section={section}, Reason={reason}, " +
+            $"InventorySource={inventorySource}, " +
+            $"InventoryRoot={inventoryRoot}, " +
             $"BonusSpheres={cachedBonusSpheres.Length}, " +
             $"SpiritBoosts={cachedSpiritBoosts.Length}, " +
             $"SpiritColliders=" +
             $"{cachedSpiritBoostBindings.Sum(binding => binding.Colliders.Length)}.",
             "Performance");
+    }
+
+    private static bool TryBuildSectionRootInventory(
+        int section,
+        out BonusSphere[] spheres,
+        out SpiritBoost[] boosts,
+        out string rootPath,
+        out string failure)
+    {
+        spheres = Array.Empty<BonusSphere>();
+        boosts = Array.Empty<SpiritBoost>();
+        rootPath = $"All Pools/Bonus Map Level {section}";
+        failure = string.Empty;
+
+        if (!TryResolveSectionInventoryRoot(
+                section,
+                out Transform levelRoot,
+                out failure))
+        {
+            return false;
+        }
+
+        try
+        {
+            spheres =
+                (levelRoot.GetComponentsInChildren<BonusSphere>(true) ??
+                 Array.Empty<BonusSphere>())
+                .Where(sphere => sphere != null)
+                .ToArray();
+            boosts =
+                (levelRoot.GetComponentsInChildren<SpiritBoost>(true) ??
+                 Array.Empty<SpiritBoost>())
+                .Where(boost => boost != null)
+                .ToArray();
+            rootPath = GetPath(levelRoot);
+            return true;
+        }
+        catch (Exception exception)
+        {
+            cachedSceneObjectLevelRoot = null;
+            cachedSceneObjectLevelRootSection = int.MinValue;
+            failure =
+                $"ScopedInventoryFailed:{exception.GetType().Name}";
+            return false;
+        }
+    }
+
+    private static bool TryResolveSectionInventoryRoot(
+        int section,
+        out Transform levelRoot,
+        out string failure)
+    {
+        levelRoot = null;
+        failure = string.Empty;
+        if (section < 0)
+        {
+            failure = "InvalidSection";
+            return false;
+        }
+
+        string expectedName = $"Bonus Map Level {section}";
+        if (cachedSceneObjectLevelRootSection == section &&
+            cachedSceneObjectLevelRoot != null)
+        {
+            try
+            {
+                Transform parent = cachedSceneObjectLevelRoot.parent;
+                if (string.Equals(
+                        cachedSceneObjectLevelRoot.name,
+                        expectedName,
+                        StringComparison.OrdinalIgnoreCase) &&
+                    parent != null &&
+                    string.Equals(
+                        parent.name,
+                        "All Pools",
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    levelRoot = cachedSceneObjectLevelRoot;
+                    return true;
+                }
+            }
+            catch
+            {
+                // A pooled hierarchy can be destroyed between scene
+                // callbacks. Discard the stale IL2CPP wrapper and resolve it
+                // again below.
+            }
+        }
+
+        cachedSceneObjectLevelRoot = null;
+        cachedSceneObjectLevelRootSection = int.MinValue;
+        try
+        {
+            GameObject allPools = GameObject.Find("All Pools");
+            if (allPools == null || allPools.transform == null)
+            {
+                failure = "AllPoolsUnavailable";
+                return false;
+            }
+
+            Transform poolsTransform = allPools.transform;
+            for (int index = 0;
+                 index < poolsTransform.childCount;
+                 index++)
+            {
+                Transform child = poolsTransform.GetChild(index);
+                if (child == null ||
+                    !string.Equals(
+                        child.name,
+                        expectedName,
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                cachedSceneObjectLevelRoot = child;
+                cachedSceneObjectLevelRootSection = section;
+                levelRoot = child;
+                return true;
+            }
+
+            failure = "SectionRootUnavailable";
+            return false;
+        }
+        catch (Exception exception)
+        {
+            failure =
+                $"RootResolutionFailed:{exception.GetType().Name}";
+            return false;
+        }
     }
 
     private static string FormatOptionalCoordinate(float value) =>

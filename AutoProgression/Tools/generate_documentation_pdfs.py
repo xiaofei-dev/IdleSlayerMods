@@ -58,10 +58,10 @@ STYLES = {
         keepWithNext=True),
     "h2": ParagraphStyle("H2", parent=BASE["Heading2"], fontName=FONT_BOLD,
         fontSize=14.3, leading=19, textColor=PURPLE, spaceBefore=11, spaceAfter=6,
-        keepWithNext=False),
+        keepWithNext=True),
     "h3": ParagraphStyle("H3", parent=BASE["Heading3"], fontName=FONT_BOLD,
         fontSize=11, leading=15, textColor=NAVY, spaceBefore=8, spaceAfter=4,
-        keepWithNext=False),
+        keepWithNext=True),
     "code": ParagraphStyle("Code", fontName=FONT_MONO, fontSize=7.5, leading=10.8,
         leftIndent=7, rightIndent=7, textColor=colors.HexColor("#E7EEF8"),
         backColor=NAVY, borderPadding=7, spaceBefore=4, spaceAfter=8),
@@ -99,6 +99,9 @@ def markdown_flowables(path: Path, *, omit_title: bool = False, omit_backlink: b
         text = lines[i].rstrip()
         stripped = text.strip()
         if not stripped:
+            i += 1
+            continue
+        if re.fullmatch(r"!\[[^\]]*\]\([^)]+\)", stripped):
             i += 1
             continue
         if omit_backlink and stripped.startswith("[Back to the Complete Manual]"):
@@ -200,9 +203,10 @@ class Template(BaseDocTemplate):
 
 def cover(title: str, subtitle: str):
     flow = []
-    banner = ROOT / "Assets" / "banner.png"
+    banner = ROOT / "Assets" / "AutoProgression-Final-Cover.png"
     if banner.exists():
-        flow.extend([Image(str(banner), width=165*mm, height=55*mm), Spacer(1, 17*mm)])
+        flow.extend([Image(str(banner), width=165*mm, height=82.5*mm),
+            Spacer(1, 10*mm)])
     else:
         flow.append(Spacer(1, 50*mm))
     flow.extend([

@@ -17,9 +17,11 @@ minimum interval. It may refresh Rage while Rage Mode is already active.
 ## Inventory-Overflow Craftables
 
 Ascendant Badge Boost is a one-use effect rather than a timed stack. It is
-crafted whenever its native condition permits use and Dragon Scales are above
-the fixed 50% capacity threshold. Dragon Scales are never purchased; other
-eligible missing materials follow the global Jewel purchase setting.
+controlled by its own switch, which is disabled by default. When enabled, it
+is crafted whenever its native condition permits use and Dragon Scales are
+strictly above the fixed 50% capacity threshold. Dragon Scales are never
+purchased; other eligible missing materials follow the global Jewel purchase
+setting.
 
 - Shards Necklace consumes excess Scrap.
 - Random Box Staff, Necklace of Collectables, CpS Compass, and Souls Compass
@@ -44,15 +46,15 @@ starts the quest-assist cooldown. Native availability and protected-material
 checks still apply. It pauses while any active quest requires normal, Silver,
 or Golden Random Boxes.
 
-Key Manifest has an additional independent resource path. When Simurgh
-Feathers are strictly above the configured amount (1,000 by default), it is
-crafted whenever native availability permits. This path ignores both the
-quest-assist switch and cooldown. It still requires the Craftables master
-switch and global `T`; Feathers are never purchased automatically. Set the
-amount to `0` to disable this resource path.
+Specialization and Key Manifest share `Quest Assist Feather Threshold Amount`
+(1,000 by default). Setting it to `0` disables both items completely. Above
+zero, Feathers must be strictly greater than the value and crafting must leave
+at least that amount. Key Manifest also uses the shared value as its
+independent Feather-overflow trigger. Both items require the quest-assist
+switch, the Craftables master switch, and global `T`.
 
-Daily and Weekly Quests are ignored. The items have independent cooldowns,
-5 minutes by default.
+Daily and Weekly Quests are ignored. Quest-triggered uses have independent
+fixed five-minute cooldowns.
 
 Specialization has a fixed safety reserve: it is not crafted if the resulting
 Scrap amount would be below 50% of the player's current unlocked storage

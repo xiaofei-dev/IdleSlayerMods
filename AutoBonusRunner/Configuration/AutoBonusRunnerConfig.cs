@@ -5,7 +5,7 @@ namespace AutoBonusRunner.Configuration;
 
 internal sealed class AutoBonusRunnerConfig(string configName) : BaseConfig(configName)
 {
-    internal const int CurrentConfigurationVersion = 34;
+    internal const int CurrentConfigurationVersion = 44;
     private const string MainSection = "AutoBonusRunner";
     // MelonPreferences category names are global across loaded mods. Keep this
     // category unique so AutoClimber's "Automation" entries cannot override us.
@@ -44,7 +44,6 @@ internal sealed class AutoBonusRunnerConfig(string configName) : BaseConfig(conf
 
         if (previousVersion < 3)
         {
-            DebugMode.Value = false;
             EnabledOnStartup.Value = true;
         }
 

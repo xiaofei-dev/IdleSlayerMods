@@ -146,27 +146,50 @@ def main() -> int:
     }
 
     objects = {obj.path_id: obj for obj in env.objects}
-    # Bonus Stage 3's stripped MonoBehaviour still contains ordinary PPtrs.
-    # Resolve every in-file GameObject reference whose target is a ground prefab.
-    map_candidates = []
-    for obj in env.objects:
-        if obj.type.name != "MonoBehaviour" or b"Bonus Stage 3" not in obj.get_raw_data():
-            continue
-        references = []
-        raw = obj.get_raw_data()
-        for offset in range(0, len(raw) - 12, 4):
-            file_id = struct.unpack_from("<i", raw, offset)[0]
-            path_id = struct.unpack_from("<q", raw, offset + 4)[0]
-            target = objects.get(path_id)
-            if file_id != 0 or target is None or target.type.name != "GameObject":
+    # The stripped Bonus Stage MonoBehaviours still contain ordinary PPtrs.
+    # Resolve every in-file GameObject reference whose target is a ground or
+    # reward prefab. Keep Stage 2 and Stage 3 separate because both maps use
+    # names such as "Ground 1" for different geometry.
+    map_ground_ids: dict[str, set[int]] = {}
+    for stage_number in (2, 3):
+        marker = f"Bonus Stage {stage_number}".encode()
+        map_candidates = []
+        ground_ids: set[int] = set()
+        for obj in env.objects:
+            if obj.type.name != "MonoBehaviour" or marker not in obj.get_raw_data():
                 continue
-            name = object_name(target)
-            if name.startswith("Ground") or name.startswith("Reward Zone"):
-                references.append({"offset": offset, "path_id": path_id, "name": name})
-        map_candidates.append({"path_id": obj.path_id, "size": len(raw), "references": references})
-    ground_ids = sorted({r["path_id"] for m in map_candidates for r in m["references"] if r["name"].startswith("Ground")})
-    report["bonus_stage_3_candidates"] = map_candidates
-    report["ground_prefabs"] = [extract_prefab(path_id, objects) for path_id in ground_ids]
+            references = []
+            raw = obj.get_raw_data()
+            for offset in range(0, len(raw) - 12, 4):
+                file_id = struct.unpack_from("<i", raw, offset)[0]
+                path_id = struct.unpack_from("<q", raw, offset + 4)[0]
+                target = objects.get(path_id)
+                if file_id != 0 or target is None or target.type.name != "GameObject":
+                    continue
+                name = object_name(target)
+                if name.startswith("Ground") or name.startswith("Reward Zone"):
+                    references.append(
+                        {"offset": offset, "path_id": path_id, "name": name}
+                    )
+                    if name.startswith("Ground"):
+                        ground_ids.add(path_id)
+            map_candidates.append(
+                {
+                    "path_id": obj.path_id,
+                    "size": len(raw),
+                    "references": references,
+                }
+            )
+        key = f"bonus_stage_{stage_number}"
+        report[f"{key}_candidates"] = map_candidates
+        report[f"{key}_ground_prefabs"] = [
+            extract_prefab(path_id, objects) for path_id in sorted(ground_ids)
+        ]
+        map_ground_ids[key] = ground_ids
+
+    # Preserve the historical key for consumers of the original Stage-3-only
+    # extractor while making its scope explicit in the new per-map keys.
+    report["ground_prefabs"] = report["bonus_stage_3_ground_prefabs"]
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"objects={sum(counts.values())} matches={len(matches)} errors={sum(errors.values())}")
