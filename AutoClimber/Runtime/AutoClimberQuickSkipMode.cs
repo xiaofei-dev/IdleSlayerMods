@@ -6,10 +6,13 @@ namespace AutoClimber;
 internal static class QuickSkipFinishDistanceOverride
 {
     internal const float FinishDistance = 100f;
+    private const float HigherAltitudesDistance = 1000f;
 
     private static AscendingHeightsMap adjustedMap;
     private static float originalFinishDistance;
     private static bool isAdjusted;
+    private static AscendingHeightsMap compensatedMap;
+    private static bool startingBoostCompensationActive;
 
     internal static void Apply(AscendingHeightsMap map)
     {
@@ -42,8 +45,61 @@ internal static class QuickSkipFinishDistanceOverride
         map.finishAtDistance = FinishDistance;
     }
 
+    internal static void BeginStartingBoostCompensation(
+        AscendingHeightsMap map)
+    {
+        EndStartingBoostCompensation();
+
+        if (!ClimberLog.IsQuickSkipModeEnabled ||
+            map == null)
+        {
+            return;
+        }
+
+        Divinity higherAltitudes =
+            Divinities.list?.HigherAltitudes;
+
+        if (higherAltitudes == null ||
+            !higherAltitudes.unlocked)
+        {
+            return;
+        }
+
+        compensatedMap = map;
+        startingBoostCompensationActive = true;
+        map.finishAtDistance =
+            FinishDistance - HigherAltitudesDistance;
+    }
+
+    internal static void EndStartingBoostCompensation()
+    {
+        if (!startingBoostCompensationActive)
+        {
+            return;
+        }
+
+        if (compensatedMap != null)
+        {
+            try
+            {
+                compensatedMap.finishAtDistance =
+                    FinishDistance;
+            }
+            catch
+            {
+                // The active map may have been released during a failed
+                // StartBonus initialization.
+            }
+        }
+
+        compensatedMap = null;
+        startingBoostCompensationActive = false;
+    }
+
     internal static void Restore()
     {
+        EndStartingBoostCompensation();
+
         if (!isAdjusted)
         {
             return;

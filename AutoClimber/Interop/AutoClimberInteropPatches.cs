@@ -46,78 +46,26 @@ internal static class AscendingHeightsQuickSkipStartingBoostPatch
             return;
         }
 
-        // The vanilla Higher Altitudes divinity injects +1000 starting
-        // distance. Cross-TM compensates by using -975, which works but also
-        // exposes a negative target. Suppress only StartBonus's read of this
-        // divinity. Never mutate the persistent unlock state: the game UI or
-        // save system could otherwise observe the temporary false value.
-        QuickSkipHigherAltitudesReadScope.Begin();
+        // Native IL2CPP code reads the Higher Altitudes field directly, so a
+        // managed property-getter patch cannot suppress its +1000 injection.
+        // Compensate only while StartBonus calculates and caches the run
+        // target. ShowPreModal and the runtime continue to expose 100, while
+        // StartBonus sees -900 and then adds +1000 back to exactly 100.
+        QuickSkipFinishDistanceOverride.BeginStartingBoostCompensation(
+            __instance?.currentAscendingHeightsMap
+        );
     }
 
     [HarmonyPostfix]
     private static void Postfix()
     {
-        QuickSkipHigherAltitudesReadScope.End();
+        QuickSkipFinishDistanceOverride.EndStartingBoostCompensation();
     }
 
     [HarmonyFinalizer]
     private static void Finalizer()
     {
-        QuickSkipHigherAltitudesReadScope.End();
-    }
-}
-
-internal static class QuickSkipHigherAltitudesReadScope
-{
-    private static Divinity higherAltitudes;
-
-    internal static bool Active { get; private set; }
-
-    internal static void Begin()
-    {
-        End();
-
-        Divinity candidate = Divinities.list?.HigherAltitudes;
-        if (candidate == null || !candidate.unlocked)
-        {
-            return;
-        }
-
-        higherAltitudes = candidate;
-        Active = true;
-    }
-
-    internal static bool IsHigherAltitudes(Divinity candidate)
-    {
-        return Active &&
-               candidate != null &&
-               higherAltitudes != null &&
-               candidate.Pointer == higherAltitudes.Pointer;
-    }
-
-    internal static void End()
-    {
-        Active = false;
-        higherAltitudes = null;
-    }
-}
-
-[HarmonyPatch(typeof(Divinity), "get_unlocked")]
-internal static class QuickSkipHigherAltitudesUnlockedReadPatch
-{
-    [HarmonyPrefix]
-    private static bool Prefix(
-        Divinity __instance,
-        ref bool __result)
-    {
-        if (!QuickSkipHigherAltitudesReadScope.IsHigherAltitudes(
-                __instance))
-        {
-            return true;
-        }
-
-        __result = false;
-        return false;
+        QuickSkipFinishDistanceOverride.EndStartingBoostCompensation();
     }
 }
 

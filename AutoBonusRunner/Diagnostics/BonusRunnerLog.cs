@@ -127,6 +127,12 @@ internal static class BonusRunnerLog
 
     internal static void Warning(string message)
     {
+        // Route recovery and physics warnings are diagnostic evidence, not
+        // user-actionable failures. Keep normal sessions quiet and expose
+        // them only when the user explicitly enables Debug Mode.
+        if (!IsDebugMode)
+            return;
+
         WriteImportant(
             "Warning",
             "WARNING",

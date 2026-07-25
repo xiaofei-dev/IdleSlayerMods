@@ -29,7 +29,7 @@ from reportlab.platypus import (
 
 ROOT = Path(__file__).resolve().parents[1]
 OUTPUT = ROOT / "output" / "pdf"
-VERSION = "1.2.0"
+VERSION = "1.2.1"
 PAGE_WIDTH, PAGE_HEIGHT = A4
 
 NAVY = colors.HexColor("#17233A")

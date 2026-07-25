@@ -1,7 +1,7 @@
 {
   "name": "AutoClimber",
   "author": "Tashi",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "Part of Tashi's full automation suite. Automatically completes Ascending Heights with safe route planning, super-jump priority, recovery, quest-aware enemy hunting, reward collection, automatic retry, and background play.",
   "nexus_id": "38",
   "donate_url": "https://www.paypal.com/donate/?business=HK85PL8AREEXY&no_recurring=0&currency_code=USD",
