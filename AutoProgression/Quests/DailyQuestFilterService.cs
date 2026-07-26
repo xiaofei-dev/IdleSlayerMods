@@ -9,11 +9,10 @@ namespace AutoProgression.Quests;
 internal sealed class DailyQuestFilterService
 {
     private const int MaximumRerollsPerGeneration = 500;
-    private const int MaximumConsecutiveFailuresPerQuest = 5;
+    private const int MaximumTransientRecoveryAttempts = 120;
     private const float PostGenerationSettleSeconds = 5f;
     private const float PostRerollSettleSeconds = 0.2f;
     private const float FailedRerollRetrySeconds = 1f;
-    private const float ObjectRetrySeconds = 0.5f;
     private const float UnavailableLogIntervalSeconds = 10f;
 
     private readonly HashSet<int> protectedQuestIds = new();
@@ -21,9 +20,8 @@ internal sealed class DailyQuestFilterService
     private bool processing;
     private bool completionVerificationPending;
     private int attempts;
-    private int failedTargetId;
-    private int consecutiveTargetFailures;
-    private int skippedTargets;
+    private int transientRecoveryAttempts;
+    private int lastActiveQuestCount;
     private float rerollReadyAt;
     private float nextUnavailableLogAt;
 
@@ -38,6 +36,12 @@ internal sealed class DailyQuestFilterService
 
         if (target == null && !PrepareNextTarget())
         {
+            if (lastActiveQuestCount == 0)
+            {
+                return RetryTransient(
+                    "The generated Daily Quest set is not visible yet.");
+            }
+
             if (completionVerificationPending)
             {
                 completionVerificationPending = false;
@@ -53,16 +57,8 @@ internal sealed class DailyQuestFilterService
         DailyQuestReroll reroll = ResolveReroll();
         if (reroll == null || target == null)
         {
-            if (Time.unscaledTime >= nextUnavailableLogAt)
-            {
-                ProgressionLog.Debug(
-                    "Generated Daily Quest reroll object is unavailable; waiting without discarding the generated set.");
-                nextUnavailableLogAt =
-                    Time.unscaledTime + UnavailableLogIntervalSeconds;
-            }
-
-            rerollReadyAt = Time.unscaledTime + ObjectRetrySeconds;
-            return false;
+            return RetryTransient(
+                "Daily Quest reroll objects are temporarily unavailable.");
         }
 
         if (IsReadyToClaim(target))
@@ -84,9 +80,8 @@ internal sealed class DailyQuestFilterService
             reroll.rerollEnabled = true;
             if (!reroll.rerollEnabled)
             {
-                ProgressionLog.Warning(
-                    "Automatic Daily Quest reroll could not restore the native reroll permission.");
-                return Finish();
+                return RetryTransient(
+                    "The native Daily Quest reroll permission is not ready.");
             }
 
             int targetId = target.GetInstanceID();
@@ -94,16 +89,14 @@ internal sealed class DailyQuestFilterService
             int boundId = reroll.dailyQuestToReroll?.GetInstanceID() ?? 0;
             if (boundId != targetId)
             {
-                ProgressionLog.Warning(
-                    $"Automatic Daily Quest reroll did not bind its selected target. " +
-                    $"TargetId={targetId}, BoundAfter={boundId}.");
-                return Finish();
+                return RetryTransient(
+                    $"The native Daily Quest target binding is not ready " +
+                    $"(TargetId={targetId}, BoundAfter={boundId}).");
             }
 
             ProgressionLog.Debug(
                 $"Rerolling generated Daily Quest: Id={targetId}, " +
                 $"Type={target.questType}, Name={target.name}.");
-            attempts++;
             reroll.RewardForShowing();
         }
         catch (Exception exception)
@@ -111,60 +104,35 @@ internal sealed class DailyQuestFilterService
             invocationException = exception;
         }
 
-        if (target.active)
+        bool targetStillActive;
+        try
+        {
+            targetStillActive = target.active;
+        }
+        catch
+        {
+            targetStillActive = true;
+        }
+
+        if (targetStillActive)
         {
             if (invocationException != null)
             {
-                ProgressionLog.Exception(
-                    "Automatic Daily Quest reroll",
-                    invocationException);
-                return Finish();
-            }
-
-            if (attempts >= MaximumRerollsPerGeneration)
-            {
-                ProgressionLog.Warning(
-                    $"Generated Daily Quest filtering stopped after " +
-                    $"{MaximumRerollsPerGeneration} rerolls.");
-                return Finish();
-            }
-
-            int activeTargetId = target.GetInstanceID();
-            if (failedTargetId == activeTargetId)
-                consecutiveTargetFailures++;
-            else
-            {
-                failedTargetId = activeTargetId;
-                consecutiveTargetFailures = 1;
-            }
-
-            if (consecutiveTargetFailures >= MaximumConsecutiveFailuresPerQuest)
-            {
-                protectedQuestIds.Add(activeTargetId);
-                skippedTargets++;
-                ProgressionLog.Warning(
-                    $"Generated Daily Quest filtering skipped an unresponsive slot " +
-                    $"after {MaximumConsecutiveFailuresPerQuest} attempts: " +
-                    $"Id={activeTargetId}, Type={target.questType}.");
-                failedTargetId = 0;
-                consecutiveTargetFailures = 0;
-            }
-            else
-            {
                 ProgressionLog.Debug(
-                    $"Native Daily Quest reroll left its target active; " +
-                    $"retrying with fresh objects in {FailedRerollRetrySeconds:0.#}s " +
-                    $"({consecutiveTargetFailures}/{MaximumConsecutiveFailuresPerQuest}).");
+                    $"The native Daily Quest call returned before replacement " +
+                    $"was observable ({invocationException.GetType().Name}); retrying.");
             }
 
-            target = null;
-            completionVerificationPending = true;
-            rerollReadyAt = Time.unscaledTime + FailedRerollRetrySeconds;
-            return false;
+            return RetryTransient(
+                "The selected Daily Quest is still active after the native reroll.");
         }
 
-        failedTargetId = 0;
-        consecutiveTargetFailures = 0;
+        // Count only replacements whose authoritative source object became
+        // inactive. Transient preparation and UI failures do not consume the
+        // generated-set reroll limit.
+        attempts++;
+        transientRecoveryAttempts = 0;
+        nextUnavailableLogAt = 0f;
 
         if (invocationException != null)
         {
@@ -201,9 +169,8 @@ internal sealed class DailyQuestFilterService
             target = null;
             completionVerificationPending = false;
             attempts = 0;
-            failedTargetId = 0;
-            consecutiveTargetFailures = 0;
-            skippedTargets = 0;
+            transientRecoveryAttempts = 0;
+            lastActiveQuestCount = 0;
             rerollReadyAt = Time.unscaledTime + PostGenerationSettleSeconds;
             nextUnavailableLogAt = 0f;
             processing = true;
@@ -216,12 +183,18 @@ internal sealed class DailyQuestFilterService
     private bool PrepareNextTarget()
     {
         List<DailyQuest> active = FindActiveDailyQuests();
+        lastActiveQuestCount = active.Count;
         if (active.Count == 0) return false;
 
         foreach (DailyQuest quest in active)
         {
             if (protectedQuestIds.Contains(quest.GetInstanceID()))
                 continue;
+            if (IsReadyToClaim(quest))
+            {
+                protectedQuestIds.Add(quest.GetInstanceID());
+                continue;
+            }
             if (ShouldReroll(quest))
             {
                 target = quest;
@@ -231,6 +204,32 @@ internal sealed class DailyQuestFilterService
             protectedQuestIds.Add(quest.GetInstanceID());
         }
 
+        return false;
+    }
+
+    private bool RetryTransient(string reason)
+    {
+        transientRecoveryAttempts++;
+        if (transientRecoveryAttempts >= MaximumTransientRecoveryAttempts)
+        {
+            ProgressionLog.Warning(
+                $"Generated Daily Quest filtering stopped after " +
+                $"{MaximumTransientRecoveryAttempts} transient recovery " +
+                $"attempts. Last state: {reason}");
+            return Finish();
+        }
+
+        if (Time.unscaledTime >= nextUnavailableLogAt)
+        {
+            ProgressionLog.Debug(
+                $"{reason} Waiting without discarding the generated Daily set.");
+            nextUnavailableLogAt =
+                Time.unscaledTime + UnavailableLogIntervalSeconds;
+        }
+
+        target = null;
+        completionVerificationPending = false;
+        rerollReadyAt = Time.unscaledTime + FailedRerollRetrySeconds;
         return false;
     }
 
@@ -308,14 +307,6 @@ internal sealed class DailyQuestFilterService
 
     private bool FinishSuccessfully()
     {
-        if (skippedTargets > 0)
-        {
-            ProgressionLog.Warning(
-                $"Generated Daily Quest filtering finished with {skippedTargets} " +
-                $"unresponsive slot(s) left unchanged after {attempts} total attempt(s).");
-            return Finish();
-        }
-
         if (attempts > 0)
         {
             ProgressionLog.User(
@@ -336,9 +327,8 @@ internal sealed class DailyQuestFilterService
         completionVerificationPending = false;
         protectedQuestIds.Clear();
         attempts = 0;
-        failedTargetId = 0;
-        consecutiveTargetFailures = 0;
-        skippedTargets = 0;
+        transientRecoveryAttempts = 0;
+        lastActiveQuestCount = 0;
         rerollReadyAt = 0f;
         nextUnavailableLogAt = 0f;
         return true;
@@ -350,7 +340,7 @@ internal sealed class DailyQuestFilterService
         foreach (DailyQuest quest in
                  Resources.FindObjectsOfTypeAll<DailyQuest>())
         {
-            if (quest != null && quest.active && !IsReadyToClaim(quest))
+            if (quest != null && quest.active && !quest.isClaimed)
                 result.Add(quest);
         }
 
@@ -364,9 +354,8 @@ internal sealed class DailyQuestFilterService
         completionVerificationPending = false;
         protectedQuestIds.Clear();
         attempts = 0;
-        failedTargetId = 0;
-        consecutiveTargetFailures = 0;
-        skippedTargets = 0;
+        transientRecoveryAttempts = 0;
+        lastActiveQuestCount = 0;
         rerollReadyAt = 0f;
         nextUnavailableLogAt = 0f;
         DailyQuestGenerationBridge.DiscardPending();

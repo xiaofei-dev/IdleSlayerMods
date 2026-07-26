@@ -25,10 +25,23 @@ internal sealed class MaterialPurchaseService
                 return false;
             }
 
+            double amountBefore = material.amount;
             popup.selectedMat = material;
             popup.SelectIndex(ToPopupIndex(purchasePercent));
             popup.Confirm();
-            ProgressionLog.User($"Material purchased with Jewels of Soul: {material.name} ({NormalizePercent(purchasePercent)}%).");
+            double amountAfter = material.amount;
+            if (amountAfter <= amountBefore)
+            {
+                ProgressionLog.Debug(
+                    $"Material purchase did not change inventory: " +
+                    $"{material.name}, Before={amountBefore}, After={amountAfter}.");
+                return false;
+            }
+
+            ProgressionLog.User(
+                $"Material purchased with Jewels of Soul: {material.name} " +
+                $"({NormalizePercent(purchasePercent)}%); " +
+                $"amount={amountBefore}->{amountAfter}.");
             return true;
         }
         catch (Exception exception)

@@ -8,8 +8,6 @@ namespace AutoProgression.Craftables;
 internal sealed class RagePillService
 {
     private const string RagePillName = "craftable_item_rage_pill";
-    private const string SlimeName = "drop_slime";
-    private const string RootName = "drop_root";
 
     private readonly MaterialPurchaseService materials = new();
     private TemporaryCraftableItem ragePill;
@@ -49,18 +47,37 @@ internal sealed class RagePillService
         {
             if (!config.BuyMissingMaterialsWithJewels.Value) return false;
 
-            int percent = config.MaterialPurchasePercent.Value;
-            materials.Buy(SlimeName, percent);
-            materials.Buy(RootName, percent);
+            BuyMissingRequirements();
 
             // Material purchases are synchronous in the current game API, but always
-            // re-check the recipe instead of assuming either purchase succeeded.
+            // re-check the recipe instead of assuming any purchase succeeded.
             if (ragePill.HowManyCanCraft() <= 0) return false;
         }
 
         ragePill.Craft();
         ProgressionLog.Debug("Rage Pill crafted to refresh Rage cooldown.");
         return true;
+    }
+
+    private void BuyMissingRequirements()
+    {
+        var requirements = ragePill.GetRequirements();
+        if (requirements == null)
+        {
+            ProgressionLog.Debug(
+                "Rage Pill requirements are temporarily unavailable.");
+            return;
+        }
+
+        int percent = Plugin.Config.MaterialPurchasePercent.Value;
+        foreach (MaterialRequirement requirement in requirements)
+        {
+            Drop material = requirement?.material;
+            if (material == null || material.amount >= requirement.amount)
+                continue;
+
+            materials.Buy(material, percent);
+        }
     }
 
     private bool ResolveObjects()

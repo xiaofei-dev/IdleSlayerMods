@@ -56,6 +56,7 @@ internal sealed class QuestTravelService
     private string lastSoulFallbackMapId = string.Empty;
     private int sessionDailyQuestsCompleted;
     private int sessionNormalQuestsCompleted;
+    private readonly List<string> pendingCompletionLogs = new();
     private readonly HashSet<int> countedDailyQuestInstances = new();
     private readonly HashSet<int> countedNormalQuestInstances = new();
     private readonly Dictionary<string, string> abnormalQuestReasons =
@@ -473,6 +474,7 @@ internal sealed class QuestTravelService
                         "reason=previous map no longer has a valid unlocked target.");
                     lockedTargetMapId = tracked.MapId;
                 }
+                FlushPendingCompletionLogs(tracked);
                 return tracked;
                 }
             }
@@ -480,7 +482,11 @@ internal sealed class QuestTravelService
 
         QuestTargetSelection selection = resolver.Select(
             ExcludeAbnormalQuests(quests), CanConsiderPortalTravel());
-        if (selection == null) return null;
+        if (selection == null)
+        {
+            FlushPendingCompletionLogs(null);
+            return null;
+        }
 
         lockedQuestId = selection.QuestId;
         lockedQuestKey = selection.LockKey;
@@ -497,6 +503,7 @@ internal sealed class QuestTravelService
         nextLockedQuestProgressCheckAt = Time.unscaledTime +
                                          StalledProgressCheckSeconds;
         lastSoulFallbackMapId = string.Empty;
+        FlushPendingCompletionLogs(selection);
         return selection;
     }
 
@@ -564,13 +571,27 @@ internal sealed class QuestTravelService
         string questLabel = string.IsNullOrWhiteSpace(displayName)
             ? questId
             : displayName;
-        string message =
+        pendingCompletionLogs.Add(
             $"Quest completed: {questLabel} [{questId}]. Session total: {total} " +
-            $"(Daily: {sessionDailyQuestsCompleted}, Normal: {sessionNormalQuestsCompleted}).";
-        AdventurerLog.User(message);
+            $"(Daily: {sessionDailyQuestsCompleted}, Normal: {sessionNormalQuestsCompleted}).");
         if (Plugin.Config.QuestCompletionNotifications.Value)
             Plugin.ModHelperInstance?.ShowNotification(
                 $"Quests completed: {total}", true);
+    }
+
+    private void FlushPendingCompletionLogs(
+        QuestTargetSelection currentSelection,
+        string noTaskStatus = "Current task: none; rescanning.")
+    {
+        if (pendingCompletionLogs.Count == 0) return;
+
+        string currentTask = currentSelection == null
+            ? noTaskStatus
+            : $"Current task: {currentSelection.QuestDisplayName} " +
+              $"[{currentSelection.QuestId}].";
+        foreach (string completion in pendingCompletionLogs)
+            AdventurerLog.User($"{completion} {currentTask}");
+        pendingCompletionLogs.Clear();
     }
 
     private static bool IsDailyQuest(Quest quest)
@@ -1067,6 +1088,7 @@ internal sealed class QuestTravelService
     {
         sessionDailyQuestsCompleted = 0;
         sessionNormalQuestsCompleted = 0;
+        pendingCompletionLogs.Clear();
         countedDailyQuestInstances.Clear();
         countedNormalQuestInstances.Clear();
         abnormalQuestReasons.Clear();
@@ -1077,6 +1099,8 @@ internal sealed class QuestTravelService
 
     internal void EndSession()
     {
+        FlushPendingCompletionLogs(
+            null, "Current task: none; Quest Automation disabled.");
         int total = sessionDailyQuestsCompleted +
                     sessionNormalQuestsCompleted;
         string message =
