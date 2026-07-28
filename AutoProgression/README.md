@@ -43,7 +43,7 @@ Ultra Ascension is performed only when its explicit warning-marked option is ena
 
 ## Controls
 
-- `T`: Enable or disable all AutoProgression runtime automation.
+- `T` by default: Enable or disable all AutoProgression runtime automation. Change it with `General > Toggle Key`.
 
 Individual features remain controlled by the configuration file. The global toggle does not change saved preferences.
 

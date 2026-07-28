@@ -1,6 +1,6 @@
 # Configuration Reference
 
-AutoProgression 2.0 uses configuration schema 31. The generated file is:
+AutoProgression 2.0 uses configuration schema 32. The generated file is:
 
 ```text
 %LOCALAPPDATA%\IdleSlayerModManager\ModLoader\UserData\AutoProgression.cfg
@@ -13,7 +13,8 @@ configuration focuses on progression, resources, and feature behavior.
 
 | Setting | Default | Meaning |
 |---|---:|---|
-| Configuration Version | `31` | Internal migration value. Do not edit. |
+| Configuration Version | `32` | Internal migration value. Do not edit. |
+| Toggle Key | `T` | Key used to enable or pause the main runtime. Accepts Unity `KeyCode` names such as `T`, `F8`, or `Keypad0`. |
 | Debug Mode | `false` | Adds detailed subsystem diagnostics and aggregated activity summaries. |
 
 ## Ascension

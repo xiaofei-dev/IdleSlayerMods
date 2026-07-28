@@ -55,11 +55,9 @@ internal sealed class QuestElementService
         resolvedQuestList = list;
 
         var cached = list?.lastScrollListData;
-        if (cached != null)
-        {
-            for (int index = 0; index < cached.Count; index++)
-                AddActiveElementQuest(cached[index], quests, seen);
-        }
+        if (cached == null) return false;
+        for (int index = 0; index < cached.Count; index++)
+            AddActiveElementQuest(cached[index], quests, seen);
 
         // Do not supplement from PlayerInventory.allQuests here. That is the
         // game's complete catalogue, not an active-task list: it can contain
@@ -133,7 +131,7 @@ internal sealed class QuestElementService
 
     internal bool TryAlign(List<Quest> quests)
     {
-        if (quests == null || quests.Count == 0) return false;
+        quests ??= new List<Quest>();
 
         Divinity active = null;
         var elemental = new List<Divinity>();
@@ -187,17 +185,29 @@ internal sealed class QuestElementService
             }
         }
 
+        bool usingSoulMultiplierFallback = chosenQuest == null;
         if (chosenQuest == null)
         {
-            lastDiagnosticKey = string.Empty;
-            return false;
+            desired = FindHighestSoulMultiplierElement(elemental);
+            requiredType = desired?.newBenefit?.enemyType;
+            if (desired == null || requiredType == null)
+            {
+                lastDiagnosticKey = string.Empty;
+                return false;
+            }
         }
 
         // Element maintenance deliberately follows the first active
         // elemental task in the game's live list. It does not compare quest
         // priority and does not oscillate between multiple element tasks.
+        // When there is no active elemental task, use the element with the
+        // highest live EnemyType soul multiplier.
         DivinitiesManager manager = DivinitiesManager.instance;
         if (manager == null) return false;
+        string alignmentSource = usingSoulMultiplierFallback
+            ? $"soulMultiplierFallback={requiredType.name} " +
+              $"(score={GetSoulMultiplierScore(requiredType):0.####})"
+            : $"helperQuest={GetQuestLabel(chosenQuest)}";
         List<Divinity> preservedNonElemental =
             CaptureActiveNonElementalDivinities(elemental);
 
@@ -232,7 +242,7 @@ internal sealed class QuestElementService
                 RestoreNonElementalDivinities(
                     manager, preservedNonElemental);
                 AdventurerLog.ElementDebug(
-                    $"Elemental Dark Divinity exclusivity restored: helperQuest={GetQuestLabel(chosenQuest)}; retained={desired.name}; all other active elements were disabled.");
+                    $"Elemental Dark Divinity exclusivity restored: {alignmentSource}; retained={desired.name}; all other active elements were disabled.");
                 lastDiagnosticKey = string.Empty;
                 return true;
             }
@@ -248,7 +258,7 @@ internal sealed class QuestElementService
                 if (!desired.IsAvailable() || available < desired.cost)
                 {
                     LogDiagnosticOnce($"cannot-activate:{desired.name}",
-                        $"Elemental quest detected but its Dark Divinity cannot be activated; quest={chosenQuest.name}; enemyType={desired.newBenefit.enemyType.name}; divinity={desired.name}; availableDivinityPoints={available:0.##}; cost={desired.cost:0.##}; divinityAvailable={desired.IsAvailable()}.");
+                        $"Elemental Dark Divinity alignment cannot activate its target; {alignmentSource}; enemyType={desired.newBenefit.enemyType.name}; divinity={desired.name}; availableDivinityPoints={available:0.##}; cost={desired.cost:0.##}; divinityAvailable={desired.IsAvailable()}.");
                     return false;
                 }
 
@@ -268,9 +278,9 @@ internal sealed class QuestElementService
                 {
                     lastSwitchKey = activationKey;
                     AdventurerLog.ElementDebug(
-                        $"Elemental Dark Divinity activated: helperQuest={GetQuestLabel(chosenQuest)}; " +
+                        $"Elemental Dark Divinity activated: {alignmentSource}; " +
                         $"enemyType={desired.newBenefit.enemyType.name}; from=None; to={desired.name}; " +
-                        "this helper does not replace the current quest lock.");
+                        "quest priority and the current quest lock were unchanged.");
                 }
                 lastDiagnosticKey = string.Empty;
                 return true;
@@ -281,7 +291,7 @@ internal sealed class QuestElementService
                     manager, preservedNonElemental);
                 AdventurerLog.ElementDebug(
                     $"Elemental Dark Divinity activation deferred safely: " +
-                    $"helperQuest={GetQuestLabel(chosenQuest)}; exception={exception.GetType().Name}.");
+                    $"{alignmentSource}; exception={exception.GetType().Name}.");
                 return false;
             }
         }
@@ -306,10 +316,10 @@ internal sealed class QuestElementService
             {
                 lastSwitchKey = switchKey;
                 AdventurerLog.ElementDebug(
-                    $"Elemental Dark Divinity switched: helperQuest={GetQuestLabel(chosenQuest)}; " +
+                    $"Elemental Dark Divinity switched: {alignmentSource}; " +
                     $"enemyType={desired.newBenefit.enemyType.name}; " +
                     $"from={active.name}; to={desired.name}; " +
-                    "this helper does not replace the current quest lock.");
+                    "quest priority and the current quest lock were unchanged.");
             }
             lastDiagnosticKey = string.Empty;
             return true;
@@ -328,9 +338,46 @@ internal sealed class QuestElementService
             }
             AdventurerLog.ElementDebug(
                 $"Elemental Dark Divinity switch deferred safely: " +
-                $"quest={chosenQuest.name}; exception={exception.GetType().Name}.");
+                $"{alignmentSource}; exception={exception.GetType().Name}.");
             return false;
         }
+    }
+
+    private static Divinity FindHighestSoulMultiplierElement(
+        List<Divinity> elemental)
+    {
+        Divinity best = null;
+        double bestMultiplier = double.MinValue;
+        foreach (Divinity divinity in elemental)
+        {
+            try
+            {
+                EnemyType type = divinity?.newBenefit?.enemyType;
+                if (type == null) continue;
+                double multiplier = GetSoulMultiplierScore(type);
+                if (best == null || multiplier > bestMultiplier)
+                {
+                    best = divinity;
+                    bestMultiplier = multiplier;
+                }
+            }
+            catch
+            {
+                // Retry rebuilt IL2CPP definitions on the next scan.
+            }
+        }
+        return best;
+    }
+
+    private static double GetSoulMultiplierScore(EnemyType type)
+    {
+        var modifiers = type?.soulsMultiplier;
+        if (modifiers == null) return double.MinValue;
+
+        double total = 0d;
+        for (int index = 0; index < modifiers.Count; index++)
+            total += modifiers[index];
+        return total;
     }
 
     private static List<Divinity> CaptureActiveNonElementalDivinities(

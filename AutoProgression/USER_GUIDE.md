@@ -83,17 +83,18 @@ Edit the configuration while the game is closed, then restart the game.
 
 | Key | Default action |
 |---|---|
-| `T` | Enable or disable periodic AutoProgression automation |
+| `T` (configurable) | Enable or disable periodic AutoProgression automation |
 | `B` | Select the highlighted Armory box, Dragon Egg, or Simurgh Egg |
 | `N` | Open the selected box or egg in the background |
 | `M` | Start one configured Village Casino Crawler Eye bulk purchase |
 
 The runtime starts disabled. Enter a normal Runner or Rage dimension and press
-`T`. The central gameplay screen must remain stable for approximately three
+the configured toggle key (`T` by default). Change it with
+`General > Toggle Key`. The central gameplay screen must remain stable for approximately three
 seconds before periodic actions begin.
 
-Turning `T` off pauses periodic automation without changing saved settings.
-The following intentionally remain independent from `T`:
+Turning the main toggle off pauses periodic automation without changing saved
+settings. The following intentionally remain independent from it:
 
 - blocking the two unwanted vertical Random Box magnet upgrades
 - manual Armory box and egg opening

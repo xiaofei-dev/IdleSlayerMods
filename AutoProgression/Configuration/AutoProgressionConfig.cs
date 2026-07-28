@@ -6,7 +6,7 @@ namespace AutoProgression.Configuration;
 
 internal sealed class AutoProgressionConfig(string configName) : BaseConfig(configName)
 {
-    internal const int CurrentConfigurationVersion = 31;
+    internal const int CurrentConfigurationVersion = 32;
     internal const float AutomaticAscensionCheckIntervalMinutes = 5f;
     internal const float RagePillMinimumIntervalSeconds = 10f;
     internal const float QuestAssistCraftableCooldownMinutes = 5f;
@@ -16,6 +16,7 @@ internal sealed class AutoProgressionConfig(string configName) : BaseConfig(conf
 
     internal MelonPreferences_Entry<int> ConfigurationVersion;
     internal MelonPreferences_Entry<bool> DebugMode;
+    internal MelonPreferences_Entry<string> ToggleKey;
     internal MelonPreferences_Entry<bool> EnableAutomaticAscension;
     internal MelonPreferences_Entry<bool> EnableAutomaticUltraAscension;
     internal MelonPreferences_Entry<float> AutomaticAscensionSoulBonusPercent;
@@ -72,6 +73,11 @@ internal sealed class AutoProgressionConfig(string configName) : BaseConfig(conf
 
         bool migrateLegacyValues = ConfigurationVersion.Value < CurrentConfigurationVersion;
 
+        ToggleKey = BindMigrated(
+            "General", "Toggle Key", "Toggle Key", "T",
+            "Key used to enable or pause the main AutoProgression runtime. Default: T. Use a Unity KeyCode name such as T, F8, or Keypad0, and avoid keys assigned to the manual tools below.",
+            migrateLegacyValues);
+
         EnableAutomaticAscension = BindMigrated(
             "Ascension", "Automatic Ascension Enabled", "Ascension - Automatic Ascension Enabled", true,
             "Automatically perform normal Ascension at the configured soul bonus threshold.", migrateLegacyValues);
@@ -88,14 +94,14 @@ internal sealed class AutoProgressionConfig(string configName) : BaseConfig(conf
 
         EnableSkillPurchases = BindMigrated(
             "Purchases", "Skills Enabled", "Purchases - Skills Enabled", true,
-            "While T automation is active, buy all currently affordable and eligible shop skills every 5 seconds.", migrateLegacyValues);
+            "While the main AutoProgression runtime is active, buy all currently affordable and eligible shop skills every 5 seconds.", migrateLegacyValues);
         EnableEquipmentPurchases = BindMigrated(
             "Purchases", "Equipment Enabled", "Purchases - Equipment Enabled", true,
-            "While T automation is active, buy levels for unlocked normal equipment, starting from the newest unlocked item.", migrateLegacyValues);
+            "While the main AutoProgression runtime is active, buy levels for unlocked normal equipment, starting from the newest unlocked item.", migrateLegacyValues);
         DisableVerticalMagnetSkills = BindMoved(
             "Purchases", "Disable Vertical Magnet Upgrades", "Skills", "Disable Vertical Magnet Upgrades",
             "Skills - Disable Vertical Magnet Upgrades", true,
-            "Block both Random Box vertical magnet upgrades from automatic and manual purchase. This protection is always active and does not depend on the T automation toggle.", migrateLegacyValues);
+            "Block both Random Box vertical magnet upgrades from automatic and manual purchase. This protection is always active and does not depend on the main automation toggle.", migrateLegacyValues);
 
         EnablePaidBonuses = BindMigrated(
             "Paid Bonuses", "Use Paid 500x Bonuses", "Use Paid 500x Bonuses", false,
@@ -106,7 +112,7 @@ internal sealed class AutoProgressionConfig(string configName) : BaseConfig(conf
             "While AutoProgression is active, claim completed unlocked Minion missions and send standing Minions again when their Slayer Point cost is affordable.", migrateLegacyValues);
         EnableAutomaticMinionPrestige = BindMigrated(
             "Minions", "Automatic Maximum-Level Prestige", "Minions - Automatic Maximum-Level Prestige", false,
-            "Use maximum-level prestige for every manually prestiged Minion, independently from the T toggle. Automatic prestige requires AutoProgression to be active and processes only Minions whose maximum level is at least 70.", migrateLegacyValues);
+            "Use maximum-level prestige for every manually prestiged Minion, independently from the main automation toggle. Automatic prestige requires AutoProgression to be active and processes only Minions whose maximum level is at least 70.", migrateLegacyValues);
 
         EnableEggOpening = BindMigrated(
             "Egg Opening", "Enabled", "Egg Opening - Enabled", false,
@@ -120,7 +126,7 @@ internal sealed class AutoProgressionConfig(string configName) : BaseConfig(conf
 
         EnableAutomaticSilverBoxClaim = BindMigrated(
             "Silver Boxes", "Auto Claim Reward", "Silver Boxes - Auto Claim Reward", true,
-            "Automatically claim an available Silver Box reward after entering the game. This feature is independent from the T automation toggle.", migrateLegacyValues);
+            "Automatically claim an available Silver Box reward after entering the game. This feature is independent from the main automation toggle.", migrateLegacyValues);
         EnableQuestAutomation = BindMigrated(
             "Quests", "Enabled", "Quests - Enabled", true,
             "Master switch for all quest automation. When disabled, every other option in this section is inactive.", migrateLegacyValues);
@@ -148,7 +154,7 @@ internal sealed class AutoProgressionConfig(string configName) : BaseConfig(conf
 
         EnableCraftableAutomation = BindMigrated(
             "Craftables", "Enabled", "Craftables - Enabled", false,
-            "MASTER SWITCH: Enable all automatic craftable-item logic while T automation is active. When false, every other Craftables setting, including automatic material purchases, is inactive.", migrateLegacyValues);
+            "MASTER SWITCH: Enable all automatic craftable-item logic while the main AutoProgression runtime is active. When false, every other Craftables setting, including automatic material purchases, is inactive.", migrateLegacyValues);
         BuyMissingMaterialsWithJewels = BindMoved(
             "Craftables", "Buy Missing With Jewels", "Materials", "Buy Missing With Jewels",
             "Materials - Buy Missing With Jewels", false,
@@ -193,10 +199,10 @@ internal sealed class AutoProgressionConfig(string configName) : BaseConfig(conf
         EnableAscendantBadgeBoost = BindMigrated(
             "Craftables", "Ascendant Badge Boost Enabled",
             "Craftables - Ascendant Badge Boost Enabled", false,
-            "Craft Ascendant Badge Boost when Dragon Scale storage is strictly above the fixed 50% requirement and the game's native one-use state is available. This setting requires Craftables Enabled and T automation. Dragon Scales are never purchased; other missing materials follow Buy Missing With Jewels.", migrateLegacyValues);
+            "Craft Ascendant Badge Boost when Dragon Scale storage is strictly above the fixed 50% requirement and the game's native one-use state is available. This setting requires Craftables Enabled and the main AutoProgression runtime. Dragon Scales are never purchased; other missing materials follow Buy Missing With Jewels.", migrateLegacyValues);
         EnableQuestAssistCraftables = BindMigrated(
             "Craftables", "Quest Assist Craftables Enabled", "Craftables - Quest Assist Craftables Enabled", true,
-            "Enable Specialization and Key Manifest while Craftables and T automation are active. Specialization supports active normal Goblin or Bonus Stage quests and may also run when Scrap is above 80% and Dragon Scales are above 50%; it pauses that overflow path during active normal, Silver, or Golden Random Box quests and preserves at least 50% Scrap. Key Manifest supports active normal Chest Hunt quests and also has an independent Feather-overflow trigger. Daily and Weekly Quests do not trigger either item.", migrateLegacyValues);
+            "Enable Specialization and Key Manifest while Craftables and the main AutoProgression runtime are active. Specialization supports active normal Goblin or Bonus Stage quests and may also run when Scrap is above 80% and Dragon Scales are above 50%; it pauses that overflow path during active normal, Silver, or Golden Random Box quests and preserves at least 50% Scrap. Key Manifest supports active normal Chest Hunt quests and also has an independent Feather-overflow trigger. Daily and Weekly Quests do not trigger either item.", migrateLegacyValues);
         QuestAssistFeatherThresholdAmount = BindMoved(
             "Craftables", "Quest Assist Feather Threshold Amount",
             "Craftables", "Key Manifest Feather Overflow Amount",
@@ -213,12 +219,12 @@ internal sealed class AutoProgressionConfig(string configName) : BaseConfig(conf
         ArmoryBoxOpenKey = BindMoved(
             "Manual Armory Boxes", "Open Boxes Key",
             "Armory Boxes", "Open Boxes Key", "Armory Boxes - Open Boxes Key", "N",
-            "Open the selected Armory box or egg in the background. This manual feature is available regardless of the T automation toggle.", migrateLegacyValues);
+            "Open the selected Armory box or egg in the background. This manual feature is available regardless of the main automation toggle.", migrateLegacyValues);
 
         EnableCrawlerEyeBulkPurchase = BindMoved(
             "Manual Casino Crawler Eyes", "Enabled",
             "Casino Crawler Eyes", "Enabled", "Casino Crawler Eyes - Enabled", false,
-            "WARNING - SPENDS JEWELS OF SOUL: Enable the manual bulk-purchase key on the Village Casino Crawler Eye purchase screen. This manual feature is available regardless of the T automation toggle.", migrateLegacyValues);
+            "WARNING - SPENDS JEWELS OF SOUL: Enable the manual bulk-purchase key on the Village Casino Crawler Eye purchase screen. This manual feature is available regardless of the main automation toggle.", migrateLegacyValues);
         CrawlerEyePurchaseKey = BindMoved(
             "Manual Casino Crawler Eyes", "Purchase Key",
             "Casino Crawler Eyes", "Purchase Key", "Casino Crawler Eyes - Purchase Key", "M",
@@ -341,6 +347,7 @@ internal sealed class AutoProgressionConfig(string configName) : BaseConfig(conf
     private static readonly IReadOnlyList<string> LegacyKeys = new[]
     {
         "Ascension - Automatic Ascension Enabled",
+        "Toggle Key",
         "Ascension - Soul Bonus Threshold Percent",
         "Ascension - Check Interval Minutes",
         "Ascension - Buy Skills After Ascension",

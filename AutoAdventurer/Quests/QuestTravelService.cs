@@ -48,6 +48,8 @@ internal sealed class QuestTravelService
     private float characterSwitchStableAt;
     private float nextCharacterSwitchCheckAt;
     private string characterWaitLoggedForQuestKey = string.Empty;
+    private string proactiveCharacterId = string.Empty;
+    private string proactiveCharacterQuestId = string.Empty;
     private bool lastQuestSnapshotAvailable;
     private bool requestedForSoulFallback;
     private bool pendingTravelObservedRage;
@@ -79,6 +81,7 @@ internal sealed class QuestTravelService
         (Time.unscaledTime < postRagePortalBlockedUntil ||
          !string.IsNullOrEmpty(requestedMapId) || lockedQuestSuppressesRage ||
          lockedQuestNeedsCharacterSwitch ||
+         !string.IsNullOrEmpty(proactiveCharacterId) ||
          Time.unscaledTime < characterSwitchStableAt);
 
     internal void PrioritizePostRageScan() => nextScanTime = 0f;
@@ -118,6 +121,14 @@ internal sealed class QuestTravelService
             {
                 ObservePendingTravel(now);
                 return;
+            }
+
+            if (!string.IsNullOrEmpty(proactiveCharacterId) &&
+                now >= nextCharacterSwitchCheckAt)
+            {
+                nextCharacterSwitchCheckAt = now +
+                                             CharacterSwitchCheckIntervalSeconds;
+                TryCorrectProactiveCharacter(now);
             }
 
             // Character-selection windows can be much shorter than the main
@@ -315,6 +326,7 @@ internal sealed class QuestTravelService
         List<Quest> quests = discovery.SnapshotActiveIncomplete(lockedQuestKey);
         lastQuestSnapshotAvailable = discovery.LastSnapshotAvailable;
         if (!lastQuestSnapshotAvailable) return null;
+        MaintainProactiveCharacter(quests, Time.unscaledTime);
 
         // DailyQuest components are recycled when the active set rerolls.
         // Their IL2CPP instance IDs therefore identify a slot, not a unique
@@ -666,6 +678,76 @@ internal sealed class QuestTravelService
         characterWaitLoggedForQuestKey = string.Empty;
         characterSwitchStableAt = now + CharacterSwitchStabilitySeconds;
         return false;
+    }
+
+    private void MaintainProactiveCharacter(List<Quest> quests, float now)
+    {
+        // Once a character-specific task is formally locked, its own
+        // verification is authoritative. This prevents two character tasks
+        // from switching the player back and forth on every scan.
+        Quest locked = string.IsNullOrEmpty(lockedQuestKey)
+            ? null
+            : FindQuest(quests, lockedQuestKey);
+        if (locked?.characterRequired != null)
+        {
+            ClearProactiveCharacter();
+            return;
+        }
+
+        Quest first = null;
+        foreach (Quest quest in quests)
+        {
+            CharacterSkin required = quest?.characterRequired;
+            if (required == null || !required.unlocked) continue;
+            first = quest;
+            break;
+        }
+
+        if (first == null || !characters.RequiresSwitch(first))
+        {
+            ClearProactiveCharacter();
+            return;
+        }
+
+        proactiveCharacterId = first.characterRequired.name ?? string.Empty;
+        proactiveCharacterQuestId = first.name ?? "UnknownQuest";
+
+        if (GameState.current != GameStates.RunnerMode || !IsMapStable())
+            return;
+
+        if (!characters.TryApply(new QuestTargetSelection { Quest = first }))
+            return;
+
+        AdventurerLog.QuestDebug(
+            $"Character pre-alignment completed: quest=" +
+            $"{(string.IsNullOrWhiteSpace(first.localizedName) ? proactiveCharacterQuestId : LogText.Normalize(first.localizedName))} " +
+            $"[{proactiveCharacterQuestId}]; " +
+            "reason=first active character-specific task in the quest scan.");
+        ClearProactiveCharacter();
+        characterSwitchStableAt = now + CharacterSwitchStabilitySeconds;
+    }
+
+    private void TryCorrectProactiveCharacter(float now)
+    {
+        if (GameState.current != GameStates.RunnerMode || !IsMapStable())
+            return;
+
+        string characterId = proactiveCharacterId;
+        string questId = proactiveCharacterQuestId;
+        if (!characters.TryApply(characterId, questId)) return;
+
+        AdventurerLog.QuestDebug(
+            $"Character pre-alignment completed: quest={questId}; " +
+            "reason=first active character-specific task in the quest scan.");
+        ClearProactiveCharacter();
+        characterSwitchStableAt = now + CharacterSwitchStabilitySeconds;
+        nextScanTime = 0f;
+    }
+
+    private void ClearProactiveCharacter()
+    {
+        proactiveCharacterId = string.Empty;
+        proactiveCharacterQuestId = string.Empty;
     }
 
     private void TryCorrectLockedCharacter(float now)
@@ -1057,6 +1139,7 @@ internal sealed class QuestTravelService
         characterSwitchStableAt = 0f;
         nextCharacterSwitchCheckAt = 0f;
         characterWaitLoggedForQuestKey = string.Empty;
+        ClearProactiveCharacter();
         lastSelection = string.Empty;
         pendingQuestStatusReason = string.Empty;
         nextQuestStatusLogTime = 0f;

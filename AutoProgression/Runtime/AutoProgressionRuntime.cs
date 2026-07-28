@@ -50,21 +50,27 @@ public sealed class AutoProgressionRuntime : MonoBehaviour
     private float itemActionsReadyAt;
     private float nextItemActionTime;
     private bool questAutomationWasEnabled;
+    private string configuredToggleKey;
+    private string toggleKeyLabel = "T";
+    private KeyCode toggleKey = KeyCode.T;
+    private bool invalidToggleKeyLogged;
 
     public void Update()
     {
-        // Manual Armory-box controls are intentionally independent from T.
+        // Manual Armory-box controls are intentionally independent from the
+        // main runtime toggle.
         armoryBoxes.Tick();
         crawlerEyes.Tick(Time.unscaledTime);
         silverBoxes.Tick(Time.unscaledTime);
 
-        if (Input.GetKeyDown(KeyCode.T))
+        RefreshToggleKey();
+        if (Input.GetKeyDown(toggleKey))
         {
             ToggleAutoProgression();
         }
 
         // This configured safety rule must also block manual purchases while
-        // periodic automation is paused with T.
+        // periodic automation is paused with the main runtime toggle.
         blockedSkills.Tick();
 
         if (!autoProgressionEnabled)
@@ -261,8 +267,35 @@ public sealed class AutoProgressionRuntime : MonoBehaviour
         string message = $"AutoProgression {state}.";
 
         ProgressionLog.User(
-            $"AutoProgression {state}: hotkey=T; gameState={Il2Cpp.GameState.current}.");
+            $"AutoProgression {state}: hotkey={toggleKeyLabel}; gameState={Il2Cpp.GameState.current}.");
         Plugin.ModHelperInstance?.ShowNotification(message, autoProgressionEnabled);
+    }
+
+    private void RefreshToggleKey()
+    {
+        string configured = Plugin.Config.ToggleKey.Value?.Trim();
+        if (string.Equals(configured, configuredToggleKey,
+                System.StringComparison.Ordinal))
+            return;
+
+        configuredToggleKey = configured;
+        if (ConfiguredKey.TryResolve(configured, out KeyCode parsed))
+        {
+            toggleKey = parsed;
+            toggleKeyLabel = configured;
+            invalidToggleKeyLogged = false;
+            return;
+        }
+
+        toggleKey = KeyCode.T;
+        toggleKeyLabel = "T";
+        if (!invalidToggleKeyLogged)
+        {
+            ProgressionLog.Warning(
+                $"Invalid General > Toggle Key value '{configured ?? string.Empty}'. " +
+                "Falling back to T.");
+            invalidToggleKeyLogged = true;
+        }
     }
 
     private void ResetRuntimeState()
@@ -276,6 +309,7 @@ public sealed class AutoProgressionRuntime : MonoBehaviour
         pendingAscensionReset = false;
         ascensionLockUntil = 0f;
         questAutomationWasEnabled = false;
+        configuredToggleKey = null;
     }
 
     public void OnDisable()
