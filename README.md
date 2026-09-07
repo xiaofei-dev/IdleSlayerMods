@@ -11,6 +11,15 @@ single monolithic automation loop.
 
 ## Full Automation Suite
 
+| Mod | Current version | Responsibility |
+|---|---:|---|
+| AutoAdventurer | `2.0.0` | Active gameplay, combat, quests, travel, events, and bosses |
+| AutoProgression | `2.0.0` | Ascension, purchases, Minions, crafting, resources, and account maintenance |
+| AutoBonusRunner | `1.0.1` | Bonus Stage routing, jumping, recovery, rewards, and quick completion |
+| AutoClimber | `1.2.1` | Ascending Heights routing, recovery, rewards, and quest enemies |
+
+Each mod can be installed independently or combined with the others.
+
 ### AutoAdventurer
 
 Automates active gameplay and quest objectives:
@@ -32,6 +41,16 @@ Automates long-term account progression and repeatable maintenance:
 - Opens eggs, purchases configured bonuses, and manages quest maintenance.
 - Keeps risky currency-spending features independently configurable.
 
+### AutoBonusRunner
+
+Automates supported Bonus Stages:
+
+- Plans routes from live terrain and adjusts jump timing to current speed.
+- Handles Spirit Boost, wall climbs, recovery, start confirmation, and retry.
+- Supports full native sphere requirements or fast completion through its
+  configurable modes.
+- Continues into the reward phase and can operate while the game is unfocused.
+
 ### AutoClimber
 
 Fully automates Ascending Heights:
@@ -47,6 +66,7 @@ Fully automates Ascending Heights:
 - AutoAdventurer decides what active quest objective to pursue and where to
   travel.
 - AutoProgression maintains the account systems that support continued growth.
+- AutoBonusRunner takes control only inside supported Bonus Stages.
 - AutoClimber takes control only inside Ascending Heights and returns control
   when the minigame ends.
 

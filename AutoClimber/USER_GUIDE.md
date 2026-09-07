@@ -167,6 +167,8 @@ For more help, see [Troubleshooting](docs/08-troubleshooting.md) and
 - **AutoProgression** handles purchases, Ascension, craftables, materials,
   eggs, and quest claiming.
 - **AutoClimber** handles Ascending Heights routes, enemies, and rewards.
+- **AutoBonusRunner** handles supported Bonus Stage routes, recovery, sphere
+  requirements, rewards, and retry.
 
 Each mod works independently. Together, they automate complementary parts of
 Idle Slayer.

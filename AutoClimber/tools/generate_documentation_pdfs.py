@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import html
 import re
+import zipfile
 from pathlib import Path
 
 from reportlab.lib import colors
@@ -419,7 +420,16 @@ def build_complete_manual():
 def main():
     OUTPUT.mkdir(parents=True, exist_ok=True)
     outputs = [build_user_guide(), build_complete_manual()]
-    for output in outputs:
+    package = OUTPUT / f"AutoClimber-Documentation-{VERSION}.zip"
+    with zipfile.ZipFile(
+        package,
+        mode="w",
+        compression=zipfile.ZIP_DEFLATED,
+        compresslevel=9,
+    ) as archive:
+        for output in outputs:
+            archive.write(output, arcname=output.name)
+    for output in [*outputs, package]:
         print(output)
 
 

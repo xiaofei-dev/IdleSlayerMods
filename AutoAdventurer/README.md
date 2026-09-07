@@ -7,7 +7,8 @@ automatic boss fights.
 
 AutoAdventurer is part of **Tashi's Full Automation Suite**. It focuses on
 character control and quest objectives; AutoProgression handles long-term
-account growth, while AutoClimber handles Ascending Heights.
+account growth, AutoBonusRunner handles Bonus Stages, and AutoClimber handles
+Ascending Heights.
 
 ## Documentation
 
@@ -288,6 +289,8 @@ deployment is opt-in with `/p:EnableLocalDeploy=true`.
   materials, quests, eggs, and repeatable account maintenance.
 - **AutoClimber** automates Ascending Heights route planning, recovery,
   rewards, and compatible quest enemies.
+- **AutoBonusRunner** automates supported Bonus Stage routes, jumping,
+  recovery, sphere requirements, rewards, and retry.
 
 Each mod can be used independently. Together, they cover complementary parts
 of a fully automated Idle Slayer setup.

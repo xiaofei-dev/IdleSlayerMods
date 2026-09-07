@@ -7,7 +7,8 @@ enemies without sacrificing run safety.
 
 AutoClimber is part of **Tashi's Full Automation Suite**. It focuses on
 Ascending Heights; AutoAdventurer handles active gameplay and quest travel,
-while AutoProgression handles long-term account growth.
+AutoProgression handles long-term account growth, and AutoBonusRunner handles
+Bonus Stages.
 
 ## Documentation
 
@@ -81,6 +82,8 @@ The build creates the DLL and packaged ZIP without deploying by default.
   materials, quests, eggs, and repeatable account maintenance.
 - **AutoClimber** automates Ascending Heights route planning, recovery,
   rewards, and compatible quest enemies.
+- **AutoBonusRunner** automates supported Bonus Stage routes, jumping,
+  recovery, sphere requirements, rewards, and retry.
 
 Each mod can be used independently. Together, they cover complementary parts
 of a fully automated Idle Slayer setup.

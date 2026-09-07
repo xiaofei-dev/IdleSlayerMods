@@ -41,9 +41,15 @@ Place `AutoBonusRunner.dll` in:
 
 Do not place the DLL directly in the Idle Slayer game directory.
 
-Avoid running another mod that controls jump press and release at the same
-time. Disable AutoJumpMod or similar automatic-jump mods while using
-AutoBonusRunner.
+## Compatibility
+
+Do not run AutoBonusRunner together with Auto Jump or Bonus Stage Completer.
+Both can compete for Bonus Stage input, jump timing, start confirmation, and
+completion state. Disable or remove them before using AutoBonusRunner.
+
+AutoAdventurer 2.0 includes automatic attacking. AutoBonusRunner's `Skip` mode
+provides the same quick-completion behavior as Bonus Stage Completer, while its
+other modes can preserve the native sphere requirement.
 
 ## Default Control
 

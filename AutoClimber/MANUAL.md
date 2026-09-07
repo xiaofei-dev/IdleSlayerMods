@@ -26,6 +26,8 @@ should begin with the [User Guide](USER_GUIDE.md).
   travel, Rage, movement abilities, Bonus assistance, and boss fights.
 - **AutoProgression** handles purchases, Ascension, craftables, materials,
   eggs, and completed-quest claiming.
+- **AutoBonusRunner** handles supported Bonus Stage routes, recovery, sphere
+  requirements, rewards, and retry.
 
 The mods can be used independently or together.
 

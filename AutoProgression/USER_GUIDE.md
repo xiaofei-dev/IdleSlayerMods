@@ -413,13 +413,13 @@ The current first-party suite is:
 |---|---:|---|
 | AutoProgression | `2.0.0` | Account progression, Ascension, purchases, quests, Minions, craftables, materials, eggs, and menu maintenance |
 | AutoAdventurer | `2.0.0` | Normal running, automatic jumping, combat abilities, Rage, quest selection, dimension travel, event safety, and bosses |
-| AutoClimber | `1.2.0` | Ascending Heights route planning, recovery, quest enemies, rewards, retry, and background play |
-| AutoBonusRunner | `1.0.0` | Bonus Stage route execution, jumping, sphere requirements, Spirit Boost support, start-slider handling, and optional native retry |
+| AutoClimber | `1.2.1` | Ascending Heights route planning, recovery, quest enemies, rewards, retry, and background play |
+| AutoBonusRunner | `1.0.1` | Bonus Stage route execution, jumping, sphere requirements, Spirit Boost support, start-slider handling, and optional native retry |
 
-AutoAdventurer 2.0 replaces the old Auto Jump component for normal gameplay.
-AutoBonusRunner replaces Bonus Stage Completer. Do not run the replaced mods
-alongside their new replacements unless you are deliberately testing
-conflicting input automation.
+AutoAdventurer 2.0 includes automatic attacking. Do not run AutoBonusRunner
+alongside Auto Jump or Bonus Stage Completer because they can compete for Bonus
+Stage input. AutoBonusRunner's `Skip` mode provides the same fast-completion
+behavior as Bonus Stage Completer.
 
 Each first-party module can be used independently. Together, they divide
 account maintenance, normal gameplay, Ascending Heights, and Bonus Stages into

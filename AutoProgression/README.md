@@ -113,8 +113,10 @@ The build creates the DLL and `Publish/Debug/AutoProgression.zip`. It does not d
 - **AutoBonusRunner** automates Bonus Stage routes, jumping, sphere
   requirements, Spirit Boost sections, slider confirmation, and retry.
 
-AutoAdventurer 2.0 replaces Auto Jump for normal gameplay. AutoBonusRunner
-replaces Bonus Stage Completer. Each mod can be used independently; together,
+AutoAdventurer 2.0 includes automatic attacking. AutoBonusRunner should not run
+alongside Auto Jump or Bonus Stage Completer because they can compete for Bonus
+Stage input; its `Skip` mode provides the same fast-completion behavior as Bonus
+Stage Completer. Each mod can be used independently; together,
 the four modules cover complementary parts of a fully automated setup.
 
 ## Acknowledgements

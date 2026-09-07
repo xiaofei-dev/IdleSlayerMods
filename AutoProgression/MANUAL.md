@@ -4,7 +4,7 @@ AutoProgression is the account-progression and maintenance module in Tashi's
 Full Automation Suite. It coordinates normal Ascension, purchases,
 craftables, materials, eggs, paid bonuses, and quest maintenance.
 
-This manual covers configuration version 31. New users should begin with the
+This manual covers configuration version 32. New users should begin with the
 [User Guide](USER_GUIDE.md).
 
 ## Reference Chapters
@@ -32,8 +32,10 @@ This manual covers configuration version 31. New users should begin with the
 
 The mods can be used independently or together.
 
-AutoAdventurer 2.0 replaces Auto Jump for normal gameplay. AutoBonusRunner
-replaces Bonus Stage Completer.
+AutoAdventurer 2.0 includes automatic attacking. AutoBonusRunner should not run
+alongside Auto Jump or Bonus Stage Completer because they can compete for Bonus
+Stage input. Its `Skip` mode provides the same fast-completion behavior as Bonus
+Stage Completer.
 
 ## Default Control
 

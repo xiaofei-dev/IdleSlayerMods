@@ -178,6 +178,8 @@ For detailed diagnosis, see [Troubleshooting](docs/10-troubleshooting.md) and
   eggs, and quest claiming.
 - **AutoClimber** handles Ascending Heights routes, rewards, and compatible
   quest enemies.
+- **AutoBonusRunner** handles supported Bonus Stage routes, recovery, sphere
+  requirements, rewards, and retry.
 
 Each mod works independently. Together, they cover complementary parts of a
 fully automated Idle Slayer setup.

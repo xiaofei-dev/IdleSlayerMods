@@ -27,6 +27,8 @@ This manual covers configuration version 35. New users should begin with the
 - **AutoProgression** handles purchases, normal Ascension, craftables,
   materials, eggs, and completed-quest claiming.
 - **AutoClimber** controls Ascending Heights routes, enemies, and rewards.
+- **AutoBonusRunner** controls supported Bonus Stage routes, jumping, recovery,
+  sphere requirements, rewards, and retry.
 
 The mods can be used independently or together.
 
