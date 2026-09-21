@@ -136,7 +136,7 @@ internal sealed class MainScreenGuard
     internal static bool IsMainAbilityIconVisible()
     {
         MainAbilityButton button =
-            UnityEngine.Object.FindObjectOfType<MainAbilityButton>();
+            UnityEngine.Object.FindAnyObjectByType<MainAbilityButton>();
         return button != null && button.isActiveAndEnabled &&
                button.gameObject != null &&
                button.gameObject.activeInHierarchy;

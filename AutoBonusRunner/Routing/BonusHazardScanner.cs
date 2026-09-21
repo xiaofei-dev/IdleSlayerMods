@@ -48,7 +48,7 @@ internal sealed class BonusHazardScanner
         if (!cacheReady || cachedSection != section)
         {
             BonusStageSpike[] spikes =
-                UnityEngine.Object.FindObjectsOfType<BonusStageSpike>() ??
+                UnityEngine.Object.FindObjectsByType<BonusStageSpike>(FindObjectsSortMode.None) ??
                 Array.Empty<BonusStageSpike>();
             List<HazardColliderBinding> bindings = new();
             HashSet<int> seenColliders = new();

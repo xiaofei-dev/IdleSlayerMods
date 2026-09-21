@@ -112,7 +112,7 @@ internal sealed class CompletionRewardController
         try
         {
             MainAbilityButton button =
-                UnityEngine.Object.FindObjectOfType<MainAbilityButton>();
+                UnityEngine.Object.FindAnyObjectByType<MainAbilityButton>();
             bool abilityIconVisible =
                 button != null &&
                 button.isActiveAndEnabled &&

@@ -37,13 +37,13 @@ internal sealed class PaidBonusService
         soulsController ??= new PaidBonusController(
             "Souls 500x",
             RefreshThresholdSeconds,
-            () => soulsPurchase._PurchaseHandler_b__10_0(),
+            () => soulsPurchase._PurchaseHandler_b__2_0(),
             GetSoulsTimeLeft);
 
         cpsController ??= new PaidBonusController(
             "CPS 500x",
             RefreshThresholdSeconds,
-            () => cpsPurchase._PurchaseHandler_b__10_0(),
+            () => cpsPurchase._PurchaseHandler_b__2_0(),
             GetCpsTimeLeft);
 
         soulsController.Tick(now, RetrySeconds, PurchaseConfirmationSeconds);
@@ -57,8 +57,8 @@ internal sealed class PaidBonusService
         // belonging to the currently loaded scene (never prefab/resource assets).
         soulsPurchase ??= FindLoadedSceneComponent<JewelsOfSoulSoulsBonus>();
         cpsPurchase ??= FindLoadedSceneComponent<JewelsOfSoulCPSBonus>();
-        soulsEffect ??= UnityEngine.Object.FindObjectOfType<PaidSoulsBonus>();
-        cpsEffect ??= UnityEngine.Object.FindObjectOfType<PaidCpSBonus>();
+        soulsEffect ??= UnityEngine.Object.FindAnyObjectByType<PaidSoulsBonus>();
+        cpsEffect ??= UnityEngine.Object.FindAnyObjectByType<PaidCpSBonus>();
 
         bool ready = soulsPurchase != null && cpsPurchase != null;
         if (!ready && !missingObjectsLogged)
@@ -92,13 +92,13 @@ internal sealed class PaidBonusService
 
     private float GetSoulsTimeLeft()
     {
-        soulsEffect ??= UnityEngine.Object.FindObjectOfType<PaidSoulsBonus>();
+        soulsEffect ??= UnityEngine.Object.FindAnyObjectByType<PaidSoulsBonus>();
         return soulsEffect != null && soulsEffect.IsActive() ? (float)soulsEffect.timeLeft : 0f;
     }
 
     private float GetCpsTimeLeft()
     {
-        cpsEffect ??= UnityEngine.Object.FindObjectOfType<PaidCpSBonus>();
+        cpsEffect ??= UnityEngine.Object.FindAnyObjectByType<PaidCpSBonus>();
         return cpsEffect != null && cpsEffect.IsActive() ? (float)cpsEffect.timeLeft : 0f;
     }
 
