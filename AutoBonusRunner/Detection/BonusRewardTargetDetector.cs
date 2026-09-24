@@ -474,7 +474,7 @@ internal sealed class BonusRewardTargetDetector
         ref int skippedWrappers)
     {
         RandomBox[] boxes =
-            UnityEngine.Object.FindObjectsOfType<RandomBox>();
+            UnityEngine.Object.FindObjectsByType<RandomBox>(FindObjectsSortMode.None);
         foreach (RandomBox box in boxes)
         {
             try
@@ -515,7 +515,7 @@ internal sealed class BonusRewardTargetDetector
         ref int skippedWrappers)
     {
         CollectableGameObject[] collectables =
-            UnityEngine.Object.FindObjectsOfType<CollectableGameObject>();
+            UnityEngine.Object.FindObjectsByType<CollectableGameObject>(FindObjectsSortMode.None);
         foreach (CollectableGameObject collectableObject in collectables)
         {
             try

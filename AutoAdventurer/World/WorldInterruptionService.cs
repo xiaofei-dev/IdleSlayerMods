@@ -54,7 +54,7 @@ internal sealed class WorldInterruptionService
         // active chest object itself is the authoritative indication that its
         // map interaction has not completely cleared yet.
         foreach (ArmoryItemChest chest in
-                 UnityEngine.Object.FindObjectsOfType<ArmoryItemChest>())
+                 UnityEngine.Object.FindObjectsByType<ArmoryItemChest>(FindObjectsSortMode.None))
         {
             if (chest == null || chest.gameObject == null ||
                 !chest.gameObject.activeInHierarchy)
@@ -77,7 +77,7 @@ internal sealed class WorldInterruptionService
         // Equipment and Coin Value) remain useful after changing dimensions
         // and must not hold Quest Automation indefinitely.
         foreach (RandomEvent randomEvent in
-                 UnityEngine.Object.FindObjectsOfType<RandomEvent>())
+                 UnityEngine.Object.FindObjectsByType<RandomEvent>(FindObjectsSortMode.None))
         {
             if (randomEvent == null ||
                 randomEvent.gameObject == null ||
@@ -130,7 +130,7 @@ internal sealed class WorldInterruptionService
         // soon as the pooled object becomes active, including the short
         // interval between impact and RandomEvent activation.
         foreach (RandomBox randomBox in
-                 UnityEngine.Object.FindObjectsOfType<RandomBox>())
+                 UnityEngine.Object.FindObjectsByType<RandomBox>(FindObjectsSortMode.None))
         {
             if (randomBox == null || randomBox.gameObject == null ||
                 !randomBox.gameObject.activeInHierarchy)
@@ -144,7 +144,7 @@ internal sealed class WorldInterruptionService
         // SpecialRandomBox is the separate activity/minigame box component.
         // Treat it identically so every on-screen box freezes quest travel.
         foreach (SpecialRandomBox specialBox in
-                 UnityEngine.Object.FindObjectsOfType<SpecialRandomBox>())
+                 UnityEngine.Object.FindObjectsByType<SpecialRandomBox>(FindObjectsSortMode.None))
         {
             if (specialBox == null || specialBox.gameObject == null ||
                 !specialBox.gameObject.activeInHierarchy)
@@ -183,7 +183,7 @@ internal sealed class WorldInterruptionService
         // Resources.FindObjectsOfTypeAll this does not traverse inactive pool
         // contents or every GameObject in the game.
         foreach (Il2Cpp.Portal portal in
-                 UnityEngine.Object.FindObjectsOfType<Il2Cpp.Portal>())
+                 UnityEngine.Object.FindObjectsByType<Il2Cpp.Portal>(FindObjectsSortMode.None))
         {
             if (portal == null || portal.gameObject == null ||
                 !portal.gameObject.activeInHierarchy)
@@ -201,7 +201,7 @@ internal sealed class WorldInterruptionService
     private static bool TryFindActiveInteractivePortal(out string description)
     {
         foreach (PortalInteractive portal in
-                 UnityEngine.Object.FindObjectsOfType<PortalInteractive>())
+                 UnityEngine.Object.FindObjectsByType<PortalInteractive>(FindObjectsSortMode.None))
         {
             if (portal == null || portal.gameObject == null ||
                 !portal.gameObject.activeInHierarchy)

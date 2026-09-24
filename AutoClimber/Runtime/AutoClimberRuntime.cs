@@ -1270,7 +1270,7 @@ public sealed partial class AutoClimberRuntime : MonoBehaviour
     {
         foreach (EnemyGameObject enemy
                  in UnityEngine.Object
-                     .FindObjectsOfType<EnemyGameObject>())
+                     .FindObjectsByType<EnemyGameObject>(FindObjectsSortMode.None))
         {
             if (enemy == null ||
                 enemy.gameObject == null ||

@@ -557,7 +557,7 @@ internal static class BonusStageInspector
         try
         {
             GameObject[] matches = UnityEngine.Object
-                .FindObjectsOfType<GameObject>()
+                .FindObjectsByType<GameObject>(FindObjectsSortMode.None)
                 .Where(gameObject =>
                     gameObject != null &&
                     gameObject.activeInHierarchy &&
@@ -843,14 +843,14 @@ internal static class BonusStageInspector
             // temporarily unavailable during scene or section activation.
             // The next forward refresh retries root resolution.
             cachedBonusSpheres =
-                (UnityEngine.Object.FindObjectsOfType<BonusSphere>() ??
+                (UnityEngine.Object.FindObjectsByType<BonusSphere>(FindObjectsSortMode.None) ??
                  Array.Empty<BonusSphere>())
                 .Where(sphere =>
                     sphere != null &&
                     IsUnderCurrentSectionRoot(sphere.transform))
                 .ToArray();
             cachedSpiritBoosts =
-                (UnityEngine.Object.FindObjectsOfType<SpiritBoost>() ??
+                (UnityEngine.Object.FindObjectsByType<SpiritBoost>(FindObjectsSortMode.None) ??
                  Array.Empty<SpiritBoost>())
                 .Where(boost =>
                     boost != null &&
@@ -1142,7 +1142,7 @@ internal static class BonusStageInspector
     {
         try
         {
-            GameObject[] objects = UnityEngine.Object.FindObjectsOfType<GameObject>();
+            GameObject[] objects = UnityEngine.Object.FindObjectsByType<GameObject>(FindObjectsSortMode.None);
             string[] matches = objects
                 .Where(gameObject => gameObject != null && IsRelevantObject(gameObject.name))
                 .OrderBy(gameObject => gameObject.name)

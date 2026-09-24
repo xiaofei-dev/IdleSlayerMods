@@ -82,7 +82,7 @@ internal sealed class AutoBossService
         if (now < nextResultCloseTime) return false;
 
         BossResultScreen result =
-            UnityEngine.Object.FindObjectOfType<BossResultScreen>();
+            UnityEngine.Object.FindAnyObjectByType<BossResultScreen>();
         if (result == null || result.gameObject == null ||
             !result.gameObject.activeInHierarchy || result.close ||
             result.goingToDestroy || result.closeButton == null ||

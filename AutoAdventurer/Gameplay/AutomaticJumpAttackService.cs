@@ -367,7 +367,7 @@ internal sealed class AutomaticJumpAttackService
         if (!normalBoxTracked)
         {
             foreach (RandomBox box in
-                     UnityEngine.Object.FindObjectsOfType<RandomBox>())
+                     UnityEngine.Object.FindObjectsByType<RandomBox>(FindObjectsSortMode.None))
             {
                 if (box == null || box.isHitted || box.gameObject == null ||
                     !box.gameObject.activeInHierarchy)
@@ -381,7 +381,7 @@ internal sealed class AutomaticJumpAttackService
         if (!specialBoxTracked)
         {
             foreach (SpecialRandomBox box in
-                     UnityEngine.Object.FindObjectsOfType<SpecialRandomBox>())
+                     UnityEngine.Object.FindObjectsByType<SpecialRandomBox>(FindObjectsSortMode.None))
             {
                 if (box == null || box.isHitted || box.gameObject == null ||
                     !box.gameObject.activeInHierarchy)
