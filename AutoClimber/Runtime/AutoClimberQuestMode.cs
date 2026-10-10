@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using AutoClimber.Diagnostics;
+using IdleSlayerMods.Compatibility;
 using Il2Cpp;
 using UnityEngine;
 
@@ -113,9 +114,8 @@ internal static class AutoClimberQuestMode
 
         HashSet<int> inspected = new HashSet<int>();
         QuestsList list = QuestsList.instance;
-        var quests = list?.lastScrollListData;
 
-        if (quests != null)
+        if (QuestListSnapshot.TryCapture(list, out List<Quest> quests))
         {
             questDataAvailable = true;
 

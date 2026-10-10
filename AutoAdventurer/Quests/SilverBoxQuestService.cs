@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using AutoAdventurer.Diagnostics;
+using IdleSlayerMods.Compatibility;
 using Il2Cpp;
 using UnityEngine;
 
@@ -140,8 +141,9 @@ internal sealed class SilverBoxQuestService
         // allQuests is the game's full definition catalogue and contains
         // future locked quests. Only the live UI/runtime cache identifies
         // quests that have actually been added to the current save.
-        var cached = list?.lastScrollListData;
-        if (!needsSilverBoxes && cached != null)
+        bool cacheAvailable = QuestListSnapshot.TryCapture(
+            list, out List<Quest> cached);
+        if (!needsSilverBoxes && cacheAvailable)
         {
             for (int index = 0; index < cached.Count; index++)
             {

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using AutoProgression.Diagnostics;
+using IdleSlayerMods.Compatibility;
 using Il2Cpp;
 using UnityEngine;
 
@@ -100,20 +101,14 @@ internal sealed class QuestAutomationService
             }
         }
 
-        var quests = questsList.lastScrollListData;
-        if (quests == null)
+        if (!QuestListSnapshot.TryCapture(
+                questsList, out List<Quest> snapshot))
         {
             LogMissing();
             return;
         }
 
         missingLogged = false;
-        List<Quest> snapshot = new(quests.Count);
-        for (int index = 0; index < quests.Count; index++)
-        {
-            Quest quest = quests[index];
-            if (quest != null) snapshot.Add(quest);
-        }
 
         if (Plugin.Config.AutoClaimCompletedQuests.Value)
         {
@@ -159,7 +154,7 @@ internal sealed class QuestAutomationService
         }
 
         // Daily and Weekly candidates come from their authoritative live
-        // ScriptableObjects instead of QuestsList.lastScrollListData.
+        // ScriptableObjects instead of the categorized UI snapshot.
         foreach (DailyQuest daily in Resources.FindObjectsOfTypeAll<DailyQuest>())
         {
             if (daily == null || !daily.active || daily.isClaimed)

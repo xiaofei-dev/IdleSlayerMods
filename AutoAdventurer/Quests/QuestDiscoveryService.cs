@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using AutoAdventurer.Diagnostics;
+using IdleSlayerMods.Compatibility;
 using Il2Cpp;
 using UnityEngine;
 
@@ -40,15 +41,17 @@ internal sealed class QuestDiscoveryService
             }
         }
 
-        var source = questsList?.lastScrollListData;
-        if (source == null && Time.unscaledTime >= nextSafeRefreshTime)
+        bool sourceAvailable = QuestListSnapshot.TryCapture(
+            questsList, out List<Quest> source);
+        if (!sourceAvailable && Time.unscaledTime >= nextSafeRefreshTime)
         {
             nextSafeRefreshTime = Time.unscaledTime + 30f;
             if (TryRefreshInactiveList(questsList,
                     "Quest list: initialized while the quest panel was closed."))
-                source = questsList.lastScrollListData;
+                sourceAvailable = QuestListSnapshot.TryCapture(
+                    questsList, out source);
         }
-        else if (source != null)
+        else if (sourceAvailable)
         {
             ObserveWatchedCompletion(source, watchedQuestKey);
             // The global Silver Box automation owns the safe five-second
@@ -56,7 +59,7 @@ internal sealed class QuestDiscoveryService
             // cache here instead of invoking RefreshList twice in one frame.
         }
 
-        if (source == null)
+        if (!sourceAvailable)
         {
             LastSnapshotAvailable = false;
             if (!unavailableLogged)
@@ -207,7 +210,7 @@ internal sealed class QuestDiscoveryService
     }
 
     private void ObserveWatchedCompletion(
-        Il2CppSystem.Collections.Generic.List<Quest> quests,
+        IReadOnlyList<Quest> quests,
         string watchedQuestKey)
     {
         if (WatchedQuestCompleted || quests == null ||
@@ -233,7 +236,7 @@ internal sealed class QuestDiscoveryService
     }
 
     private static bool ContainsSettledQuest(
-        Il2CppSystem.Collections.Generic.List<Quest> quests)
+        IReadOnlyList<Quest> quests)
     {
         for (int index = 0; index < quests.Count; index++)
         {
@@ -280,7 +283,7 @@ internal sealed class QuestDiscoveryService
                 lastRefreshLog = successMessage;
                 AdventurerLog.QuestDebug(successMessage);
             }
-            return questsList.lastScrollListData != null;
+            return QuestListSnapshot.TryCapture(questsList, out _);
         }
         catch (Exception exception)
         {
