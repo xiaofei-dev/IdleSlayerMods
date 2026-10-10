@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using AutoAdventurer.Diagnostics;
+using IdleSlayerMods.Compatibility;
 using Il2Cpp;
 using UnityEngine;
 
@@ -54,8 +55,8 @@ internal sealed class QuestElementService
                 : FindLoadedQuestList();
         resolvedQuestList = list;
 
-        var cached = list?.lastScrollListData;
-        if (cached == null) return false;
+        if (!QuestListSnapshot.TryCapture(list, out List<Quest> cached))
+            return false;
         for (int index = 0; index < cached.Count; index++)
             AddActiveElementQuest(cached[index], quests, seen);
 

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using AutoProgression.Diagnostics;
 using AutoProgression.Materials;
+using IdleSlayerMods.Compatibility;
 using Il2Cpp;
 using UnityEngine;
 
@@ -261,9 +262,9 @@ internal sealed class QuestAssistCraftableService
     private List<Quest> SnapshotNormalQuests()
     {
         questsList ??= QuestsList.instance ?? FindLoadedQuestList();
-        var source = questsList?.lastScrollListData;
         List<Quest> result = new();
-        if (source == null) return result;
+        if (!QuestListSnapshot.TryCapture(questsList, out List<Quest> source))
+            return result;
 
         for (int index = 0; index < source.Count; index++)
         {
@@ -309,8 +310,7 @@ internal sealed class QuestAssistCraftableService
         HashSet<int> seen = new();
 
         QuestsList list = QuestsList.instance ?? FindLoadedQuestList();
-        var visible = list?.lastScrollListData;
-        if (visible == null)
+        if (!QuestListSnapshot.TryCapture(list, out List<Quest> visible))
             return "current quest data is not available yet";
 
         for (int index = 0; index < visible.Count; index++)
